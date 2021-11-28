@@ -2059,3 +2059,28 @@ func (h *Map) Delete(key interface{}) {
 	}
 	item.Delete()
 }
+
+// RangeItem ... calls f sequentially for each key and value present in the map.
+// called ordre is reverse key order
+func (h *Map) RangeItem(f func(MapItem) bool) {
+
+	for cur := h.start.Prev(list_head.WaitNoM()).Next(list_head.WaitNoM()); !cur.Empty(); cur = cur.Next(list_head.WaitNoM()) {
+		mhead := EmptyMapHead.FromListHead(cur).(*MapHead)
+		if mhead.isDummy {
+			continue
+		}
+		e := h.ItemFn().HmapEntryFromListHead(mhead.PtrListHead()).(MapItem)
+		if !f(e) {
+			break
+		}
+	}
+}
+
+// Range ... calls f sequentially for each key and value present in the map.
+// order is reverse key order
+func (h *Map) Range(f func(key, value interface{}) bool) {
+
+	h.RangeItem(func(item MapItem) bool {
+		return f(item.Key(), item.Value())
+	})
+}

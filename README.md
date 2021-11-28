@@ -70,6 +70,15 @@ item, ok = sMap.LoadItem("test1")
 // get next key/value
 nItem := sMap.Next()
 
+// traverse all item or key/value 
+sMap.RangeItem(func(item MapItem) bool {
+  fmt.Printf("key=%+v\n", item.Key())  
+})
+sMap.Range(func(key, value interface{}) bool {
+  fmt.Printf("key=%+v\n", key)  
+})
+
+
 
 // delete marking. set nil as value.
 sMap.Delete("test2")

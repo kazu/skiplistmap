@@ -14,24 +14,6 @@ import (
 func runBnech(b *testing.B, m list_head.MapGetSet, concurretRoutine, operationCnt int, pctWrites uint64) {
 
 	b.ReportAllocs()
-	// var wg sync.WaitGroup
-	// for i := 0; i < concurretRoutine; i++ {
-	// 	wg.Add(1)
-	// 	go func(i int, wg *sync.WaitGroup) {
-
-	// 		for j := 0; j < operationCnt; j++ {
-	// 			m.Set(fmt.Sprintf("%d %d", i, j), &list_head.ListHead{})
-	// 		}
-
-	// 		for j := 0; j < operationCnt; j++ {
-	// 			m.Get(fmt.Sprintf("%d %d", i, j))
-	// 		}
-
-	// 		wg.Done()
-	// 	}(i, &wg)
-	// }
-
-	// wg.Wait()
 	size := operationCnt
 	mask := size - 1
 	rc := uint64(0)

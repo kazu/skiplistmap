@@ -1,3 +1,4 @@
+- [ ] support user defined key order.
 - [ ] refactoring
 - [ ] Implement Purge()
   - [ ] basic impleent

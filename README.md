@@ -4,7 +4,7 @@ Skip List Map is an ordered and concurrent map.  this Map is gourtine safety for
 
 ## features
 
-- buckets, elemenete(key/value item) structure is concurrent embeded-linked list.
+- buckets, elemenet(key/value item) structure is concurrent embeded-linked list. (using [list_encabezado])
 - keep key order by hash function.
 - ability to store value ( value of key/vale) and elemet of ket/value item(detail is later)
 - improve performance for sync.Map/ internal map in write heavy environment.
@@ -79,3 +79,5 @@ sMap.Purge("test2")
 
 
 ```
+
+[list_encabezado]: github.com/kazu/loncha/lista_encabezado

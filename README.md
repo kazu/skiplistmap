@@ -44,7 +44,7 @@ sMap.Set("test1", 1)
 sMap.Set("test2", 2)
 
 // get the value for a key, return nil if not found, the ok is found.
-inf, ok := sMap.Get("test1)
+inf, ok := sMap.Get("test1")
 var value1 int
 if ok {
     value1 = inf.(int)

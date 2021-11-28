@@ -1,6 +1,6 @@
 ## Skip List Map in Golang
 
-Skip List Map is an ordered and concurrent map.  this Map is gourtine safety for reading/updating/deleting, require locking and coordination. This
+Skip List Map is an ordered and concurrent map.  this Map is gourtine safety for reading/updating/deleting, no-require locking and coordination.
 
 ## features
 

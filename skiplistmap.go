@@ -188,7 +188,8 @@ type MapItem interface {
 type MapHead struct {
 	k        uint64
 	conflict uint64
-	isDummy  bool
+	//reverse  uint64
+	isDummy bool
 	list_head.ListHead
 }
 
@@ -216,6 +217,20 @@ func (mh *MapHead) fromListHead(l *list_head.ListHead) *MapHead {
 
 func (c *MapHead) FromListHead(l *list_head.ListHead) list_head.List {
 	return c.fromListHead(l)
+}
+
+func (c *MapHead) NextWithNil() *MapHead {
+	if c.Next() == &c.ListHead {
+		return nil
+	}
+	return c.fromListHead(c.Next())
+}
+
+func (c *MapHead) PrevtWithNil() *MapHead {
+	if c.Prev() == &c.ListHead {
+		return nil
+	}
+	return c.fromListHead(c.Prev())
 }
 
 type OptHMap func(*Map) OptHMap
@@ -276,9 +291,12 @@ func NewHMap(opts ...OptHMap) *Map {
 	hmap.ItemFn = func() MapItem { return emptyEntryHMap }
 
 	hmap.Options(opts...)
+
+	// other traverse option is not required if not marking delete.
+	list_head.DefaultModeTraverse.Option(list_head.Direct())
+
 	hmap.initLevelCache()
 
-	// hmap := newHMap(opts...)
 	return hmap
 }
 
@@ -308,16 +326,15 @@ func (h *Map) initBeforeSet() {
 	empty.PtrMapHead().isDummy = true
 
 	empty.Init()
-	h.add2(h.start.Prev(list_head.WaitNoM()).Next(list_head.WaitNoM()), empty)
+
+	h.add2(h.start.Prev().Next(), empty)
+
 	h.buckets.Prev().Next().InsertBefore(&btable.ListHead)
 	btable.start = &empty.ListHead
 
 	levelBucket := h.levelBucket(btable.level)
 	levelBucket.LevelHead.DirectPrev().DirectNext().InsertBefore(&btable.LevelHead)
 	h.setLevel(btable.level, levelBucket)
-
-	// er := h.checklevelAll()
-	// _ = er
 
 	btablefirst := btable
 
@@ -337,14 +354,10 @@ func (h *Map) initBeforeSet() {
 	empty.PtrMapHead().isDummy = true
 
 	empty.Init()
-	//h.add(h.start.Prev(list_head.WaitNoM()).Next(list_head.WaitNoM()), empty)
-	//h.add(btablefirst.start, empty)
 	btablefirst.start.InsertBefore(&empty.ListHead)
 
-	//h.buckets.Prev().Next().InsertBefore(&btable.ListHead)
 	btablefirst.Next().InsertBefore(&btable.ListHead)
 	btable.start = &empty.ListHead
-	//bucketFromListHead(btablefirst.Next()).LevelHead.InsertBefore(&btable.LevelHead)
 	levelBucket = h.levelBucket(btable.level)
 	levelBucket.LevelHead.DirectPrev().DirectNext().InsertBefore(&btable.LevelHead)
 	h.setLevel(btable.level, levelBucket)
@@ -357,8 +370,10 @@ func (h *Map) initBeforeSet() {
 
 //FIXME: renate _set
 func (h *Map) _set2(k, conflict uint64, item MapItem) bool {
+
 	item.PtrMapHead().k = k
 	item.PtrMapHead().conflict = conflict
+	//item.PtrMapHead().reverse = bits.Reverse64(k)
 
 	h.initBeforeSet()
 
@@ -372,7 +387,7 @@ func (h *Map) _set2(k, conflict uint64, item MapItem) bool {
 	}
 	if btable == nil || btable.start == nil {
 		btable = &bucket{}
-		btable.start = h.start.Prev(list_head.WaitNoM()).Next(list_head.WaitNoM())
+		btable.start = h.start.Prev().Next()
 	} else {
 		addOpt = WithBucket(btable)
 	}
@@ -434,7 +449,9 @@ func (h *Map) _set(k, conflict uint64, key, value interface{}) bool {
 	}
 	if btable == nil || btable.start == nil {
 		btable = &bucket{}
+		oldConfs := list_head.DefaultModeTraverse.Option(list_head.WaitNoM())
 		btable.start = h.start.Prev(list_head.WaitNoM()).Next(list_head.WaitNoM())
+		list_head.DefaultModeTraverse.Option(oldConfs...)
 	} else {
 		addOpt = WithBucket(btable)
 	}
@@ -656,7 +673,7 @@ func (h *Map) _get(k, conflict uint64) (MapItem, bool) {
 // 	}
 // }
 func (h *Map) notHaveBuckets() bool {
-	return h.lastBucket.Next(list_head.WaitNoM()).Prev(list_head.WaitNoM()).Empty()
+	return h.lastBucket.Next().Prev().Empty()
 }
 func (h *Map) searchBucket2(k uint64) (result *bucket) {
 
@@ -967,8 +984,7 @@ func (h *Map) StoreItem(item MapItem) bool {
 }
 
 func (h *Map) eachEntry(start *list_head.ListHead, fn func(*entryHMap)) {
-
-	for cur := start; !cur.Empty(); cur = cur.Next(list_head.WaitNoM()) {
+	for cur := start; !cur.Empty(); cur = cur.Next() {
 		e := entryHMapFromListHead(cur)
 		if e.key == nil {
 			continue
@@ -980,7 +996,7 @@ func (h *Map) eachEntry(start *list_head.ListHead, fn func(*entryHMap)) {
 
 func (h *Map) each(start *list_head.ListHead, fn func(key, value interface{})) {
 
-	for cur := start; !cur.Empty(); cur = cur.Next(list_head.WaitNoM()) {
+	for cur := start; !cur.Empty(); cur = cur.Next() {
 		e := entryHMapFromListHead(cur)
 		fn(e.key, e.value)
 	}
@@ -1002,7 +1018,7 @@ func (h *Map) find2(start *list_head.ListHead, cond func(HMapEntry) bool, opts .
 	if start.Empty() {
 		return
 	}
-	for cur := start; cur != cur.DirectNext(); cur = cur.DirectNext() {
+	for cur := start; cur != cur.Next(); cur = cur.Next() {
 		e = entryHMapFromListHead(cur)
 
 		if conf.ignoreBucketEntry && e.Key() == nil {
@@ -1168,10 +1184,9 @@ func (h *Map) bsearch(sbucket *bucket, cond func(*entryHMap) bool) (result *entr
 }
 
 func (h *Map) MakeBucket(ocur *list_head.ListHead, back int) {
-
 	cur := ocur
 	//for i := 0; i < 2; i++ {
-	cur = cur.Prev(list_head.WaitNoM())
+	cur = cur.Prev()
 	//}
 
 	e := entryHMapFromListHead(cur)
@@ -1179,7 +1194,8 @@ func (h *Map) MakeBucket(ocur *list_head.ListHead, back int) {
 	if cBucket == nil {
 		return
 	}
-	nextBucket := bucketFromListHead(cBucket.DirectPrev())
+	nextBucket := bucketFromListHead(cBucket.Prev())
+
 	newReverse := cBucket.reverse / 2
 	if nextBucket.reverse == ^uint64(0) && cBucket.reverse == 0 {
 		newReverse = bits.Reverse64(0x1)
@@ -1189,6 +1205,18 @@ func (h *Map) MakeBucket(ocur *list_head.ListHead, back int) {
 	} else {
 		newReverse += nextBucket.reverse / 2
 	}
+
+	// mask := ^uint64(0)
+	// for ecur := cBucket.entry(h); true; ecur = ecur.Next() {
+	// 	ecReverse := bits.Reverse64(ecur.PtrMapHead().k)
+	// 	if ecReverse >= newReverse {
+	// 		break
+	// 	}
+	// 	if ecur.PtrMapHead().isDummy {
+	// 		continue
+	// 	}
+	// 	mask &= ecReverse
+	// }
 
 	nBucket := &bucket{
 		reverse: newReverse,
@@ -1205,7 +1233,7 @@ func (h *Map) MakeBucket(ocur *list_head.ListHead, back int) {
 	nBucket.Init()
 	nBucket.LevelHead.Init()
 
-	for cur := cBucket.start.DirectPrev().DirectNext(); !cur.Empty(); cur = cur.Next(list_head.WaitNoM()) {
+	for cur := cBucket.start.Prev().Next(); !cur.Empty(); cur = cur.Next() {
 		nBucket.len++
 		e := entryHMapFromListHead(cur)
 		if bits.Reverse64(e.k) > nBucket.reverse {
@@ -1231,7 +1259,7 @@ func (h *Map) MakeBucket(ocur *list_head.ListHead, back int) {
 		} else if nextLevelBucket.reverse != nBucket.reverse {
 			//nBucket.LevelHead.InsertBefore(nextLevel)
 
-			nextnextBucket := bucketFromLevelHead(nextLevel.DirectNext())
+			nextnextBucket := bucketFromLevelHead(nextLevel.Next())
 			_ = nextnextBucket
 			nextLevel.DirectNext().InsertBefore(&nBucket.LevelHead)
 		}
@@ -1239,17 +1267,17 @@ func (h *Map) MakeBucket(ocur *list_head.ListHead, back int) {
 		//nextLevel.InsertBefore(&nBucket.LevelHead)
 		var nNext, nPrev *bucket
 		if !nBucket.LevelHead.DirectPrev().Empty() {
-			nPrev = bucketFromLevelHead(nBucket.LevelHead.DirectPrev())
+			nPrev = bucketFromLevelHead(nBucket.LevelHead.Prev())
 		}
 		if !nBucket.LevelHead.DirectNext().Empty() {
-			nNext = bucketFromLevelHead(nBucket.LevelHead.DirectNext())
+			nNext = bucketFromLevelHead(nBucket.LevelHead.Next())
 		}
 		_, _ = nNext, nPrev
 
 	} else {
 		_ = "???"
 	}
-	if nBucket.LevelHead.DirectNext() == &nBucket.LevelHead {
+	if nBucket.LevelHead.Next() == &nBucket.LevelHead {
 		_ = "broken"
 	}
 
@@ -1271,10 +1299,10 @@ func (h *Map) MakeBucket(ocur *list_head.ListHead, back int) {
 	// }
 
 	if int(nBucket.len) > h.maxPerBucket {
-		h.MakeBucket(cBucket.start.DirectNext(), int(nBucket.len)/2)
+		h.MakeBucket(cBucket.start.Next(), int(nBucket.len)/2)
 	}
 	if int(cBucket.len) > h.maxPerBucket {
-		h.MakeBucket(nextBucket.start.DirectPrev(), int(nBucket.len)/2)
+		h.MakeBucket(nextBucket.start.Prev(), int(nBucket.len)/2)
 	}
 
 	return
@@ -1404,7 +1432,7 @@ func (h *Map) add(start *list_head.ListHead, e *entryHMap, opts ...HMethodOpt) b
 func (h *Map) DumpBucket() string {
 	var b strings.Builder
 
-	for cur := h.buckets.ListHead.Prev(list_head.WaitNoM()).Next(list_head.WaitNoM()); !cur.Empty(); cur = cur.Next(list_head.WaitNoM()) {
+	for cur := h.buckets.ListHead.Prev().Next(); !cur.Empty(); cur = cur.Next() {
 		btable := bucketFromListHead(cur)
 		fmt.Fprintf(&b, "bucket{reverse: 0x%16x, len: %d, start: %p, level{%d, cur: %p, prev: %p next: %p}}\n",
 			btable.reverse, btable.len, btable.start, btable.level, &btable.LevelHead, btable.LevelHead.DirectPrev(), btable.LevelHead.DirectNext())
@@ -1439,7 +1467,7 @@ func (h *Map) DumpBucketPerLevel() string {
 func (h *Map) DumpEntry() string {
 	var b strings.Builder
 
-	for cur := h.start.Prev(list_head.WaitNoM()).Next(list_head.WaitNoM()); !cur.Empty(); cur = cur.Next(list_head.WaitNoM()) {
+	for cur := h.start.Prev().Next(); !cur.Empty(); cur = cur.Next() {
 		//var e HMapEntry
 		//e = e.HmapEntryFromListHead(cur)
 		mhead := EmptyMapHead.FromListHead(cur).(*MapHead)
@@ -1479,10 +1507,10 @@ func (h *Map) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket) {
 	empty.Init()
 	var thead *list_head.ListHead
 	if tBtable.Empty() {
-		thead = h.start.Prev(list_head.WaitNoM()).Next(list_head.WaitNoM())
+		thead = h.start.Prev().Next()
 	} else {
 		tBucket := bucketFromListHead(tBtable)
-		thead = tBucket.start.Prev(list_head.WaitNoM()).Next(list_head.WaitNoM())
+		thead = tBucket.start.Prev().Next()
 	}
 	// h.start.Prev(list_head.WaitNoM()).Next(list_head.WaitNoM())
 	h.add2(thead, empty)
@@ -1492,9 +1520,9 @@ func (h *Map) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket) {
 
 func (h *Map) addBucket(nBtable *bucket) {
 
-	bstart := h.buckets.ListHead.Prev(list_head.WaitNoM()).Next(list_head.WaitNoM())
+	bstart := h.buckets.ListHead.Prev().Next()
 RETRY:
-	for bcur := h.buckets.ListHead.Prev(list_head.WaitNoM()).Next(list_head.WaitNoM()); !bcur.Empty(); bcur = bcur.Next(list_head.WaitNoM()) {
+	for bcur := h.buckets.ListHead.Prev().Next(); !bcur.Empty(); bcur = bcur.Next() {
 		cBtable := bucketFromListHead(bcur)
 		if cBtable.reverse == nBtable.reverse {
 			return
@@ -1510,7 +1538,7 @@ RETRY:
 		}
 	}
 
-	bstart = h.buckets.ListHead.Prev(list_head.WaitNoM()).Next(list_head.WaitNoM())
+	bstart = h.buckets.ListHead.Prev().Next()
 	breverse := bucketFromListHead(bstart).reverse
 	_ = breverse
 	bbrev := bucketFromListHead(h.lastBucket.Next().Prev())
@@ -1531,22 +1559,13 @@ RETRY:
 
 func (h *Map) findNextLevelBucket(reverse uint64, level int) (cur *list_head.ListHead) {
 
-	// for cur := h.buckets.Prev().Next(); !cur.Empty(); cur = cur.DirectNext() {
-	// 	bcur := bucketFromListHead(cur)
-	// 	if bcur.level != level {
-	// 		continue
-	// 	}
-	// 	if reverse > bcur.reverse {
-	// 		return bcur
-	// 	}
-
-	// }
-	// return nil
 	bcur := h.levelBucket(level)
 	if bcur == nil {
 		return nil
 	}
+	prevs := list_head.DefaultModeTraverse.Option(list_head.WaitNoM())
 	front := bcur.LevelHead.Front()
+	list_head.DefaultModeTraverse.Option(prevs...)
 	bcur = bucketFromLevelHead(front.DirectPrev().DirectNext())
 
 	for cur := &bcur.LevelHead; true; cur = cur.DirectNext() {
@@ -1604,6 +1623,7 @@ func (h *Map) isEmptyBylevel(level int) bool {
 		return true
 	}
 	if b.LevelHead.DirectPrev().Empty() && b.LevelHead.DirectNext().Empty() {
+		//if b.LevelHead.Prev().Empty() && b.LevelHead.Next().Empty() {
 		return true
 	}
 	return false
@@ -1675,22 +1695,24 @@ const (
 var DebugStats map[statKey]int = map[statKey]int{}
 
 func (b *bucket) nextAsB() *bucket {
-
-	if b.ListHead.DirectNext().Empty() {
+	//if b.ListHead.DirectNext().Empty() {
+	if b.ListHead.Next().Empty() {
 		return b
 	}
-
-	return bucketFromListHead(b.ListHead.DirectNext())
+	//return bucketFromListHead(b.ListHead.DirectNext())
+	return bucketFromListHead(b.ListHead.Next())
 
 }
 
 func (b *bucket) prevAsB() *bucket {
 
-	if b.ListHead.DirectPrev().Empty() {
+	//if b.ListHead.DirectPrev().Empty() {
+	if b.ListHead.Prev().Empty() {
 		return b
 	}
 
-	return bucketFromListHead(b.ListHead.DirectPrev())
+	//return bucketFromListHead(b.ListHead.DirectPrev())
+	return bucketFromListHead(b.ListHead.Prev())
 
 }
 
@@ -1699,8 +1721,8 @@ func (b *bucket) NextOnLevel() *bucket {
 	if b.LevelHead.DirectNext().Empty() {
 		return b
 	}
-
 	return bucketFromLevelHead(b.LevelHead.DirectNext())
+	// return bucketFromLevelHead(b.LevelHead.Next())
 
 }
 
@@ -1970,67 +1992,74 @@ func (h *Map) searchKey(k uint64, ignoreBucketEnry bool) HMapEntry {
 	return nil
 }
 
+func nearBucketFromCache(levels [16]*bucket, lbNext *bucket, reverseNoMask uint64) (result *bucket) {
+	noNil := true
+	result = lbNext
+	for i, b := range levels {
+		if b == nil {
+			noNil = false
+			break
+		}
+		if i+1 == result.level {
+			continue
+		}
+		//b := (*bucket)(unsafe.Pointer(p))
+		if nearUint64(b.reverse, result.reverse, reverseNoMask) == b.reverse {
+			result = b
+		}
+	}
+	if noNil {
+		noNil = false
+	}
+	return
+}
+
 func (h *Map) searchBybucket(lbCur *bucket, levels [16]*bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
 
 	lbNext := lbCur.NextOnLevel()
 	if h.modeForBucket == CombineSearch2 {
-		noNil := true
-		for i, b := range levels {
-			if b == nil {
-				noNil = false
-				break
-			}
-			if i+1 == lbNext.level {
-				continue
-			}
-			//b := (*bucket)(unsafe.Pointer(p))
-			if nearUint64(b.reverse, lbNext.reverse, reverseNoMask) == b.reverse {
-				lbNext = b
-			}
-		}
-		if noNil {
-			noNil = false
-		}
+		lbNext = nearBucketFromCache(levels, lbNext, reverseNoMask)
 	}
 
 	if lbNext.reverse < reverseNoMask {
-
-		for cur := lbNext.entry(h); cur != nil && !cur.PtrListHead().Empty(); cur = cur.Next() {
+		result := lbNext.entry(h)
+		for cur := result.PtrMapHead(); cur != nil; cur = cur.NextWithNil() {
 			if EnableStats && ignoreBucketEnry {
 				h.mu.Lock()
 				DebugStats[CntReverseSearch]++
 				h.mu.Unlock()
 			}
-			curReverse := bits.Reverse64(cur.PtrMapHead().k)
-			if ignoreBucketEnry && cur.(MapItem).Key() == nil {
+			if ignoreBucketEnry && cur.isDummy {
 				continue
 			}
+			curReverse := bits.Reverse64(cur.k)
+			//curReverse := cur.reverse
 			if curReverse < reverseNoMask {
 				continue
 			}
 			if curReverse == reverseNoMask {
-				return cur
+				return result.HmapEntryFromListHead(cur.PtrListHead())
 			}
 			return nil
 		}
 		return nil
 	}
-
-	for cur := lbNext.entry(h); cur != nil && !cur.PtrListHead().Empty(); cur = cur.Prev() {
+	result := lbNext.entry(h)
+	for cur := result.PtrMapHead(); cur != nil; cur = cur.PrevtWithNil() {
 		if EnableStats && ignoreBucketEnry {
 			h.mu.Lock()
 			DebugStats[CntSearchEntry]++
 			h.mu.Unlock()
 		}
-		curReverse := bits.Reverse64(cur.PtrMapHead().k)
-		if ignoreBucketEnry && cur.(MapItem).Key() == nil {
+		curReverse := bits.Reverse64(cur.k)
+		if ignoreBucketEnry && cur.isDummy {
 			continue
 		}
 		if curReverse > reverseNoMask {
 			continue
 		}
 		if curReverse == reverseNoMask {
-			return cur
+			return result.HmapEntryFromListHead(cur.PtrListHead())
 		}
 
 		return nil
@@ -2063,6 +2092,8 @@ func (h *Map) Delete(key interface{}) {
 // RangeItem ... calls f sequentially for each key and value present in the map.
 // called ordre is reverse key order
 func (h *Map) RangeItem(f func(MapItem) bool) {
+	oldConfs := list_head.DefaultModeTraverse.Option(list_head.WaitNoM())
+	defer list_head.DefaultModeTraverse.Option(oldConfs...)
 
 	for cur := h.start.Prev(list_head.WaitNoM()).Next(list_head.WaitNoM()); !cur.Empty(); cur = cur.Next(list_head.WaitNoM()) {
 		mhead := EmptyMapHead.FromListHead(cur).(*MapHead)

@@ -3,6 +3,7 @@ package skiplistmap_test
 import (
 	"fmt"
 	"math/rand"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -38,12 +39,11 @@ func runBnech(b *testing.B, m list_head.MapGetSet, concurretRoutine, operationCn
 			}
 		} else {
 			for pb.Next() {
-				ok := false
-				_, ok = m.Get(fmt.Sprintf("%d", index&mask))
-				if !ok {
-					_, ok = m.Get(fmt.Sprintf("%d", index&mask))
-					fmt.Printf("fail")
-				}
+				m.Get(fmt.Sprintf("%d", index&mask))
+				// if !ok {
+				// 	_, ok = m.Get(fmt.Sprintf("%d", index&mask))
+				// 	fmt.Printf("fail")
+				// }
 				index = index + 1
 			}
 		}
@@ -227,6 +227,69 @@ func Benchmark_HMap_forProfile(b *testing.B) {
 // 	}
 
 // }
+
+type syncMap struct {
+	m sync.Map
+}
+
+func (m syncMap) Get(k string) (v *list_head.ListHead, ok bool) {
+
+	ov, ok := m.m.Load(k)
+	v, ok = ov.(*list_head.ListHead)
+	return
+}
+
+func (m syncMap) Set(k string, v *list_head.ListHead) (ok bool) {
+
+	m.m.Store(k, v)
+	return true
+}
+
+func Benchmark_Map(b *testing.B) {
+	newShard := func(fn func(int) list_head.MapGetSet) list_head.MapGetSet {
+		s := &list_head.ShardMap{}
+		s.InitByFn(fn)
+		return s
+	}
+	_ = newShard
+
+	benchmarks := []struct {
+		name       string
+		concurrent int
+		cnt        int
+		percent    int
+		buckets    int
+		mode       skiplistmap.SearchMode
+		mapInf     list_head.MapGetSet
+	}{
+		{"mapWithMutex                 ", 100, 100000, 0, 0x000, 0, &list_head.MapWithLock{}},
+		{"sync.Map                     ", 100, 100000, 0, 0x000, 0, syncMap{}},
+		{"skiplistmap                  ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
+		{"skiplistmap                  ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
+		// {"skiplistmap                  ", 100, 100000, 0, 0x008, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
+
+		// {"WithLock                     ", 100, 100000, 10, 0x000, 0, &list_head.MapWithLock{}},
+		// {"sync.Map                     ", 100, 100000, 10, 0x000, 0, syncMap{}},
+		// {"skiplistmap nestsearch       ", 100, 100000, 10, 0x020, skiplistmap.NestedSearchForBucket, newWrapHMap(skiplistmap.NewHMap())},
+		// {"skiplistmap                  ", 100, 100000, 10, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
+
+		{"mapWithMutex                 ", 100, 100000, 50, 0x000, 0, &list_head.MapWithLock{}},
+		{"sync.Map                     ", 100, 100000, 50, 0x000, 0, syncMap{}},
+		{"skiplistmap                  ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
+		{"skiplistmap                  ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
+	}
+
+	for _, bm := range benchmarks {
+		b.Run(fmt.Sprintf("%s w/%2d bucket=%3d", bm.name, bm.percent, bm.buckets), func(b *testing.B) {
+			if whmap, ok := bm.mapInf.(*WrapHMap); ok {
+				skiplistmap.MaxPefBucket(bm.buckets)(whmap.base)
+				skiplistmap.BucketMode(bm.mode)(whmap.base)
+			}
+			runBnech(b, bm.mapInf, bm.concurrent, bm.cnt, uint64(bm.percent))
+		})
+	}
+
+}
 
 func Benchmark_HMap(b *testing.B) {
 

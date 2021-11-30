@@ -2,6 +2,7 @@ package skiplistmap_test
 
 import (
 	"fmt"
+	"math/bits"
 	"math/rand"
 	"sync/atomic"
 	"testing"
@@ -111,12 +112,12 @@ func newWrapHMap(hmap *skiplistmap.Map) *WrapHMap {
 
 func Test_HMap(t *testing.T) {
 
-	m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.BucketMode(skiplistmap.CombineSearch2)))
+	m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.BucketMode(skiplistmap.CombineSearch)))
 	//m := list_head.NewHMap(list_head.MaxPefBucket(32), list_head.BucketMode(list_head.NestedSearchForBucket))
 	//m := list_head.NewHMap(list_head.MaxPefBucket(32), list_head.BucketMode(list_head.LenearSearchForBucket))
 	skiplistmap.EnableStats = true
-	levels := m.base.ActiveLevels()
-	assert.Equal(t, 0, len(levels))
+	//levels := m.base.ActiveLevels()
+	//assert.Equal(t, 0, len(levels))
 	a := skiplistmap.MapHead{}
 	_ = a
 	m.Set("hoge", &list_head.ListHead{})
@@ -129,25 +130,27 @@ func Test_HMap(t *testing.T) {
 	m.Set("3", v)
 	//m.ValidateDirty()
 
-	levels = m.base.ActiveLevels()
-	assert.Equal(t, 2, len(levels))
-
-	DumpHmap(m.base)
+	// levels = m.base.ActiveLevels()
+	// assert.Equal(t, 2, len(levels))
 
 	for i := 0; i < 10000; i++ {
 		m.Set(fmt.Sprintf("fuge%d", i), v)
 	}
+	skiplistmap.ResetStats()
 
 	_, success := m.Get("hoge1")
 
 	assert.True(t, success)
 	stat := skiplistmap.DebugStats
+	//DumpHmap(m.base)
 
 	_, success = m.Get("1234")
 
 	assert.False(t, success)
 	stat = skiplistmap.DebugStats
 	_ = stat
+	conf := list_head.DefaultModeTraverse
+	_ = conf
 
 	for i := 0; i < 10000; i++ {
 		_, ok := m.Get(fmt.Sprintf("fuge%d", i))
@@ -159,6 +162,8 @@ func Test_HMap(t *testing.T) {
 			_, ok = m.Get(fmt.Sprintf("fuge%d", i))
 		}
 	}
+	conf = list_head.DefaultModeTraverse
+	_ = conf
 	DumpHmap(m.base)
 
 	str := m.base.DumpEntry()
@@ -195,8 +200,10 @@ func Benchmark_HMap_forProfile(b *testing.B) {
 		mode       skiplistmap.SearchMode
 		mapInf     list_head.MapGetSet
 	}{
-		//{"HMap_combine    ", 100, 100000, 0, 0x010, list_head.CombineSearch, list_head.NewHMap()},
-		{"HMap_combine2    ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch2, newWrapHMap(skiplistmap.NewHMap())},
+		{"HMap_combine    ", 100, 100000, 0x0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
+		//{"HMap_combine    ", 100, 100000, 100, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
+
+		//{"HMap_combine2    ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch2, newWrapHMap(skiplistmap.NewHMap())},
 	}
 
 	for _, bm := range benchmarks {
@@ -208,6 +215,17 @@ func Benchmark_HMap_forProfile(b *testing.B) {
 			runBnech(b, bm.mapInf, bm.concurrent, bm.cnt, uint64(bm.percent))
 		})
 	}
+}
+func Test_KeHash(t *testing.T) {
+
+	for i := 1; i < 10000; i++ {
+		k, _ := skiplistmap.KeyToHash(fmt.Sprintf("hoge%d", i))
+		pk, _ := skiplistmap.KeyToHash(fmt.Sprintf("hoge%d", i-1))
+
+		assert.True(t, k < pk, bits.Reverse64(k) > bits.Reverse64(pk))
+
+	}
+
 }
 
 func Benchmark_HMap(b *testing.B) {
@@ -245,8 +263,8 @@ func Benchmark_HMap(b *testing.B) {
 		// {"HMap_nestsearch    ", 100, 100000, 0, 0x010, list_head.NestedSearchForBucket, list_head.NewHMap()},
 
 		{"HMap_nestsearch    ", 100, 100000, 0, 0x020, skiplistmap.NestedSearchForBucket, newWrapHMap(skiplistmap.NewHMap())},
-		{"HMap_combine       ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
 		{"HMap_combine       ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
+		//{"HMap_combine       ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
 		{"HMap_combine2      ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch2, newWrapHMap(skiplistmap.NewHMap())},
 
 		// {"HMap_nestsearch    ", 100, 100000, 0, 0x400, list_head.NestedSearchForBucket, list_head.NewHMap()},

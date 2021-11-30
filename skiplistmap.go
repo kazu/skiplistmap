@@ -47,7 +47,7 @@ type Map struct {
 
 	modeForBucket SearchMode
 	mu            sync.Mutex
-	levelCache    [16]atomic.Value
+	levels        [16]atomic.Value
 
 	ItemFn func() MapItem
 }
@@ -301,8 +301,7 @@ func NewHMap(opts ...OptHMap) *Map {
 	// other traverse option is not required if not marking delete.
 	list_head.DefaultModeTraverse.Option(list_head.Direct())
 
-	hmap.initLevelCache()
-
+	hmap.initLevels()
 	return hmap
 }
 
@@ -341,7 +340,6 @@ func (h *Map) initBeforeSet() {
 	levelBucket := h.levelBucket(btable.level)
 	levelBucket.LevelHead.DirectPrev().DirectNext().InsertBefore(&btable.LevelHead)
 	h.setLevel(btable.level, levelBucket)
-
 	btablefirst := btable
 
 	topReverses := make([]uint64, 16)
@@ -373,9 +371,15 @@ func (h *Map) initBeforeSet() {
 
 		btablefirst.Next().InsertBefore(&btable.ListHead)
 		btable.start = &empty.ListHead
-		levelBucket = h.levelBucket(btable.level)
-		levelBucket.LevelHead.DirectPrev().DirectNext().InsertBefore(&btable.LevelHead)
-		h.setLevel(btable.level, levelBucket)
+		btable.LevelHead.Init()
+		if i > 0 {
+			h.topBuckets[i-1].LevelHead.InsertBefore(&btable.LevelHead)
+		} else {
+			//h.topBuckets[i]
+			levelBucket = h.levelBucket(btable.level)
+			levelBucket.LevelHead.DirectPrev().DirectNext().InsertBefore(&btable.LevelHead)
+		}
+
 		h.topBuckets[i] = btable
 	}
 
@@ -403,10 +407,10 @@ func (h *Map) initBeforeSet() {
 	// levelBucket.LevelHead.DirectPrev().DirectNext().InsertBefore(&btable.LevelHead)
 	// h.setLevel(btable.level, levelBucket)
 
-	// if EnableStats {
-	// 	fmt.Printf("%s\n", h.DumpBucket())
-	// 	fmt.Printf("%s\n", h.DumpEntry())
-	// }
+	if EnableStats {
+		fmt.Printf("%s\n", h.DumpBucket())
+		fmt.Printf("%s\n", h.DumpEntry())
+	}
 }
 
 //FIXME: renate _set
@@ -422,17 +426,42 @@ func (h *Map) _set2(k, conflict uint64, item MapItem) bool {
 	var addOpt HMethodOpt
 	_ = addOpt
 
+	//btable = h.searchBucket(k)
+	//if h.modeForBucket == CombineSearch {
 	if h.modeForBucket != CombineSearch {
 		btable = h.searchBucket(k)
 	} else {
-		btable = h.searchBucket4update(k)
+		btable, _ = h.searchBucket4update(k)
 
-		if btable.reverse > item.PtrMapHead().reverse {
-			btable = btable.NextOnLevel()
-			if btable.reverse > item.PtrMapHead().reverse {
-				btable = h.searchBucket(k)
+		for btable.reverse > item.PtrMapHead().reverse {
+			if btable == btable.NextOnLevel() {
+				break
 			}
+			btable = btable.NextOnLevel()
 		}
+		if btable.reverse > item.PtrMapHead().reverse {
+			//fmt.Printf("%s\n", h.DumpBucketPerLevel())
+			p := btable.PrevOnLevel()
+			_ = p
+			btable = h.searchBucket(k)
+		}
+
+		// oldbtable := h.searchBucket(k)
+		// _ = oldbtable
+		// if nearUint64(btable.reverse, oldbtable.reverse, bits.Reverse64(k)) != btable.reverse {
+		// 	h.searchBucket4update(k)
+		// }
+
+		// if btable.reverse > item.PtrMapHead().reverse {
+		// 	btable = btable.NextOnLevel()
+		// 	if btable.reverse > item.PtrMapHead().reverse {
+		// 		btable = h.searchBucket(k)
+		// 	}
+		// }
+		// if oldbtable != btable {
+		// 	btable = oldbtable
+		// 	h.searchBucket4update(k)
+		// }
 	}
 
 	if btable != nil && btable.start == nil {
@@ -447,7 +476,7 @@ func (h *Map) _set2(k, conflict uint64, item MapItem) bool {
 
 	entry, cnt := h.find2(btable.start, func(item HMapEntry) bool {
 		return bits.Reverse64(k) <= item.PtrMapHead().reverse
-	})
+	}, ignoreBucketEntry(false))
 	_ = cnt
 	if entry != nil && entry.PtrMapHead().reverse == bits.Reverse64(k) && entry.PtrMapHead().conflict == conflict {
 		entry.(MapItem).SetValue(item.Value())
@@ -465,7 +494,9 @@ func (h *Map) _set2(k, conflict uint64, item MapItem) bool {
 		rk := bits.Reverse64(k)
 		_, _, _ = erk, prk, rk
 
-		if pEntry.PtrMapHead().reverse < bits.Reverse64(k) {
+		if entry.PtrMapHead().reverse < bits.Reverse64(k) {
+			tStart = entry.PtrListHead()
+		} else if pEntry.PtrMapHead().reverse < bits.Reverse64(k) {
 			tStart = pEntry.PtrListHead()
 		} else {
 			_ = ""
@@ -548,9 +579,9 @@ func (h *Map) _set(k, conflict uint64, key, value interface{}) bool {
 	entry.reverse, entry.conflict = bits.Reverse64(k), conflict
 	entry.Init()
 	if addOpt == nil {
-		h.add(tStart, entry)
+		h.add2(tStart, entry)
 	} else {
-		h.add(tStart, entry, addOpt)
+		h.add2(tStart, entry, addOpt)
 	}
 	atomic.AddInt64(&h.len, 1)
 	if btable.level > 0 {
@@ -602,17 +633,6 @@ func (h *Map) _get(k, conflict uint64) (MapItem, bool) {
 	var ebucket *bucket
 	var bucket *bucket
 	switch h.modeForBucket {
-	case FalsesSearchForBucket:
-		bucket = h.searchBucket4(k)
-		break
-	case NoItemSearchForBucket:
-		bucket = h.searchBucket4(k)
-		return nil, true
-
-	case NestedSearchForBucket:
-		bucket = h.searchBucket4(k)
-
-		break
 	case CombineSearch, CombineSearch2:
 
 		e := h.searchKey(k, true)
@@ -685,11 +705,6 @@ func (h *Map) _get(k, conflict uint64) (MapItem, bool) {
 		return nil, true
 	}
 
-	if useBsearch {
-		e, _ = h.bsearch(bucket, func(ehead *entryHMap) bool {
-			return rk <= ehead.reverse
-		})
-	}
 	// _ = e2
 
 	// if e != e2 {
@@ -742,72 +757,6 @@ func levelMask(level int) (mask uint64) {
 		mask = (mask << 4) | 0xf
 	}
 	return
-}
-
-func (h *Map) searchBucket4(k uint64) (result *bucket) {
-
-	level := 1
-	levelbucket := bucketFromLevelHead(h.levelBucket(level).LevelHead.DirectPrev().DirectNext())
-
-	var pCur, nCur *bucket
-
-	// cur = bucketFromLevelHead(cur.LevelHead.next)
-	for cur := levelbucket; !cur.Empty(); {
-		if EnableStats {
-			h.mu.Lock()
-			DebugStats[CntSearchBucket]++
-			h.mu.Unlock()
-		}
-
-		cReverseNoMask := bits.Reverse64(k)
-		_ = cReverseNoMask
-		cReverse := bits.Reverse64(k & toMask(cur.level))
-		if cReverse == cur.reverse {
-			level++
-			if EnableStats {
-				h.mu.Lock()
-			}
-			nCur = FindBucketWithLevel2(&cur.ListHead, bits.Reverse64(k), level)
-			if EnableStats {
-				h.mu.Unlock()
-			}
-			if nCur == nil {
-				return cur
-			}
-			if bits.Reverse64(k&toMask(nCur.level)) != nCur.reverse {
-				return cur
-			}
-			cur = nCur
-			level = nCur.level
-			continue
-		}
-		if !cur.LevelHead.DirectPrev().Empty() {
-			pCur = bucketFromLevelHead(cur.LevelHead.DirectPrev())
-			if pCur.reverse > cReverse && cReverse > cur.reverse {
-				return pCur
-			}
-		}
-		if !cur.LevelHead.DirectNext().Empty() {
-			nCur = bucketFromLevelHead(cur.LevelHead.DirectNext())
-			if cur.reverse > cReverse && cReverse > nCur.reverse {
-				return cur
-			}
-		}
-
-		if cReverse < cur.reverse {
-			if cur.LevelHead.DirectNext().Empty() {
-				_ = "???"
-			}
-			cur = bucketFromLevelHead(cur.LevelHead.DirectNext())
-			continue
-		}
-		if cur.LevelHead.DirectPrev().Empty() {
-			return cur
-		}
-		cur = bucketFromLevelHead(cur.LevelHead.DirectPrev())
-
-	}
-	return nil
 }
 
 func (h *Map) searchBucket3(k uint64) (result *bucket) {
@@ -1137,57 +1086,6 @@ func (h *Map) reverse(start *list_head.ListHead, cond func(*entryHMap) bool) (re
 	return nil, cnt
 }
 
-func middleListHead(oBegin, oEnd *list_head.ListHead) (middle *list_head.ListHead) {
-	// begin := oBegin
-	// end := oEnd
-	b := oBegin.Empty()
-	e := oEnd.Empty()
-	_, _ = b, e
-	cnt := 0
-	for begin, end := oBegin, oEnd; !begin.Empty() && !end.Empty(); begin, end = begin.DirectNext(), end.DirectPrev() {
-		if begin == end {
-			return begin
-		}
-		if begin.DirectPrev() == end {
-			return begin
-		}
-		cnt++
-	}
-	return
-}
-
-func bsearchListHead(oBegin, oEnd *list_head.ListHead, cond func(*list_head.ListHead) bool) *list_head.ListHead {
-	begin := oBegin
-	end := oEnd
-	middle := middleListHead(begin, end)
-	for {
-		if middle == nil {
-			return nil
-		}
-
-		if cond(begin) {
-			return begin
-		}
-		if cond(middle) {
-			end = middle
-			middle = middleListHead(begin, end)
-			if end == middle {
-				return middle
-			}
-			continue
-		}
-		if !cond(end) {
-			return end
-		}
-		if begin == middle {
-			return end
-		}
-		begin = middle
-		middle = middleListHead(begin, end)
-	}
-
-}
-
 func absDiffUint64(x, y uint64) uint64 {
 	if x < y {
 		return y - x
@@ -1200,40 +1098,6 @@ func nearUint64(a, b, dst uint64) uint64 {
 		return b
 	}
 	return a
-
-}
-
-func (h *Map) bsearch(sbucket *bucket, cond func(*entryHMap) bool) (result *entryHMap, cnt int) {
-	if sbucket.Empty() || sbucket.DirectPrev().Empty() {
-		return nil, 0
-	}
-
-	ebucket := bucketFromListHead(sbucket.DirectPrev())
-	if sbucket.start.DirectPrev().DirectNext().Empty() || ebucket.start.DirectPrev().Empty() {
-		return nil, 0
-	}
-
-	rhead := bsearchListHead(sbucket.start.DirectPrev().DirectNext(), ebucket.start.DirectPrev(), func(cur *list_head.ListHead) bool {
-		e := entryHMapFromListHead(cur)
-		return cond(e)
-	})
-	if rhead == nil {
-		return nil, 0
-	}
-	result = entryHMapFromListHead(rhead)
-	return
-
-	// cnt = 0
-
-	// for cur := start; !cur.Empty(); cur = cur.DirectNext() {
-	// 	e := entryHMapFromListHead(cur)
-	// 	if cond(e) {
-	// 		result = e
-	// 		return
-	// 	}
-	// 	cnt++
-	// }
-	// return nil, cnt
 }
 
 func (b *bucket) registerToUpLevel() {
@@ -1244,32 +1108,34 @@ func (b *bucket) registerToUpLevel() {
 		_ = upBucket
 		if nextBuckketOnLevel := b.NextOnLevel(); nextBuckketOnLevel != b {
 			for cur := b; cur.reverse > nextBuckketOnLevel.reverse; cur = cur.nextAsB() {
-				if cur == cur.nextAsB() {
-					break
-				}
+
 				if cur.level == b.level-1 {
 					upBucket = cur
+					break
+				}
+				if cur == cur.nextAsB() {
 					break
 				}
 			}
 		} else if nextBucket := b.nextAsB(); nextBucket != b {
 			for cur := nextBucket; cur.level != b.level; cur = cur.nextAsB() {
-				if cur == cur.nextAsB() {
-					break
-				}
 				if cur.level == b.level-1 {
 					upBucket = cur
+					break
+				}
+				if cur == cur.nextAsB() {
 					break
 				}
 			}
 		} else {
 
 			for cur := b.prevAsB(); cur.level != b.level; cur = cur.prevAsB() {
-				if cur == cur.prevAsB() {
-					break
-				}
+
 				if cur.level == b.level-1 {
 					upBucket = cur
+					break
+				}
+				if cur == cur.prevAsB() {
 					break
 				}
 			}
@@ -1277,6 +1143,8 @@ func (b *bucket) registerToUpLevel() {
 
 		if upBucket != nil {
 			upBucket.downLevel = &b.LevelHead
+		} else {
+			//fmt.Printf("???")
 		}
 
 	}
@@ -1381,23 +1249,18 @@ func (h *Map) MakeBucket(ocur *list_head.ListHead, back int) {
 		_ = "broken"
 	}
 	// set upBucket.down = nBucket
-	b.registerToUpLevel()
-
-	// nextLeveByCache := bucketFromLevelHead(h.levelBucket(nBucket.level).LevelHead.DirectPrev().next)
-	// _ = nextLeveByCache
-
-	// if nextLeveByCache.LevelHead.DirectPrev().Empty() && nextLeveByCache.LevelHead.DirectNext().Empty() {
-	// 	nextLeveByCache.LevelHead.DirectNext().InsertBefore(&nBucket.LevelHead)
-	// 	o := h.levelBucket(nBucket.level)
-	// 	_ = o
-	// 	h.setLevel(nBucket.level, nextLeveByCache)
+	// if b.reverse < 0x1000000000000000 {
+	// 	h.searchBucket4update(bits.Reverse64(0x0100000000000000))
+	// 	//fmt.Printf("fail pattern")
 	// }
-
-	// er := h.checklevelAll()
-	// _ = er
-
-	// if h.levelBucket(nBucket.level) == nil {
-	// 	h.setLevel(nBucket.level, nBucket)
+	b.registerToUpLevel()
+	// if b.reverse == 0xf100000000000000 {
+	// 	h.searchBucket4update(bits.Reverse64(0xf110000000000000))
+	// 	//fmt.Printf("fail pattern")
+	// }
+	// if b.reverse == 0x0100000000000000 {
+	// 	h.searchBucket4update(bits.Reverse64(0x0100000000000000))
+	// 	//fmt.Printf("fail pattern")
 	// }
 
 	if int(b.len) > h.maxPerBucket {
@@ -1440,7 +1303,7 @@ func (h *Map) add2(start *list_head.ListHead, e HMapEntry, opts ...HMethodOpt) b
 	}, ignoreBucketEntry(false))
 
 	defer func() {
-		if h.isEmptyBylevel(1) {
+		if !EnableStats {
 			return
 		}
 
@@ -1448,11 +1311,6 @@ func (h *Map) add2(start *list_head.ListHead, e HMapEntry, opts ...HMethodOpt) b
 			sharedSearchOpt.Lock()
 			sharedSearchOpt.e = errors.New("add: item is added. but not found")
 			sharedSearchOpt.Unlock()
-			// fmt.Printf("%s\n", h.DumpBucket())
-			// fmt.Printf("%s\n", h.DumpBucketPerLevel())
-			// fmt.Printf("%s\n", h.DumpEntry())
-			// h.searchKey(e.k, ignoreBucketEntry(false))
-			// fmt.Printf("fail store")
 		}
 	}()
 
@@ -1477,60 +1335,6 @@ func (h *Map) add2(start *list_head.ListHead, e HMapEntry, opts ...HMethodOpt) b
 	return true
 }
 
-func (h *Map) add(start *list_head.ListHead, e *entryHMap, opts ...HMethodOpt) bool {
-	var opt *hmapMethod
-	if len(opts) > 0 {
-		opt = &hmapMethod{}
-		for _, fn := range opts {
-			fn(opt)
-		}
-	}
-
-	cnt := 0
-	pos, _ := h.find(start, func(ehead *entryHMap) bool {
-		cnt++
-		return e.reverse < ehead.reverse
-	}, ignoreBucketEntry(false))
-
-	defer func() {
-		if h.isEmptyBylevel(1) {
-			return
-		}
-
-		if h.SearchKey(bits.Reverse64(e.reverse), ignoreBucketEntry(false)) == nil {
-			sharedSearchOpt.Lock()
-			sharedSearchOpt.e = errors.New("add: item is added. but not found")
-			sharedSearchOpt.Unlock()
-			// fmt.Printf("%s\n", h.DumpBucket())
-			// fmt.Printf("%s\n", h.DumpBucketPerLevel())
-			// fmt.Printf("%s\n", h.DumpEntry())
-			// h.searchKey(e.k, ignoreBucketEntry(false))
-			// fmt.Printf("fail store")
-		}
-	}()
-
-	if pos != nil {
-		pos.InsertBefore(&e.ListHead)
-		if opt == nil || opt.bucket == nil {
-			return true
-		}
-		btable := opt.bucket
-		if btable != nil && e.key != nil && int(btable.len) > h.maxPerBucket {
-			//if cnt > h.maxPerBucket && pos.key != nil {
-			h.MakeBucket(&e.ListHead, int(btable.len)/2)
-		}
-		return true
-	}
-	if opt != nil && opt.bucket != nil {
-		//opt.bucket.start.InsertBefore(&e.ListHead)
-		nextAsE(opt.bucket.entry(h)).PtrListHead().InsertBefore(&e.ListHead)
-		return true
-	}
-	h.last.InsertBefore(&e.ListHead)
-
-	return true
-}
-
 func (h *Map) DumpBucket() string {
 	var b strings.Builder
 
@@ -1542,10 +1346,44 @@ func (h *Map) DumpBucket() string {
 	return b.String()
 }
 
+func (h *Map) levelBucket2(level int) *bucket {
+
+	cBucket := h.topLevelBucket(^uint64(0))
+	for i := 1; i < level+1; i++ {
+		if cBucket.level == level {
+			return cBucket
+		}
+		for {
+			if cBucket.downLevel != nil {
+				break
+			}
+			if cBucket.NextOnLevel() == cBucket {
+				break
+			}
+			cBucket = cBucket.NextOnLevel()
+		}
+		if cBucket.level == level {
+			return cBucket
+		}
+		if cBucket.downLevel == nil {
+			break
+		}
+		cBucket = bucketFromLevelHead(cBucket.downLevel)
+
+		for {
+			if cBucket.PrevOnLevel() == cBucket {
+				break
+			}
+			cBucket = cBucket.PrevOnLevel()
+		}
+	}
+	return nil
+}
+
 func (h *Map) DumpBucketPerLevel() string {
 	var b strings.Builder
 
-	for i := range h.levelCache {
+	for i := range h.levels {
 		cBucket := h.levelBucket(i + 1)
 		if cBucket == nil {
 			continue
@@ -1554,15 +1392,33 @@ func (h *Map) DumpBucketPerLevel() string {
 			continue
 		}
 		fmt.Fprintf(&b, "bucket level=%d\n", i+1)
-
 		for cur := cBucket.LevelHead.DirectPrev().DirectNext(); !cur.Empty(); {
 			cBucket = bucketFromLevelHead(cur)
 			cur = cBucket.LevelHead.DirectNext()
 			fmt.Fprintf(&b, "bucket{reverse: 0x%16x, len: %d, start: %p, level{%d, cur: %p, prev: %p next: %p} down: %p}\n",
 				cBucket.reverse, cBucket.len, cBucket.start, cBucket.level, &cBucket.LevelHead, cBucket.LevelHead.DirectPrev(), cBucket.LevelHead.DirectNext(), cBucket.downLevel)
+
 		}
 	}
+	// cBucket := h.topLevelBucket(^uint64(0))
+	// for i := 1; i < 17; i++ {
+	// 	fmt.Fprintf(&b, "bucket level=%d\n", cBucket.level)
+	// 	for cLevel := cBucket; cLevel != cLevel.NextOnLevel(); cLevel = cLevel.NextOnLevel() {
+	// 		fmt.Fprintf(&b, "bucket{reverse: 0x%16x, len: %d, start: %p, level{%d, cur: %p, prev: %p next: %p} down: %p}\n",
+	// 			cLevel.reverse, cLevel.len, cLevel.start, cLevel.level, &cLevel.LevelHead, cLevel.LevelHead.DirectPrev(), cLevel.LevelHead.DirectNext(), cLevel.downLevel)
+	// 	}
+	// 	if cBucket.downLevel == nil {
+	// 		break
+	// 	}
+	// 	cBucket = bucketFromLevelHead(cBucket.downLevel)
 
+	// 	for {
+	// 		if cBucket.PrevOnLevel() == cBucket {
+	// 			break
+	// 		}
+	// 		cBucket = cBucket.PrevOnLevel()
+	// 	}
+	//}
 	return b.String()
 }
 
@@ -1694,16 +1550,16 @@ func (h *Map) findNextLevelBucket(reverse uint64, level int) (cur *list_head.Lis
 	return nil
 }
 
-func (h *Map) initLevelCache() {
+func (h *Map) initLevels() {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	for i := range h.levelCache {
+	for i := range h.levels {
 		b := &bucket{level: i + 1}
 		b.LevelHead.InitAsEmpty()
 		//b.InitAsEmpty()
-		h.levelCache[i].Store(b)
+		h.levels[i].Store(b)
 	}
 }
 
@@ -1721,14 +1577,14 @@ func (h *Map) setLevel(level int, b *bucket) bool {
 }
 
 func (h *Map) levelBucket(level int) (b *bucket) {
-	ov := h.levelCache[level-1]
+	ov := h.levels[level-1]
 	b = ov.Load().(*bucket)
 
 	return b
 }
 
 func (h *Map) isEmptyBylevel(level int) bool {
-	if len(h.levelCache) < level {
+	if len(h.levels) < level {
 		return true
 	}
 	b := h.levelBucket(level)
@@ -1746,18 +1602,6 @@ func (h *Map) isEmptyBylevel(level int) bool {
 		return true
 	}
 	return false
-}
-
-func (h *Map) checklevelAll() error {
-
-	for i := range h.levelCache {
-		b := h.levelBucket(i + 1)
-		if err := b.checklevel(); err != nil {
-			return err
-		}
-	}
-	return nil
-
 }
 
 func (b *bucket) checklevel() error {
@@ -1812,6 +1656,10 @@ const (
 )
 
 var DebugStats map[statKey]int = map[statKey]int{}
+
+func ResetStats() {
+	DebugStats = map[statKey]int{}
+}
 
 func (b *bucket) nextAsB() *bucket {
 	//if b.ListHead.DirectNext().Empty() {
@@ -2005,69 +1853,84 @@ func (h *Map) SearchKey(k uint64, opts ...searchArg) HMapEntry {
 }
 
 func (h *Map) searchKey(k uint64, ignoreBucketEnry bool) HMapEntry {
-	if h.modeForBucket == CombineSearch2 {
-		return h.searchBybucket(h.searchBucket4Key(k, ignoreBucketEnry))
-	} else {
-		return h.searchBybucket(h.searchBucket4Key3(k, ignoreBucketEnry))
-	}
+	return h.searchBybucket(h.searchBucket4Key4(k, ignoreBucketEnry))
+	//return h.searchBybucket(h.searchBucket4Key3(k, ignoreBucketEnry))
 }
 
 func (h *Map) topLevelBucket(reverse uint64) *bucket {
 	i := int(reverse >> (4 * 15))
 
 	if h.topBuckets[i] == nil {
-		return h.levelBucket(1).PrevOnLevel().NextOnLevel()
+		return nil
+		//return h.levelBucket(1).PrevOnLevel().NextOnLevel()
 	}
 	return h.topBuckets[i]
 }
 
-func (h *Map) searchBucket4update(k uint64) *bucket {
+func (h *Map) searchBucket4update(k uint64) (*bucket, uint64) {
 
 	reverseNoMask := bits.Reverse64(k)
 	topLevelBucket := h.topLevelBucket(reverseNoMask)
+	if topLevelBucket == nil {
+		return nil, reverseNoMask
+	}
+	//var upCur *bucket
+	var nearestCur *bucket
+	nearestCur = topLevelBucket
 
-	var upCur *bucket
-
-	for lbCur := topLevelBucket; true; lbCur = lbCur.PrevOnLevel() {
+	for lbCur, plbCur := topLevelBucket, topLevelBucket.PrevOnLevel(); lbCur != plbCur || lbCur.downLevel != nil || plbCur.downLevel != nil; lbCur, plbCur = plbCur, plbCur.PrevOnLevel() {
 	RETRY:
 		if EnableStats {
 			h.mu.Lock()
 			DebugStats[CntLevelBucket]++
 			h.mu.Unlock()
 		}
-		if lbCur.reverse < reverseNoMask && lbCur != lbCur.PrevOnLevel() {
-			continue
+		if nearUint64(lbCur.reverse, nearestCur.reverse, reverseNoMask) != nearestCur.reverse {
+			nearestCur = lbCur
 		}
-		upCur = lbCur.NextOnLevel()
-		if upCur.downLevel == nil {
-			if nearUint64(lbCur.reverse, upCur.reverse, reverseNoMask) != lbCur.reverse {
-				lbCur = upCur
-			}
+		if nearUint64(plbCur.reverse, nearestCur.reverse, reverseNoMask) != nearestCur.reverse {
+			nearestCur = plbCur
+		}
+		if lbCur.reverse == reverseNoMask {
 			goto EACH_ENTRY
 		}
-		lbCur = bucketFromLevelHead(upCur.downLevel)
+		if lbCur.reverse < reverseNoMask && plbCur.reverse < reverseNoMask && lbCur != plbCur {
+			continue
+		}
+		if lbCur.downLevel != nil {
+			plbCur = bucketFromLevelHead(lbCur.downLevel)
+			lbCur = plbCur.NextOnLevel()
+		} else if plbCur.downLevel != nil {
+			plbCur = bucketFromLevelHead(plbCur.downLevel)
+			lbCur = plbCur.NextOnLevel()
+		} else {
+			goto EACH_ENTRY
+		}
+
 		goto RETRY
 
 	EACH_ENTRY:
-		if upCur != nil && nearUint64(upCur.reverse, lbCur.reverse, reverseNoMask) == upCur.reverse {
-			return upCur
-		} else {
-			return lbCur
-		}
+		return nearestCur, reverseNoMask
 
 	}
-	return nil
+	return nearestCur, reverseNoMask
 }
 
-func (h *Map) searchBucket4Key3(k uint64, ignoreBucketEnry bool) (*bucket, [16]*bucket, uint64, bool) {
+func (h *Map) searchBucket4Key4(k uint64, ignoreBucketEnry bool) (b *bucket, reverse uint64, ignore bool) {
+	b, reverse = h.searchBucket4update(k)
+	ignore = ignoreBucketEnry
+	return
+}
+
+func (h *Map) searchBucket4Key3(k uint64, ignoreBucketEnry bool) (*bucket, uint64, bool) {
 
 	reverseNoMask := bits.Reverse64(k)
 	topLevelBucket := h.topLevelBucket(reverseNoMask)
 	//gTopLevelBucket := topLevelBucket.PrevOnLevel()
-
+	if topLevelBucket == nil {
+		return nil, reverseNoMask, ignoreBucketEnry
+	}
 	var upCur *bucket
-	//var plbCur *bucket
-	levels := [16]*bucket{}
 
 	for lbCur := topLevelBucket; true; lbCur = lbCur.PrevOnLevel() {
 	RETRY:
@@ -2091,196 +1954,13 @@ func (h *Map) searchBucket4Key3(k uint64, ignoreBucketEnry bool) (*bucket, [16]*
 
 	EACH_ENTRY:
 		if upCur != nil && nearUint64(upCur.reverse, lbCur.reverse, reverseNoMask) == upCur.reverse {
-			return upCur, levels, reverseNoMask, ignoreBucketEnry
+			return upCur, reverseNoMask, ignoreBucketEnry
 		} else {
-			return lbCur, levels, reverseNoMask, ignoreBucketEnry
+			return lbCur, reverseNoMask, ignoreBucketEnry
 		}
 
 	}
-	return nil, levels, 0, ignoreBucketEnry
-}
-
-func (h *Map) searchBucket4Key2(k uint64, ignoreBucketEnry bool) (*bucket, [16]*bucket, uint64, bool) {
-
-	//conf := sharedSearchOpt
-
-	level := 1
-	reverseNoMask := bits.Reverse64(k)
-	//topLevelBucket := h.levelBucket(level).PrevOnLevel().NextOnLevel()
-	topLevelBucket := h.topLevelBucket(reverseNoMask)
-
-	// var reverse uint64
-	// _ = reverse
-
-	levels := [16]*bucket{}
-
-	var setLevelCache func(b *bucket)
-	if false {
-		//if h.modeForBucket == CombineSearch2 {
-
-		levels[level-1] = topLevelBucket //uintptr(unsafe.Pointer(topLevelBucket))
-		setLevelCache = func(b *bucket) {
-			levels[b.level-1] = b //uintptr(unsafe.Pointer(b))
-		}
-	} else {
-		setLevelCache = func(b *bucket) {}
-	}
-
-	var plbCur *bucket
-	var upCur *bucket
-	for lbCur := topLevelBucket; true; lbCur = lbCur.NextOnLevel() {
-	RETRY:
-		setLevelCache(lbCur)
-		if EnableStats && ignoreBucketEnry {
-			h.mu.Lock()
-			DebugStats[CntLevelBucket]++
-			h.mu.Unlock()
-		}
-		//reverse = bits.Reverse64(k & toMask(lbCur.level))
-		if lbCur.reverse > reverseNoMask && lbCur != lbCur.NextOnLevel() {
-			continue
-		}
-		if lbCur.downLevel == nil {
-			goto EACH_ENTRY
-		}
-		plbCur = lbCur.PrevOnLevel()
-		if plbCur.downLevel == nil {
-			goto EACH_ENTRY
-		}
-		upCur = lbCur
-		if plbCur != lbCur {
-			lbCur = bucketFromLevelHead(plbCur.downLevel)
-			goto RETRY
-		}
-		lbCur = bucketFromLevelHead(lbCur.downLevel)
-		goto RETRY
-
-	EACH_ENTRY:
-		if upCur != nil && nearUint64(upCur.reverse, lbCur.reverse, reverseNoMask) == upCur.reverse {
-			return upCur, levels, reverseNoMask, ignoreBucketEnry
-		} else {
-			return lbCur, levels, reverseNoMask, ignoreBucketEnry
-		}
-
-		//return h.searchBybucket(lbCur, levels, reverseNoMask, ignoreBucketEnry)
-	}
-	return nil, levels, 0, ignoreBucketEnry
-}
-
-func (h *Map) searchBucket4Key(k uint64, ignoreBucketEnry bool) (*bucket, [16]*bucket, uint64, bool) {
-
-	conf := sharedSearchOpt
-
-	level := 1
-	reverseNoMask := bits.Reverse64(k)
-	//topLevelBucket := h.levelBucket(level).PrevOnLevel().NextOnLevel()
-	topLevelBucket := h.topLevelBucket(reverseNoMask)
-
-	// var reverse uint64
-	// _ = reverse
-	found := false
-	var bCur *bucket
-
-	levels := [16]*bucket{}
-
-	var setLevelCache func(b *bucket)
-	if h.modeForBucket == CombineSearch2 {
-
-		levels[level-1] = topLevelBucket //uintptr(unsafe.Pointer(topLevelBucket))
-		setLevelCache = func(b *bucket) {
-			levels[b.level-1] = b //uintptr(unsafe.Pointer(b))
-		}
-	} else {
-		setLevelCache = func(b *bucket) {}
-	}
-
-	for lbCur := topLevelBucket; true; lbCur = lbCur.NextOnLevel() {
-	RETRY:
-		setLevelCache(lbCur)
-		if EnableStats && ignoreBucketEnry {
-			h.mu.Lock()
-			DebugStats[CntLevelBucket]++
-			h.mu.Unlock()
-		}
-		//reverse = bits.Reverse64(k & toMask(lbCur.level))
-
-		if lbCur.reverse > reverseNoMask && lbCur != lbCur.NextOnLevel() {
-			continue
-		}
-		var plbCur *bucket //:= lbCur.PrevOnLevel()
-		var maxReverse uint64
-		for plbCur = lbCur; plbCur.PrevOnLevel() != plbCur; plbCur = plbCur.PrevOnLevel() {
-			if plbCur.reverse < reverseNoMask {
-				continue
-			}
-			break
-		}
-		if plbCur == nil {
-			plbCur = lbCur
-		}
-		if plbCur.reverse < reverseNoMask { // && plbCur.PrevOnLevel() == plbCur {
-
-			if plbCur.level == 16 {
-				goto EACH_ENTRY
-			}
-			if plbCur.level == 15 {
-				goto EACH_ENTRY
-			}
-			if !h.isEmptyBylevel(plbCur.level + 1) {
-				lbCur = h.levelBucket(plbCur.level + 1).PrevOnLevel().NextOnLevel()
-				continue
-			}
-
-			goto EACH_ENTRY
-		}
-
-		if plbCur.reverse < reverseNoMask {
-			conf.e = errors.New("searchKey: not invalid destinatioon")
-			return nil, levels, 0, ignoreBucketEnry
-		}
-		found = false
-		maxReverse = (plbCur.reverse - reverseNoMask)
-		if reverseNoMask-maxReverse > 0 {
-			maxReverse = reverseNoMask - maxReverse
-		} else {
-			maxReverse = reverseNoMask
-		}
-		for bCur = plbCur; bCur.reverse > maxReverse; bCur = bCur.nextAsB() {
-			if EnableStats && ignoreBucketEnry {
-				h.mu.Lock()
-				DebugStats[CntSearchBucket]++
-				h.mu.Unlock()
-			}
-			if bCur.level == level+1 {
-				level++
-				found = true
-				lbCur = bCur
-				break
-			}
-		}
-		setLevelCache(bCur)
-		setLevelCache(lbCur)
-		if !found {
-			//lbCur = lbCur.prevAsB()
-			if bCur.reverse > reverseNoMask {
-				lbCur = bCur
-			} else {
-				lbCur = bCur.prevAsB()
-			}
-			setLevelCache(lbCur)
-			goto EACH_ENTRY
-		}
-
-		if !h.isEmptyBylevel(level) {
-			found = false
-			goto RETRY
-		}
-
-	EACH_ENTRY:
-		return lbCur, levels, reverseNoMask, ignoreBucketEnry
-		//return h.searchBybucket(lbCur, levels, reverseNoMask, ignoreBucketEnry)
-	}
-	return nil, levels, 0, ignoreBucketEnry
+	return nil, 0, ignoreBucketEnry
 }
 
 func nearBucketFromCache(levels [16]*bucket, lbNext *bucket, reverseNoMask uint64) (result *bucket) {
@@ -2305,7 +1985,7 @@ func nearBucketFromCache(levels [16]*bucket, lbNext *bucket, reverseNoMask uint6
 	return
 }
 
-func (h *Map) searchBybucket(lbCur *bucket, levels [16]*bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
+func (h *Map) searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
 	if lbCur == nil {
 		return nil
 	}
@@ -2314,7 +1994,6 @@ func (h *Map) searchBybucket(lbCur *bucket, levels [16]*bucket, reverseNoMask ui
 
 	if h.modeForBucket == CombineSearch2 && lbCur.reverse > reverseNoMask {
 		lbNext = lbCur.NextOnLevel()
-		lbNext = nearBucketFromCache(levels, lbNext, reverseNoMask)
 	}
 
 	if lbNext.reverse < reverseNoMask {
@@ -2366,15 +2045,15 @@ func (h *Map) searchBybucket(lbCur *bucket, levels [16]*bucket, reverseNoMask ui
 
 }
 
-func (h *Map) ActiveLevels() (result []int) {
+// func (h *Map) ActiveLevels() (result []int) {
 
-	for i := range h.levelCache {
-		if !h.isEmptyBylevel(i + 1) {
-			result = append(result, i+1)
-		}
-	}
-	return
-}
+// 	for i := range h.levelCache {
+// 		if !h.isEmptyBylevel(i + 1) {
+// 			result = append(result, i+1)
+// 		}
+// 	}
+// 	return
+// }
 
 //Delete ... set nil to the key of MapItem. cannot Get entry
 func (h *Map) Delete(key interface{}) {

@@ -2,7 +2,6 @@ package skiplistmap_test
 
 import (
 	"fmt"
-	"math/bits"
 	"math/rand"
 	"sync/atomic"
 	"testing"
@@ -216,17 +215,18 @@ func Benchmark_HMap_forProfile(b *testing.B) {
 		})
 	}
 }
-func Test_KeHash(t *testing.T) {
 
-	for i := 1; i < 10000; i++ {
-		k, _ := skiplistmap.KeyToHash(fmt.Sprintf("hoge%d", i))
-		pk, _ := skiplistmap.KeyToHash(fmt.Sprintf("hoge%d", i-1))
+// func Test_KeyHash(t *testing.T) {
 
-		assert.True(t, k < pk, bits.Reverse64(k) > bits.Reverse64(pk))
+// 	for i := 1; i < 10000; i++ {
+// 		k, _ := skiplistmap.KeyToHash(fmt.Sprintf("hoge%d", i))
+// 		pk, _ := skiplistmap.KeyToHash(fmt.Sprintf("hoge%d", i-1))
 
-	}
+// 		assert.True(t, k < pk, bits.Reverse64(k) > bits.Reverse64(pk))
 
-}
+// 	}
+
+// }
 
 func Benchmark_HMap(b *testing.B) {
 

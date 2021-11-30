@@ -9,6 +9,7 @@ import (
 
 	list_head "github.com/kazu/loncha/lista_encabezado"
 	"github.com/kazu/skiplistmap"
+	"github.com/kazu/skiplistmap/rmap"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -81,6 +82,26 @@ func Test_HmapEntry(t *testing.T) {
 		})
 	}
 
+}
+
+type WRMap struct {
+	base *rmap.RMap
+}
+
+func (w *WRMap) Set(k string, v *list_head.ListHead) bool {
+	return w.base.Set(k, v)
+
+}
+
+func (w *WRMap) Get(k string) (v *list_head.ListHead, ok bool) {
+	inf, ok := w.base.Get(k)
+	return inf.(*list_head.ListHead), ok
+}
+
+func newWRMap() *WRMap {
+	return &WRMap{
+		base: rmap.New(),
+	}
 }
 
 type WrapHMap struct {
@@ -266,6 +287,8 @@ func Benchmark_Map(b *testing.B) {
 		{"sync.Map                     ", 100, 100000, 0, 0x000, 0, syncMap{}},
 		{"skiplistmap                  ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
 		{"skiplistmap                  ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
+		{"RMap                         ", 100, 100000, 0, 0x000, 0, newWRMap()},
+
 		// {"skiplistmap                  ", 100, 100000, 0, 0x008, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
 
 		// {"WithLock                     ", 100, 100000, 10, 0x000, 0, &list_head.MapWithLock{}},
@@ -277,6 +300,7 @@ func Benchmark_Map(b *testing.B) {
 		{"sync.Map                     ", 100, 100000, 50, 0x000, 0, syncMap{}},
 		{"skiplistmap                  ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
 		{"skiplistmap                  ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
+		{"RMap                         ", 100, 100000, 50, 0x000, 0, newWRMap()},
 	}
 
 	for _, bm := range benchmarks {

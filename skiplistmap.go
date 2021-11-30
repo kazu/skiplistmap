@@ -158,6 +158,7 @@ func (s *entryHMap) Offset() uintptr {
 
 func (s *entryHMap) Delete() {
 	s.key = nil
+	s.MapHead.isDummy = true
 }
 
 type HMapEntry interface {
@@ -295,6 +296,14 @@ func NewHMap(opts ...OptHMap) *Map {
 // 	k, conflict := KeyToHash(key)
 // 	return h._set(k, conflict, key, value)
 // }
+
+func (h *Map) Len() int {
+	return int(h.len)
+}
+
+func (h *Map) AddLen(inc int64) int64 {
+	return atomic.AddInt64(&h.len, inc)
+}
 
 func (h *Map) initBeforeSet() {
 	if !h.notHaveBuckets() {
@@ -583,6 +592,10 @@ func (h *Map) GetWithFn(key interface{}, onSuccess func(interface{})) bool {
 // LoadItem ... return key/value item with embedded-linked-list. if not found, ok is false
 func (h *Map) LoadItem(key interface{}) (MapItem, bool) {
 	return h._get(KeyToHash(key))
+}
+
+func (h *Map) LoadItemByHash(k uint64, conflict uint64) (MapItem, bool) {
+	return h._get(k, conflict)
 }
 
 // Set ... set the value for a key
@@ -1476,6 +1489,7 @@ func (h *Map) Delete(key interface{}) {
 // RangeItem ... calls f sequentially for each key and value present in the map.
 // called ordre is reverse key order
 func (h *Map) RangeItem(f func(MapItem) bool) {
+
 	oldConfs := list_head.DefaultModeTraverse.Option(list_head.WaitNoM())
 	defer list_head.DefaultModeTraverse.Option(oldConfs...)
 

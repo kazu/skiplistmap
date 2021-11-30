@@ -55,6 +55,11 @@ func (s *SampleItem) SetValue(v interface{}) bool {
 	return true
 }
 
+func (s *SampleItem) Setup() {
+	s.reverse, s.conflict = KeyToHash(s.Key())
+
+}
+
 func (s *SampleItem) Next() HMapEntry {
 	return s.hmapEntryFromListHead(s.PtrListHead().DirectNext())
 }

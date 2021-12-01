@@ -35,7 +35,11 @@ func SetLogIO(w io.Writer) {
 
 func Log(l LogLevel, s string, args ...interface{}) {
 
-	if CurrentLogLevel > l {
+	if l == LogFatal {
+		panic(fmt.Sprintf(s, args...))
+	}
+
+	if CurrentLogLevel >= l {
 		fmt.Fprintf(logio, s, args...)
 	}
 

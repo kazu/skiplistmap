@@ -28,6 +28,7 @@ func runBnech(b *testing.B, m list_head.MapGetSet, concurretRoutine, operationCn
 		//rmap.ValidateDirty()
 	}
 
+	isUpdate := true
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		index := rand.Int() & mask
@@ -35,7 +36,11 @@ func runBnech(b *testing.B, m list_head.MapGetSet, concurretRoutine, operationCn
 
 		if pctWrites*mc/100 != pctWrites*(mc-1)/100 {
 			for pb.Next() {
-				m.Set(fmt.Sprintf("%d", index&mask), &list_head.ListHead{})
+				if isUpdate {
+					m.Set(fmt.Sprintf("%d", index&mask), &list_head.ListHead{})
+				} else {
+					m.Set(fmt.Sprintf("xx%dxx", index&mask), &list_head.ListHead{})
+				}
 				index = index + 1
 			}
 		} else {
@@ -220,9 +225,10 @@ func Benchmark_HMap_forProfile(b *testing.B) {
 		mode       skiplistmap.SearchMode
 		mapInf     list_head.MapGetSet
 	}{
+		//{"RMap            ", 100, 100000, 50, 0x000, 0, newWRMap()},
 		{"HMap_combine    ", 100, 100000, 0x0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
+		{"HMap_combine3    ", 100, 100000, 0x0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
 		//{"HMap_combine    ", 100, 100000, 100, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
-
 		//{"HMap_combine2    ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch2, newWrapHMap(skiplistmap.NewHMap())},
 	}
 

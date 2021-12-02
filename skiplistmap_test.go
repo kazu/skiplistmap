@@ -137,7 +137,7 @@ func newWrapHMap(hmap *skiplistmap.Map) *WrapHMap {
 
 func Test_HMap(t *testing.T) {
 
-	m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.BucketMode(skiplistmap.CombineSearch)))
+	m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.BucketMode(skiplistmap.CombineSearch3)))
 	//m := list_head.NewHMap(list_head.MaxPefBucket(32), list_head.BucketMode(list_head.NestedSearchForBucket))
 	//m := list_head.NewHMap(list_head.MaxPefBucket(32), list_head.BucketMode(list_head.LenearSearchForBucket))
 	skiplistmap.EnableStats = true
@@ -226,6 +226,7 @@ func Benchmark_HMap_forProfile(b *testing.B) {
 		mapInf     list_head.MapGetSet
 	}{
 		//{"RMap            ", 100, 100000, 50, 0x000, 0, newWRMap()},
+
 		{"HMap_combine    ", 100, 100000, 0x0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
 		{"HMap_combine3    ", 100, 100000, 0x0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
 		//{"HMap_combine    ", 100, 100000, 100, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
@@ -293,6 +294,8 @@ func Benchmark_Map(b *testing.B) {
 		{"sync.Map                     ", 100, 100000, 0, 0x000, 0, syncMap{}},
 		{"skiplistmap                  ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
 		{"skiplistmap                  ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
+		{"skiplistmap3                 ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
+
 		{"RMap                         ", 100, 100000, 0, 0x000, 0, newWRMap()},
 
 		// {"skiplistmap                  ", 100, 100000, 0, 0x008, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},

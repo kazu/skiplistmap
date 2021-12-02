@@ -3,5 +3,5 @@
 - [ ] Implement Purge()
   - [ ] basic impleent
   - [ ] waiting/locking to traverse on pursing
-- [ ] impelemnt syncMap()
-  - [ ] new sync.Map implementaion to re-write dirty as skiplistmap.Map 
+- [x] impelemnt syncMap()
+  - [x]] new sync.Map implementaion to re-write dirty as skiplistmap.Map 

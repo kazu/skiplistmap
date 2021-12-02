@@ -58,12 +58,15 @@ func newBucketBuffer(level int) (buf *bucketBuffer) {
 	buf = &bucketBuffer{}
 	buf.Init()
 
-	cntFn := func(l int) int {
-		r := 4
-		for i := 1; i < l+1; i++ {
-			r *= r
+	cntFn := func(l int) (r int) {
+
+		r = 0
+		for i := 0; i < l; i++ {
+			r = (r << 4) | 0xf
 		}
-		return r
+
+		r++
+		return
 	}
 	size := cntFn(level)
 	buf.buf = make([]bucket, size)
@@ -144,6 +147,39 @@ func (buf *bucketBuffer) fromReverse(reverse uint64, level int, check bool) *buc
 		return nil
 	}
 	return r
+}
+func (buf *bucketBuffer) nearReverse(reverse uint64, level int) (r *bucket) {
+
+	lbuf := buf.fromLevel(level)
+	if lbuf == nil {
+		return nil
+	}
+	r = &lbuf.buf[reverse2Index(level, reverse)]
+
+	if r == nil || r.level == 0 || r.reverse == 0 {
+		for i := 1; i < 16; i++ {
+			if len(lbuf.buf) <= reverse2Index(level, reverse)+i {
+				break
+			}
+			c := &lbuf.buf[reverse2Index(level, reverse)+i]
+			if c.level != 0 {
+				r = c
+				break
+			}
+		}
+	}
+	if r == nil {
+		return nil
+	}
+
+	if r.level == 0 {
+		return nil
+	}
+	if r.level != 1 && r.reverse == 0 {
+		return nil
+	}
+	return r
+
 }
 
 func (buf *bucketBuffer) maxLevel() (max int) {

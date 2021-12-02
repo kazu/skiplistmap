@@ -659,7 +659,7 @@ func (h *Map) MakeBucket(ocur *list_head.ListHead, back int) {
 		if level <= 3 {
 			h.buf.allocLevel(level)
 		}
-		if level > 3 {
+		if level > 4 {
 			n := cBucket.PrevOnLevel()
 			_ = n
 			Log(LogWarn, "allocate big buffer?")
@@ -1096,9 +1096,15 @@ func (h *Map) topLevelBucket(reverse uint64) *bucket {
 func (h *Map) searchBucket4update(k uint64) (*bucket, uint64) {
 
 	reverseNoMask := bits.Reverse64(k)
+	//var near *bucket
+	var cBuf *bucket
 
 	for level := h.buf.maxLevel(); level > 0; level-- {
-		cBuf := h.buf.fromReverse(reverseNoMask, level, true)
+		// if h.modeForBucket == CombineSearch3 {
+		// 	cBuf = h.buf.nearReverse(reverseNoMask, level)
+		// } else {
+		cBuf = h.buf.fromReverse(reverseNoMask, level, true)
+		//}
 		if cBuf == nil {
 			continue
 		}
@@ -1107,7 +1113,53 @@ func (h *Map) searchBucket4update(k uint64) (*bucket, uint64) {
 		} else {
 			return cBuf, reverseNoMask
 		}
+
+		// near = cBuf
+		// interval := int64(0)
+		// dBuf := bucketFromLevelHead(cBuf.downLevel)
+		// if dnBuf := dBuf.NextOnLevel(); dnBuf != dBuf {
+		// 	interval = int64(dnBuf.reverse) >> (4 * (15 - level))
+		// 	interval -= int64(dBuf.reverse) >> (4 * (15 - level))
+		// }
+		// if dnBuf := dBuf.PrevOnLevel(); dnBuf != dBuf {
+		// 	interval = int64(dnBuf.reverse) >> (4 * (15 - level))
+		// 	interval -= int64(dBuf.reverse) >> (4 * (15 - level))
+		// }
+		// if interval < 0 {
+		// 	interval = -interval
+		// }
+		// cidx := reverse2Index(level+1, reverseNoMask)
+		// buflevel := h.buf.fromLevel(level + 1)
+
+		// if buflevel != nil && interval > 0 {
+		// 	diff := 0
+		// 	didx := reverse2Index(level+1, dBuf.reverse)
+		// 	if didx > cidx {
+		// 		diff = didx - cidx
+		// 		diff = diff % int(interval)
+
+		// 	} else {
+		// 		diff = cidx - didx
+		// 		diff = diff % int(interval)
+		// 		diff = -diff
+		// 	}
+		// 	if nearUint64(uint64(cidx+diff), uint64(reverse2Index(level+1, near.reverse)), uint64(cidx)) == uint64(cidx+diff) &&
+		// 		buflevel.buf[cidx+diff].reverse != 0 {
+		// 		near = &buflevel.buf[cidx+diff]
+		// 	}
+		// } else {
+		// 	a := buflevel.buf[cidx+diff].reverse
+		// 	_ = a
+		// }
+		// }
+
+		// if h.modeForBucket == CombineSearch {
+		// 	return h.searchBucketWithBucket(near, reverseNoMask)
+		// } else {
+		// 	return near, reverseNoMask
+		// }
 	}
+
 	if h.modeForBucket == CombineSearch {
 		return h._searchBucket4update(k)
 	} else {

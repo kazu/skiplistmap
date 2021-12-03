@@ -8,4 +8,4 @@
   - [ ] waiting/locking to traverse on pursing
   - [ ] purge bucket
 - [x] impelemnt syncMap()
-  - [x]] new sync.Map implementaion to re-write dirty as skiplistmap.Map 
+  - [x] new sync.Map implementaion to re-write dirty as skiplistmap.Map 

@@ -9,11 +9,12 @@ package skiplistmap
 import (
 	"unsafe"
 
+	"github.com/cespare/xxhash"
 	list_head "github.com/kazu/loncha/lista_encabezado"
 )
 
 type SampleItem struct {
-	K interface{}
+	K string
 	V interface{}
 	MapHead
 }
@@ -72,5 +73,9 @@ func (s *SampleItem) PtrMapHead() *MapHead {
 }
 
 func (s *SampleItem) Delete() {
-	s.K = nil
+	s.isDeleted = true
+}
+
+func (s *SampleItem) KeyHash() (uint64, uint64) {
+	return MemHashString(s.K), xxhash.Sum64String(s.K)
 }

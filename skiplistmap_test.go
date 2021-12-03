@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/cespare/xxhash"
 	list_head "github.com/kazu/loncha/lista_encabezado"
 	"github.com/kazu/skiplistmap"
 	"github.com/kazu/skiplistmap/rmap"
@@ -120,7 +121,7 @@ func (w *WrapHMap) Set(k string, v *list_head.ListHead) bool {
 }
 
 func (w *WrapHMap) Get(k string) (v *list_head.ListHead, ok bool) {
-	result, ok := w.base.LoadItem(k)
+	result, ok := w.base.LoadItemByHash(skiplistmap.MemHashString(k), xxhash.Sum64String(k))
 	if !ok || result == nil {
 		return nil, ok
 	}

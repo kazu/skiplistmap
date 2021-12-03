@@ -78,6 +78,10 @@ func entryHMapFromListHead(head *list_head.ListHead) *entryHMap {
 	return (*entryHMap)(list_head.ElementOf(emptyEntryHMap, head))
 }
 
+func (s *entryHMap) KeyHash() (uint64, uint64) {
+	return KeyToHash(s.key)
+}
+
 func (e *entryHMap) entryHMapromListHead(lhead *list_head.ListHead) *entryHMap {
 	return entryHMapFromListHead(lhead)
 }
@@ -115,7 +119,7 @@ func (s *entryHMap) Offset() uintptr {
 
 func (s *entryHMap) Delete() {
 	s.key = nil
-	s.MapHead.isDummy = true
+	s.MapHead.isDeleted = true
 }
 
 type HMapEntry interface {
@@ -130,6 +134,7 @@ type MapItem interface {
 	Key() interface{}   // require order for HMap
 	Value() interface{} // require order for HMap
 	SetValue(interface{}) bool
+	KeyHash() (uint64, uint64)
 	Delete()
 
 	HMapEntry
@@ -137,9 +142,10 @@ type MapItem interface {
 
 type MapHead struct {
 	//k        uint64
-	conflict uint64
-	reverse  uint64
-	isDummy  bool
+	conflict  uint64
+	reverse   uint64
+	isDummy   bool
+	isDeleted bool
 	list_head.ListHead
 }
 
@@ -147,6 +153,10 @@ var EmptyMapHead MapHead = MapHead{}
 
 func (mh *MapHead) KeyInHmap() uint64 {
 	return bits.Reverse64(mh.reverse)
+}
+
+func (mh *MapHead) IsIgnored() bool {
+	return mh.isDummy || mh.isDeleted
 }
 
 func (mh *MapHead) ConflictInHamp() uint64 {
@@ -541,6 +551,14 @@ func (h *Map) Get(key interface{}) (value interface{}, ok bool) {
 	return item.Value(), ok
 }
 
+func (h *Map) GetByHash(hash, conflict uint64) (value interface{}, ok bool) {
+	item, ok := h._get(hash, conflict)
+	if !ok {
+		return nil, false
+	}
+	return item.Value(), ok
+}
+
 // GetWithFn ... Get with succes function.
 func (h *Map) GetWithFn(key interface{}, onSuccess func(interface{})) bool {
 
@@ -565,7 +583,7 @@ func (h *Map) LoadItemByHash(k uint64, conflict uint64) (MapItem, bool) {
 func (h *Map) Set(key, value interface{}) bool {
 
 	s := &SampleItem{
-		K: key,
+		K: key.(string),
 		V: value,
 	}
 	if _, ok := h.ItemFn().(*SampleItem); !ok {
@@ -578,7 +596,7 @@ func (h *Map) Set(key, value interface{}) bool {
 
 // StoreItem ... set key/value item with embedded-linked-list
 func (h *Map) StoreItem(item MapItem) bool {
-	k, conflict := KeyToHash(item.Key())
+	k, conflict := item.KeyHash()
 	return h._set(k, conflict, item)
 }
 
@@ -620,7 +638,7 @@ func (h *Map) find(start *list_head.ListHead, cond func(HMapEntry) bool, opts ..
 	for cur := start; cur != cur.Next(); cur = cur.Next() {
 		e = entryHMapFromListHead(cur)
 
-		if conf.ignoreBucketEntry && e.Key() == nil {
+		if conf.ignoreBucketEntry && e.PtrMapHead().IsIgnored() {
 			continue
 		}
 		if cond(e) {
@@ -789,7 +807,7 @@ func (h *Map) add2(start *list_head.ListHead, e HMapEntry, opts ...HMethodOpt) b
 	}, ignoreBucketEntry(false))
 
 	defer func() {
-		if !EnableStats || e.PtrMapHead().isDummy {
+		if !EnableStats || e.PtrMapHead().IsIgnored() {
 			return
 		}
 
@@ -806,7 +824,7 @@ func (h *Map) add2(start *list_head.ListHead, e HMapEntry, opts ...HMethodOpt) b
 			return true
 		}
 		btable := opt.bucket
-		if btable != nil && e.(MapItem).Key() != nil && int(btable.len) > h.maxPerBucket {
+		if btable != nil && !e.PtrMapHead().IsIgnored() && int(btable.len) > h.maxPerBucket {
 			h.MakeBucket(e.PtrListHead(), int(btable.len)/2)
 		}
 		return true
@@ -1229,7 +1247,7 @@ func (h *Map) searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketEn
 				DebugStats[CntReverseSearch]++
 				h.mu.Unlock()
 			}
-			if ignoreBucketEnry && cur.isDummy {
+			if ignoreBucketEnry && cur.IsIgnored() {
 				continue
 			}
 			//curReverse := bits.Reverse64(cur.k)
@@ -1253,7 +1271,7 @@ func (h *Map) searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketEn
 		}
 		//curReverse := bits.Reverse64(cur.k)
 		curReverse := cur.reverse
-		if ignoreBucketEnry && cur.isDummy {
+		if ignoreBucketEnry && cur.IsIgnored() {
 			continue
 		}
 		if curReverse > reverseNoMask {
@@ -1289,7 +1307,7 @@ func (h *Map) RangeItem(f func(MapItem) bool) {
 
 	for cur := h.start.Prev(list_head.WaitNoM()).Next(list_head.WaitNoM()); !cur.Empty(); cur = cur.Next(list_head.WaitNoM()) {
 		mhead := EmptyMapHead.FromListHead(cur).(*MapHead)
-		if mhead.isDummy {
+		if mhead.IsIgnored() {
 			continue
 		}
 		e := h.ItemFn().HmapEntryFromListHead(mhead.PtrListHead()).(MapItem)

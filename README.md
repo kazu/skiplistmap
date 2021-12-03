@@ -117,11 +117,12 @@ Benchmark_Map/RMap__________________________w/_0_bucket=__0-16         	34806978
 ### read 50%. update 50%
 
 ```
-Benchmark_Map/mapWithMutex__________________w/50_bucket=__0-16         	 3314656	       364.6 ns/op	      16 B/op	       1 allocs/op
-Benchmark_Map/sync.Map______________________w/50_bucket=__0-16         	14289441	        70.34 ns/op	     134 B/op	       4 allocs/op
-Benchmark_Map/skiplistmap___________________w/50_bucket=_32-16         	21370478	        64.18 ns/op	      27 B/op	       2 allocs/op
-Benchmark_Map/skiplistmap___________________w/50_bucket=_16-16         	21110790	        65.22 ns/op	      27 B/op	       2 allocs/op
-Benchmark_Map/RMap__________________________w/50_bucket=__0-16         	21455697	        53.36 ns/op	      72 B/op	       4 allocs/op
+Benchmark_Map/mapWithMutex__________________w/50_bucket=__0-32         	 5395058	       215.4 ns/op	      15 B/op	       1 allocs/op
+Benchmark_Map/sync.Map______________________w/50_bucket=__0-32         	16695871	        71.97 ns/op	     128 B/op	       4 allocs/op
+Benchmark_Map/skiplistmap___________________w/50_bucket=_16-32         	25625329	        56.93 ns/op	      25 B/op	       2 allocs/op
+Benchmark_Map/skiplistmap3__________________w/50_bucket=_16-32         	27599877	        56.46 ns/op	      25 B/op	       2 allocs/op
+Benchmark_Map/skiplistmap3__________________w/50_bucket=_32-32         	29711847	        51.81 ns/op	      24 B/op	       2 allocs/op
+Benchmark_Map/RMap__________________________w/50_bucket=__0-32         	20167140	        55.81 ns/op	      71 B/op	       4 allocs/op
 ```
 
 

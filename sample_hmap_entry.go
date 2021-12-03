@@ -10,7 +10,7 @@ import (
 	"unsafe"
 
 	"github.com/cespare/xxhash"
-	list_head "github.com/kazu/loncha/lista_encabezado"
+	"github.com/kazu/elist_head"
 )
 
 type SampleItem struct {
@@ -26,8 +26,8 @@ var EmptySampleHMapEntry *SampleItem = (*SampleItem)(unsafe.Pointer(uintptr(0)))
 
 const SampleItemOffsetOf = unsafe.Offsetof(EmptySampleHMapEntry.ListHead)
 
-func SampleItemFromListHead(head *list_head.ListHead) *SampleItem {
-	return (*SampleItem)(ElementOf(unsafe.Pointer(head), SampleItemOffsetOf))
+func SampleItemFromListHead(head *elist_head.ListHead) *SampleItem {
+	return (*SampleItem)(elist_head.ElementOf(EmptySampleHMapEntry, head))
 }
 
 func (s *SampleItem) Offset() uintptr {
@@ -38,11 +38,11 @@ func (s *SampleItem) PtrMapeHead() *MapHead {
 	return &(s.MapHead)
 }
 
-func (s *SampleItem) hmapEntryFromListHead(lhead *list_head.ListHead) *SampleItem {
+func (s *SampleItem) hmapEntryFromListHead(lhead *elist_head.ListHead) *SampleItem {
 	return SampleItemFromListHead(lhead)
 }
 
-func (s *SampleItem) HmapEntryFromListHead(lhead *list_head.ListHead) HMapEntry {
+func (s *SampleItem) HmapEntryFromListHead(lhead *elist_head.ListHead) HMapEntry {
 	return s.hmapEntryFromListHead(lhead)
 }
 

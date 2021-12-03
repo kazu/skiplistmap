@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/cespare/xxhash"
+	"github.com/kazu/elist_head"
 	list_head "github.com/kazu/loncha/lista_encabezado"
 	"github.com/kazu/skiplistmap"
 	"github.com/kazu/skiplistmap/rmap"
@@ -64,19 +65,19 @@ func Test_HmapEntry(t *testing.T) {
 	tests := []struct {
 		name   string
 		wanted skiplistmap.MapItem
-		got    func(*list_head.ListHead) skiplistmap.MapItem
+		got    func(*elist_head.ListHead) skiplistmap.MapItem
 	}{
 		{
 			name:   "SampleItem",
 			wanted: &skiplistmap.SampleItem{K: "hoge", V: "hoge value"},
-			got: func(lhead *list_head.ListHead) skiplistmap.MapItem {
+			got: func(lhead *elist_head.ListHead) skiplistmap.MapItem {
 				return (skiplistmap.EmptySampleHMapEntry).HmapEntryFromListHead(lhead).(skiplistmap.MapItem)
 			},
 		},
 		{
 			name:   "entryHMap",
 			wanted: skiplistmap.NewEntryMap("hogeentry", "hogevalue"),
-			got: func(lhead *list_head.ListHead) skiplistmap.MapItem {
+			got: func(lhead *elist_head.ListHead) skiplistmap.MapItem {
 				return (skiplistmap.EmptyEntryHMap).HmapEntryFromListHead(lhead).(skiplistmap.MapItem)
 			},
 		},

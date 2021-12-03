@@ -5,6 +5,7 @@ import (
 	"math/bits"
 	"unsafe"
 
+	"github.com/kazu/elist_head"
 	list_head "github.com/kazu/loncha/lista_encabezado"
 )
 
@@ -12,7 +13,7 @@ type bucket struct {
 	level   int32
 	len     int32
 	reverse uint64
-	head    *list_head.ListHead // to MapEntry
+	head    *elist_head.ListHead // to MapEntry
 
 	downLevels []bucket
 
@@ -40,7 +41,7 @@ func (e *bucket) PtrLevelHead() *list_head.ListHead {
 }
 
 func (e *bucket) FromListHead(head *list_head.ListHead) list_head.List {
-	return entryHMapFromListHead(head)
+	return bucketFromListHead(head)
 }
 
 func bucketFromListHead(head *list_head.ListHead) *bucket {

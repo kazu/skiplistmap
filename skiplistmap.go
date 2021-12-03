@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/kazu/elist_head"
 	list_head "github.com/kazu/loncha/lista_encabezado"
 )
 
@@ -43,8 +44,8 @@ type Map struct {
 
 	len          int64
 	maxPerBucket int
-	head         *list_head.ListHead
-	tail         *list_head.ListHead
+	head         *elist_head.ListHead
+	tail         *elist_head.ListHead
 
 	modeForBucket SearchMode
 	mu            sync.Mutex
@@ -57,94 +58,11 @@ type Map struct {
 
 type LevelHead list_head.ListHead
 
-type entryHMap struct {
-	key   interface{}
-	value interface{}
-	MapHead
-}
+// 	eBuf       []entryBuffer
+// 	maxPefEbuf int
+// }
 
-func NewEntryMap(key, value interface{}) *entryHMap {
-	return &entryHMap{
-		key:   key,
-		value: value,
-	}
-}
-
-var (
-	emptyEntryHMap *entryHMap = nil
-	emptyBucket    *bucket    = nil
-	EmptyEntryHMap *entryHMap = nil
-)
-
-func entryHMapFromListHead(head *list_head.ListHead) *entryHMap {
-	//	return (*entryHMap)(list_head.ElementOf(emptyEntryHMap, head))
-	return (*entryHMap)(ElementOf(unsafe.Pointer(head), entryHMapOffset))
-}
-
-func (s *entryHMap) KeyHash() (uint64, uint64) {
-	return KeyToHash(s.key)
-}
-
-func (e *entryHMap) entryHMapromListHead(lhead *list_head.ListHead) *entryHMap {
-	return entryHMapFromListHead(lhead)
-}
-
-func (s *entryHMap) HmapEntryFromListHead(lhead *list_head.ListHead) HMapEntry {
-	return s.entryHMapromListHead(lhead)
-}
-
-func (s *entryHMap) Key() interface{} {
-	return s.key
-}
-
-func (s *entryHMap) Value() interface{} {
-	return s.value
-}
-
-func (s *entryHMap) SetValue(v interface{}) bool {
-	s.value = v
-	return true
-}
-
-func (s *entryHMap) Next() HMapEntry {
-	return s.entryHMapromListHead(s.PtrListHead().DirectNext())
-}
-func (s *entryHMap) Prev() HMapEntry {
-	return s.entryHMapromListHead(s.PtrListHead().DirectPrev())
-}
-
-func (s *entryHMap) PtrMapHead() *MapHead {
-	return &s.MapHead
-}
-
-const entryHMapOffset = unsafe.Offsetof(EmptyEntryHMap.ListHead)
-
-func (s *entryHMap) Offset() uintptr {
-	return entryHMapOffset
-}
-
-func (s *entryHMap) Delete() {
-	s.key = nil
-	s.MapHead.state |= mapIsDeleted
-}
-
-type HMapEntry interface {
-	Offset() uintptr
-	PtrMapHead() *MapHead
-	PtrListHead() *list_head.ListHead
-	HmapEntryFromListHead(*list_head.ListHead) HMapEntry
-	Next() HMapEntry
-	Prev() HMapEntry
-}
-type MapItem interface {
-	Key() interface{}   // require order for HMap
-	Value() interface{} // require order for HMap
-	SetValue(interface{}) bool
-	KeyHash() (uint64, uint64)
-	Delete()
-
-	HMapEntry
-}
+//type LevelHead list_head.ListHead
 
 type mapState byte
 
@@ -157,7 +75,7 @@ type MapHead struct {
 	state    mapState
 	conflict uint64
 	reverse  uint64
-	list_head.ListHead
+	elist_head.ListHead
 }
 
 var EmptyMapHead *MapHead = (*MapHead)(unsafe.Pointer(uintptr(0)))
@@ -182,7 +100,7 @@ func (mh *MapHead) ConflictInHamp() uint64 {
 	return mh.conflict
 }
 
-func (mh *MapHead) PtrListHead() *list_head.ListHead {
+func (mh *MapHead) PtrListHead() *elist_head.ListHead {
 	return &(mh.ListHead)
 }
 
@@ -192,13 +110,11 @@ func (mh *MapHead) Offset() uintptr {
 	return mapheadOffset
 }
 
-func (mh *MapHead) fromListHead(l *list_head.ListHead) *MapHead {
-	//return (*MapHead)(list_head.ElementOf(EmptyMapHead, l))
-	return (*MapHead)(ElementOf(unsafe.Pointer(l), mapheadOffset))
-
+func (mh *MapHead) fromListHead(l *elist_head.ListHead) *MapHead {
+	return (*MapHead)(elist_head.ElementOf(EmptyMapHead, l))
 }
 
-func (c *MapHead) FromListHead(l *list_head.ListHead) list_head.List {
+func (c *MapHead) FromListHead(l *elist_head.ListHead) elist_head.List {
 	return c.fromListHead(l)
 }
 
@@ -282,7 +198,7 @@ func NewHMap(opts ...OptHMap) *Map {
 	hmap.tailBucket = topBucket.Next()
 	hmap.headBucket = topBucket.Prev()
 
-	list := &list_head.ListHead{}
+	list := &elist_head.ListHead{}
 	list.InitAsEmpty()
 	hmap.head = list.Prev()
 	hmap.tail = list.Next()
@@ -446,7 +362,7 @@ SKIP_FETCH_BUCKET:
 	_ = cnt
 
 	var pEntry HMapEntry
-	var tStart *list_head.ListHead
+	var tStart *elist_head.ListHead
 	if entry != nil {
 		pEntry = entry.Prev()
 		erk := entry.PtrMapHead().reverse
@@ -485,22 +401,6 @@ func (h *Map) get(key interface{}) (interface{}, bool) {
 		return e, success
 	}
 	return e.Value(), success
-}
-
-type CondOfFinder func(ehead *entryHMap) bool
-
-func CondOfFind(reverse uint64, l sync.Locker) CondOfFinder {
-
-	return func(ehead *entryHMap) bool {
-
-		if EnableStats {
-			l.Lock()
-			DebugStats[CntSearchEntry]++
-			l.Unlock()
-		}
-		return reverse <= ehead.reverse
-	}
-
 }
 
 var Failreverse uint64 = 0
@@ -687,7 +587,7 @@ func (h *Map) StoreItem(item MapItem) bool {
 	return h._set(k, conflict, bucket, item)
 }
 
-func (h *Map) eachEntry(start *list_head.ListHead, fn func(*entryHMap)) {
+func (h *Map) eachEntry(start *elist_head.ListHead, fn func(*entryHMap)) {
 	for cur := start; !cur.Empty(); cur = cur.Next() {
 		e := entryHMapFromListHead(cur)
 		if e.key == nil {
@@ -698,7 +598,7 @@ func (h *Map) eachEntry(start *list_head.ListHead, fn func(*entryHMap)) {
 	return
 }
 
-func (h *Map) each(start *list_head.ListHead, fn func(key, value interface{})) {
+func (h *Map) each(start *elist_head.ListHead, fn func(key, value interface{})) {
 
 	for cur := start; !cur.Empty(); cur = cur.Next() {
 		e := entryHMapFromListHead(cur)
@@ -708,7 +608,7 @@ func (h *Map) each(start *list_head.ListHead, fn func(key, value interface{})) {
 }
 
 // must renename to find
-func (h *Map) find(start *list_head.ListHead, cond func(HMapEntry) bool, opts ...searchArg) (result HMapEntry, cnt int) {
+func (h *Map) find(start *elist_head.ListHead, cond func(HMapEntry) bool, opts ...searchArg) (result HMapEntry, cnt int) {
 
 	conf := sharedSearchOpt
 	previous := conf.Options(opts...)
@@ -738,7 +638,7 @@ func (h *Map) find(start *list_head.ListHead, cond func(HMapEntry) bool, opts ..
 
 }
 
-func (h *Map) MakeBucket(ocur *list_head.ListHead, back int) (err error) {
+func (h *Map) MakeBucket(ocur *elist_head.ListHead, back int) (err error) {
 
 	enableDumpBucket := false
 
@@ -878,7 +778,7 @@ func WithBucket(b *bucket) func(*hmapMethod) {
 	}
 }
 
-func (h *Map) add2(start *list_head.ListHead, e HMapEntry, opts ...HMethodOpt) bool {
+func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) bool {
 	var opt *hmapMethod
 	if len(opts) > 0 {
 		opt = &hmapMethod{}
@@ -1054,7 +954,7 @@ func (h *Map) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket) {
 	empty.reverse, empty.conflict = nBtable.reverse, 0
 	empty.PtrMapHead().state |= mapIsDummy
 	empty.Init()
-	var thead *list_head.ListHead
+	var thead *elist_head.ListHead
 	if tBtable.Empty() {
 		thead = h.head.Prev().Next()
 	} else {

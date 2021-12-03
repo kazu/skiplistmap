@@ -126,4 +126,4 @@ Benchmark_Map/RMap__________________________w/50_bucket=__0-32         	20167140
 ```
 
 
-[list_encabezado]: github.com/kazu/loncha/lista_encabezado
+[list_encabezado]: ../loncha/lista_encabezado

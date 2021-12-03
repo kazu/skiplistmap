@@ -94,4 +94,35 @@ sMap.Purge("test2")
 
 ```
 
+## performance
+
+### condition
+- 100000 record. set key/value before benchmark
+- mapWithMutex map[interface{}]interface{} with sync.RWMutex
+- skiplistmap normal element search
+- skiplistmap3 with reverse element search
+- RMap  rewrite drity of sync.Map as skiplistmap (sync.Map read is map[uint64]atomic.Value)
+
+### read only
+```
+Benchmark_Map/mapWithMutex__________________w/_0_bucket=__0-16         	17055374	        69.39 ns/op	      15 B/op	       1 allocs/op
+Benchmark_Map/sync.Map______________________w/_0_bucket=__0-16         	25268019	        42.00 ns/op	      63 B/op	       2 allocs/op
+Benchmark_Map/skiplistmap___________________w/_0_bucket=_32-16         	26189863	        47.96 ns/op	      15 B/op	       1 allocs/op
+Benchmark_Map/skiplistmap___________________w/_0_bucket=_16-16         	32570624	        44.40 ns/op	      15 B/op	       1 allocs/op
+Benchmark_Map/skiplistmap3__________________w/_0_bucket=_16-16         	36449119	        40.41 ns/op	      15 B/op	       1 allocs/op
+Benchmark_Map/RMap__________________________w/_0_bucket=__0-16         	34806978	        33.39 ns/op	      31 B/op	       2 allocs/op
+```
+
+
+### read 50%. update 50%
+
+```
+Benchmark_Map/mapWithMutex__________________w/50_bucket=__0-16         	 3314656	       364.6 ns/op	      16 B/op	       1 allocs/op
+Benchmark_Map/sync.Map______________________w/50_bucket=__0-16         	14289441	        70.34 ns/op	     134 B/op	       4 allocs/op
+Benchmark_Map/skiplistmap___________________w/50_bucket=_32-16         	21370478	        64.18 ns/op	      27 B/op	       2 allocs/op
+Benchmark_Map/skiplistmap___________________w/50_bucket=_16-16         	21110790	        65.22 ns/op	      27 B/op	       2 allocs/op
+Benchmark_Map/RMap__________________________w/50_bucket=__0-16         	21455697	        53.36 ns/op	      72 B/op	       4 allocs/op
+```
+
+
 [list_encabezado]: github.com/kazu/loncha/lista_encabezado

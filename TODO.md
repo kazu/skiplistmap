@@ -1,5 +1,8 @@
+- [ ] improve performance
+  - [x] bucket buffer of donwlevel bucket as slice
+  - [ ] using elist_head as key/value item
 - [ ] support user defined key order.
-- [ ] refactoring
+- [x] refactoring
 - [ ] Implement Purge()
   - [ ] basic impleent
   - [ ] waiting/locking to traverse on pursing

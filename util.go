@@ -17,3 +17,18 @@ func nearUint64(a, b, dst uint64) uint64 {
 	}
 	return a
 }
+
+func halfUint64(os uint64, oe uint64) (hafl uint64) {
+
+	s, e := os, oe
+	if s > e {
+		s, e = e, s
+	}
+
+	diff := e - s
+	if diff == 0 {
+		return s + diff/2
+	}
+	return s + diff/2
+
+}

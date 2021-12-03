@@ -44,3 +44,7 @@ func Log(l LogLevel, s string, args ...interface{}) {
 	}
 
 }
+
+func IsDebug() bool {
+	return CurrentLogLevel == LogDebug
+}

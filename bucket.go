@@ -2,6 +2,7 @@ package skiplistmap
 
 import (
 	"errors"
+	"math/bits"
 	"unsafe"
 
 	list_head "github.com/kazu/loncha/lista_encabezado"
@@ -78,35 +79,6 @@ func newBucketBuffer(level int) (buf *bucketBuffer) {
 	buf.last = head.DirectNext()
 
 	return buf
-}
-
-func (buf *bucketBuffer) allocLevel(level int) error {
-
-	if len(buf.buf) == 0 {
-		return errors.New("cannot allocate in empty buffer")
-	}
-
-	b := &buf.buf[0]
-	if b.level != 1 {
-		return errors.New("must allocate in level 1 buffer")
-	}
-
-	if level >= 16 {
-		return errors.New("level < 16")
-	}
-
-	for cur := buf; cur.level() < level; cur = cur.Next() {
-		if cur.level() == level-1 {
-			if cur.Next() != cur {
-				return errors.New("alread allocated")
-			}
-			nbuf := newBucketBuffer(level)
-			cur.ListHead.Next().InsertBefore(&nbuf.ListHead)
-			buf.max = level
-			return nil
-		}
-	}
-	return errors.New("not allocated before-level")
 }
 
 func (buf *bucketBuffer) level() int {
@@ -204,7 +176,7 @@ type bucket struct {
 	len     int64
 	start   *list_head.ListHead // to MapEntry
 
-	downLevel *list_head.ListHead // to bucket.Levelhead
+	downLevels []bucket
 
 	LevelHead list_head.ListHead // to same level bucket
 	list_head.ListHead
@@ -239,57 +211,6 @@ func bucketFromLevelHead(head *list_head.ListHead) *bucket {
 		return nil
 	}
 	return (*bucket)(unsafe.Pointer(uintptr(unsafe.Pointer(head)) - emptyBucket.OffsetLevel()))
-}
-
-func (b *bucket) registerToUpLevel() {
-
-	if b.level > 1 {
-		var upBucket *bucket
-		upBucket = nil
-		_ = upBucket
-		if nextBuckketOnLevel := b.NextOnLevel(); nextBuckketOnLevel != b {
-			for cur := b; cur.reverse > nextBuckketOnLevel.reverse; cur = cur.nextAsB() {
-
-				if cur.level == b.level-1 {
-					upBucket = cur
-					break
-				}
-				if cur == cur.nextAsB() {
-					break
-				}
-			}
-		} else if nextBucket := b.nextAsB(); nextBucket != b {
-			for cur := nextBucket; cur.level != b.level; cur = cur.nextAsB() {
-				if cur.level == b.level-1 {
-					upBucket = cur
-					break
-				}
-				if cur == cur.nextAsB() {
-					break
-				}
-			}
-		} else {
-
-			for cur := b.prevAsB(); cur.level != b.level; cur = cur.prevAsB() {
-
-				if cur.level == b.level-1 {
-					upBucket = cur
-					break
-				}
-				if cur == cur.prevAsB() {
-					break
-				}
-			}
-		}
-
-		if upBucket != nil {
-			upBucket.downLevel = &b.LevelHead
-		} else {
-			Log(LogDebug, "bucket=%p set downlevel to upper level bucket", b)
-		}
-
-	}
-
 }
 
 func (b *bucket) checklevel() error {
@@ -428,4 +349,87 @@ func (b *bucket) entry(h *Map) (e HMapEntry) {
 	}
 	return b.NextEntry()
 
+}
+
+func (h *Map) findBucket(reverse uint64) (b *bucket) {
+
+	for l := 1; l < 16; l++ {
+		if l == 1 {
+			idx := (reverse >> (4 * 15))
+			b = &h.buckets[idx]
+			continue
+		}
+		idx := int((reverse >> (4 * (16 - l))) & 0xf)
+		if len(b.downLevels) <= idx {
+			break
+		}
+		if b.downLevels[idx].level == 0 || b.downLevels[idx].reverse == 0 {
+			break
+		}
+		b = &b.downLevels[idx]
+	}
+	if b.level == 0 {
+		return nil
+	}
+	return
+}
+
+func (h *Map) bucketFromPool(reverse uint64) (b *bucket) {
+
+	level := 0
+	for cur := bits.Reverse64(reverse); cur != 0; cur >>= 4 {
+		level++
+	}
+
+	for l := 1; l <= level; l++ {
+		if l == 1 {
+			idx := (reverse >> (4 * 15))
+			b = &h.buckets[idx]
+			continue
+		}
+		idx := int((reverse >> (4 * (16 - l))) & 0xf)
+		if cap(b.downLevels) == 0 {
+			b.downLevels = make([]bucket, 1, 16)
+			b.downLevels[0].level = b.level + 1
+			b.downLevels[0].reverse = b.reverse
+			b.downLevels[0].start = b.start
+			b.downLevels[0].Init()
+			b.downLevels[0].LevelHead.Init()
+			lCur := h.levelBucket(l)
+			if lCur.LevelHead.Empty() {
+				lCur = bucketFromLevelHead(lCur.LevelHead.DirectPrev().DirectNext())
+			}
+			for ; lCur != lCur.NextOnLevel(); lCur = lCur.NextOnLevel() {
+				if lCur.LevelHead.Empty() {
+					break
+				}
+				if lCur.reverse < b.reverse {
+					break
+				}
+			}
+			lCur.LevelHead.InsertBefore(&b.downLevels[0].LevelHead)
+		}
+		if len(b.downLevels) <= idx {
+			b.downLevels = b.downLevels[:idx+1]
+		}
+
+		if b.downLevels[idx].level == 0 {
+			if l != level {
+				Log(LogWarn, "not collected already inited")
+			}
+			b.downLevels[idx].level = b.level + 1
+			b.downLevels[idx].reverse = b.reverse | (uint64(idx) << (4 * (16 - l)))
+			b = &b.downLevels[idx]
+			if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {
+				Log(LogWarn, "already inited")
+			}
+			break
+		}
+		b = &b.downLevels[idx]
+	}
+	if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {
+		h.DumpBucket(logio)
+		Log(LogWarn, "already inited")
+	}
+	return
 }

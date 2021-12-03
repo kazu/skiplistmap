@@ -3,6 +3,7 @@ package skiplistmap_test
 import (
 	"fmt"
 	"math/rand"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -191,19 +192,20 @@ func Test_HMap(t *testing.T) {
 	_ = conf
 	DumpHmap(m.base)
 
-	str := m.base.DumpEntry()
-	//assert.Equal(t, 0, len(str))
-	assert.NotEqual(t, 0, len(str))
+	var b strings.Builder
+	m.base.DumpEntry(&b)
+	//assert.Equal(t, 0, len(b.String()))
+	assert.NotEqual(t, 0, len(b.String()))
 
 }
 
 func DumpHmap(h *skiplistmap.Map) {
 
-	fmt.Printf("DumpBucketPerLevel\n")
-	fmt.Printf("%s\n", h.DumpBucketPerLevel())
-	fmt.Printf("!!!!!!!!!!!!DumpBucket\n")
-	fmt.Printf("%s\n", h.DumpBucket())
-	fmt.Printf("%s\n", h.DumpEntry())
+	fmt.Printf("---DumpBucketPerLevel---\n")
+	h.DumpBucketPerLevel(nil)
+	fmt.Printf("---DumpBucket---\n")
+	h.DumpBucket(nil)
+	h.DumpEntry(nil)
 	fmt.Printf("fail 0x%x\n", skiplistmap.Failreverse)
 
 }
@@ -227,8 +229,9 @@ func Benchmark_HMap_forProfile(b *testing.B) {
 	}{
 		//{"RMap            ", 100, 100000, 50, 0x000, 0, newWRMap()},
 
-		{"HMap_combine    ", 100, 100000, 0x0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
-		{"HMap_combine3    ", 100, 100000, 0x0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
+		{"HMap_combine    ", 100, 100000, 0x0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
+		//{"HMap_combine3    ", 100, 100000, 0x0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
+
 		//{"HMap_combine    ", 100, 100000, 100, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
 		//{"HMap_combine2    ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch2, newWrapHMap(skiplistmap.NewHMap())},
 	}
@@ -292,10 +295,9 @@ func Benchmark_Map(b *testing.B) {
 	}{
 		{"mapWithMutex                 ", 100, 100000, 0, 0x000, 0, &list_head.MapWithLock{}},
 		{"sync.Map                     ", 100, 100000, 0, 0x000, 0, syncMap{}},
-		{"skiplistmap                  ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
 		{"skiplistmap                  ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
 		{"skiplistmap3                 ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
-
+		{"skiplistmap3                 ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
 		{"RMap                         ", 100, 100000, 0, 0x000, 0, newWRMap()},
 
 		// {"skiplistmap                  ", 100, 100000, 0, 0x008, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
@@ -307,8 +309,9 @@ func Benchmark_Map(b *testing.B) {
 
 		{"mapWithMutex                 ", 100, 100000, 50, 0x000, 0, &list_head.MapWithLock{}},
 		{"sync.Map                     ", 100, 100000, 50, 0x000, 0, syncMap{}},
-		{"skiplistmap                  ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
 		{"skiplistmap                  ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
+		{"skiplistmap3                 ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
+		{"skiplistmap3                 ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
 		{"RMap                         ", 100, 100000, 50, 0x000, 0, newWRMap()},
 	}
 

@@ -313,9 +313,9 @@ func (h *Map) initBeforeSet() {
 	h.lastBucket.InsertBefore(&btable.ListHead)
 	btable.start = &empty.ListHead
 
-	levelBucket := h.levelBucket(int(btable.level))
+	levelBucket := h.levelBucket(btable.level)
 	levelBucket.LevelHead.DirectPrev().DirectNext().InsertBefore(&btable.LevelHead)
-	h.setLevel(int(btable.level), levelBucket)
+	h.setLevel(btable.level, levelBucket)
 	btablefirst := btable
 
 	topReverses := make([]uint64, 16)
@@ -353,7 +353,7 @@ func (h *Map) initBeforeSet() {
 		if i > 0 {
 			h.buckets[i-1].LevelHead.InsertBefore(&btable.LevelHead)
 		} else {
-			levelBucket = h.levelBucket(int(btable.level))
+			levelBucket = h.levelBucket(btable.level)
 			levelBucket.LevelHead.DirectPrev().DirectNext().InsertBefore(&btable.LevelHead)
 		}
 
@@ -736,7 +736,7 @@ func (h *Map) MakeBucket(ocur *list_head.ListHead, back int) (err error) {
 	atomic.AddInt32(&cBucket.len, -b.len)
 	h.addBucket(b)
 
-	nextLevel := h.findNextLevelBucket(b.reverse, int(b.level))
+	nextLevel := h.findNextLevelBucket(b.reverse, b.level)
 
 	if b.LevelHead.DirectNext() == &b.LevelHead {
 		Log(LogWarn, "bucket.LevelHead is pointed to self")
@@ -893,11 +893,11 @@ func (h *Map) DumpBucketPerLevel(w io.Writer) {
 	var b strings.Builder
 
 	for i := range h.levels {
-		cBucket := h.levelBucket(i + 1)
+		cBucket := h.levelBucket(int32(i) + 1)
 		if cBucket == nil {
 			continue
 		}
-		if h.isEmptyBylevel(i + 1) {
+		if h.isEmptyBylevel(int32(i) + 1) {
 			continue
 		}
 		fmt.Fprintf(&b, "bucket level=%d\n", i+1)
@@ -1023,7 +1023,7 @@ func (h *Map) addBucket(nBtable *bucket) {
 
 }
 
-func (h *Map) findNextLevelBucket(reverse uint64, level int) (cur *list_head.ListHead) {
+func (h *Map) findNextLevelBucket(reverse uint64, level int32) (cur *list_head.ListHead) {
 
 	bcur := h.levelBucket(level)
 	if bcur == nil {
@@ -1067,20 +1067,20 @@ func (h *Map) initLevels() {
 	}
 }
 
-func (h *Map) setLevel(level int, b *bucket) bool {
+func (h *Map) setLevel(level int32, b *bucket) bool {
 
 	return false
 }
 
-func (h *Map) levelBucket(level int) (b *bucket) {
+func (h *Map) levelBucket(level int32) (b *bucket) {
 	ov := h.levels[level-1]
 	b = ov.Load().(*bucket)
 
 	return b
 }
 
-func (h *Map) isEmptyBylevel(level int) bool {
-	if len(h.levels) < level {
+func (h *Map) isEmptyBylevel(level int32) bool {
+	if int32(len(h.levels)) < level {
 		return true
 	}
 	b := h.levelBucket(level)

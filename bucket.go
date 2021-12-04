@@ -214,12 +214,12 @@ func (h *Map) findBucket(reverse uint64) (b *bucket) {
 
 func (h *Map) bucketFromPool(reverse uint64) (b *bucket) {
 
-	level := 0
+	level := int32(0)
 	for cur := bits.Reverse64(reverse); cur != 0; cur >>= 4 {
 		level++
 	}
 
-	for l := 1; l <= level; l++ {
+	for l := int32(1); l <= level; l++ {
 		if l == 1 {
 			idx := (reverse >> (4 * 15))
 			b = &h.buckets[idx]

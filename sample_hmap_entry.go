@@ -21,10 +21,11 @@ type SampleItem struct {
 
 var sampleItem MapItem = &SampleItem{}
 
-var EmptySampleHMapEntry SampleItem = SampleItem{}
+//var EmptySampleHMapEntry SampleItem = SampleItem{}
+var EmptySampleHMapEntry *SampleItem = (*SampleItem)(unsafe.Pointer(uintptr(0)))
 
 func SampleItemFromListHead(head *list_head.ListHead) *SampleItem {
-	return (*SampleItem)(list_head.ElementOf(&EmptySampleHMapEntry, head))
+	return (*SampleItem)(list_head.ElementOf(EmptySampleHMapEntry, head))
 }
 
 func (s *SampleItem) Offset() uintptr {
@@ -73,7 +74,7 @@ func (s *SampleItem) PtrMapHead() *MapHead {
 }
 
 func (s *SampleItem) Delete() {
-	s.isDeleted = true
+	s.state |= mapIsDummy
 }
 
 func (s *SampleItem) KeyHash() (uint64, uint64) {

@@ -70,7 +70,7 @@ func Test_HmapEntry(t *testing.T) {
 			name:   "SampleItem",
 			wanted: &skiplistmap.SampleItem{K: "hoge", V: "hoge value"},
 			got: func(lhead *list_head.ListHead) skiplistmap.MapItem {
-				return (&skiplistmap.EmptySampleHMapEntry).HmapEntryFromListHead(lhead).(skiplistmap.MapItem)
+				return (skiplistmap.EmptySampleHMapEntry).HmapEntryFromListHead(lhead).(skiplistmap.MapItem)
 			},
 		},
 		{
@@ -131,7 +131,7 @@ func (w *WrapHMap) Get(k string) (v *list_head.ListHead, ok bool) {
 
 func newWrapHMap(hmap *skiplistmap.Map) *WrapHMap {
 	skiplistmap.ItemFn(func() skiplistmap.MapItem {
-		return &skiplistmap.EmptySampleHMapEntry
+		return skiplistmap.EmptySampleHMapEntry
 	})(hmap)
 
 	return &WrapHMap{base: hmap}

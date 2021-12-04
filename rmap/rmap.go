@@ -269,7 +269,7 @@ func (m *RMap) initDirty() {
 		smap.BucketMode(smap.CombineSearch),
 		smap.MaxPefBucket(16),
 		smap.ItemFn(func() skiplistmap.MapItem {
-			return &skiplistmap.EmptySampleHMapEntry
+			return skiplistmap.EmptySampleHMapEntry
 		}))
 }
 

@@ -9,9 +9,9 @@ import (
 )
 
 type bucket struct {
-	level   int
+	level   int32
+	len     int32
 	reverse uint64
-	len     int64
 	start   *list_head.ListHead // to MapEntry
 
 	downLevels []bucket
@@ -53,7 +53,7 @@ func bucketFromLevelHead(head *list_head.ListHead) *bucket {
 
 func (b *bucket) checklevel() error {
 
-	level := -1
+	level := int32(-1)
 	var reverse uint64
 	for cur := b.LevelHead.DirectNext(); !cur.Empty(); cur = cur.DirectNext() {
 		b := bucketFromLevelHead(cur)

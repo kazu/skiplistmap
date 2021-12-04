@@ -4,6 +4,8 @@
 // license that can be found in the LICENSE file.
 package skiplistmap
 
+import "unsafe"
+
 func absDiffUint64(x, y uint64) uint64 {
 	if x < y {
 		return y - x
@@ -31,4 +33,8 @@ func halfUint64(os uint64, oe uint64) (hafl uint64) {
 	}
 	return s + diff/2
 
+}
+
+func ElementOf(head unsafe.Pointer, offset uintptr) unsafe.Pointer {
+	return unsafe.Pointer(uintptr(head) - offset)
 }

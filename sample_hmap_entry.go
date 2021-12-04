@@ -24,12 +24,14 @@ var sampleItem MapItem = &SampleItem{}
 //var EmptySampleHMapEntry SampleItem = SampleItem{}
 var EmptySampleHMapEntry *SampleItem = (*SampleItem)(unsafe.Pointer(uintptr(0)))
 
+const SampleItemOffsetOf = unsafe.Offsetof(EmptySampleHMapEntry.ListHead)
+
 func SampleItemFromListHead(head *list_head.ListHead) *SampleItem {
-	return (*SampleItem)(list_head.ElementOf(EmptySampleHMapEntry, head))
+	return (*SampleItem)(ElementOf(unsafe.Pointer(head), SampleItemOffsetOf))
 }
 
 func (s *SampleItem) Offset() uintptr {
-	return unsafe.Offsetof(s.ListHead)
+	return SampleItemOffsetOf
 }
 
 func (s *SampleItem) PtrMapeHead() *MapHead {

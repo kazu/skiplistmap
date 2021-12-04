@@ -20,12 +20,15 @@ type bucket struct {
 	list_head.ListHead
 }
 
+const bucketOffset = unsafe.Offsetof(emptyBucket.ListHead)
+const bucketOffsetLevel = unsafe.Offsetof(emptyBucket.LevelHead)
+
 func (e *bucket) Offset() uintptr {
-	return unsafe.Offsetof(e.ListHead)
+	return bucketOffset
 }
 
 func (e *bucket) OffsetLevel() uintptr {
-	return unsafe.Offsetof(e.LevelHead)
+	return bucketOffsetLevel
 }
 
 func (e *bucket) PtrListHead() *list_head.ListHead {
@@ -41,14 +44,16 @@ func (e *bucket) FromListHead(head *list_head.ListHead) list_head.List {
 }
 
 func bucketFromListHead(head *list_head.ListHead) *bucket {
-	return (*bucket)(list_head.ElementOf(emptyBucket, head))
+	return (*bucket)(ElementOf(unsafe.Pointer(head), bucketOffset))
 }
 
 func bucketFromLevelHead(head *list_head.ListHead) *bucket {
-	if head == nil {
-		return nil
-	}
-	return (*bucket)(unsafe.Pointer(uintptr(unsafe.Pointer(head)) - emptyBucket.OffsetLevel()))
+	// if head == nil {
+	// 	return nil
+	// }
+	// return (*bucket)(unsafe.Pointer(uintptr(unsafe.Pointer(head)) - emptyBucket.OffsetLevel()))
+
+	return (*bucket)(ElementOf(unsafe.Pointer(head), bucketOffsetLevel))
 }
 
 func (b *bucket) checklevel() error {

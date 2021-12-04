@@ -74,7 +74,8 @@ var (
 )
 
 func entryHMapFromListHead(head *list_head.ListHead) *entryHMap {
-	return (*entryHMap)(list_head.ElementOf(emptyEntryHMap, head))
+	//	return (*entryHMap)(list_head.ElementOf(emptyEntryHMap, head))
+	return (*entryHMap)(ElementOf(unsafe.Pointer(head), entryHMapOffset))
 }
 
 func (s *entryHMap) KeyHash() (uint64, uint64) {
@@ -112,8 +113,11 @@ func (s *entryHMap) Prev() HMapEntry {
 func (s *entryHMap) PtrMapHead() *MapHead {
 	return &s.MapHead
 }
+
+const entryHMapOffset = unsafe.Offsetof(EmptyEntryHMap.ListHead)
+
 func (s *entryHMap) Offset() uintptr {
-	return unsafe.Offsetof(s.ListHead)
+	return entryHMapOffset
 }
 
 func (s *entryHMap) Delete() {
@@ -153,7 +157,7 @@ type MapHead struct {
 	list_head.ListHead
 }
 
-var EmptyMapHead MapHead = MapHead{}
+var EmptyMapHead *MapHead = (*MapHead)(unsafe.Pointer(uintptr(0)))
 
 func (mh *MapHead) KeyInHmap() uint64 {
 	return bits.Reverse64(mh.reverse)
@@ -179,12 +183,16 @@ func (mh *MapHead) PtrListHead() *list_head.ListHead {
 	return &(mh.ListHead)
 }
 
+const mapheadOffset = unsafe.Offsetof(EmptyMapHead.ListHead)
+
 func (mh *MapHead) Offset() uintptr {
-	return unsafe.Offsetof(mh.ListHead)
+	return mapheadOffset
 }
 
 func (mh *MapHead) fromListHead(l *list_head.ListHead) *MapHead {
-	return (*MapHead)(list_head.ElementOf(&EmptyMapHead, l))
+	//return (*MapHead)(list_head.ElementOf(EmptyMapHead, l))
+	return (*MapHead)(ElementOf(unsafe.Pointer(l), mapheadOffset))
+
 }
 
 func (c *MapHead) FromListHead(l *list_head.ListHead) list_head.List {

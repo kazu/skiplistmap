@@ -28,6 +28,7 @@ const (
 	CombineSearch
 	CombineSearch2
 	CombineSearch3
+	CombineSearch4
 
 	NoItemSearchForBucket = 9  // test mode
 	FalsesSearchForBucket = 10 // test mode
@@ -50,6 +51,8 @@ type Map struct {
 	levels        [16]atomic.Value
 
 	ItemFn func() MapItem
+
+	pooler *Pool
 }
 
 type LevelHead list_head.ListHead
@@ -243,6 +246,19 @@ func ItemFn(fn func() MapItem) OptHMap {
 	}
 }
 
+func UsePool(enable bool) OptHMap {
+	return func(h *Map) OptHMap {
+		if !enable {
+			h.pooler = nil
+		} else if h.pooler == nil {
+			h.pooler = newPool()
+			h.pooler.startMgr()
+		}
+
+		return UsePool(!enable)
+	}
+}
+
 func (h *Map) Options(opts ...OptHMap) (previouses []OptHMap) {
 
 	for _, fn := range opts {
@@ -388,7 +404,7 @@ func (h *Map) _set(k, conflict uint64, item MapItem) bool {
 	var addOpt HMethodOpt
 	_ = addOpt
 
-	if h.modeForBucket != CombineSearch && h.modeForBucket != CombineSearch3 {
+	if h.modeForBucket < CombineSearch && h.modeForBucket > CombineSearch4 {
 		btable = h.searchBucket(k)
 	} else {
 		btable, _ = h.searchBucket4update(k)
@@ -497,7 +513,7 @@ func (h *Map) _get(k, conflict uint64) (MapItem, bool) {
 	}
 	var bucket *bucket
 	switch h.modeForBucket {
-	case CombineSearch, CombineSearch2, CombineSearch3:
+	case CombineSearch, CombineSearch2, CombineSearch3, CombineSearch4:
 
 		e := h.searchKey(k, true)
 		if e == nil {
@@ -601,11 +617,27 @@ func (h *Map) LoadItemByHash(k uint64, conflict uint64) (MapItem, bool) {
 
 // Set ... set the value for a key
 func (h *Map) Set(key, value interface{}) bool {
+	var s *SampleItem
 
-	s := &SampleItem{
-		K: key.(string),
-		V: value,
+	if h.pooler == nil && h.modeForBucket == CombineSearch4 {
+		UsePool(true)(h)
 	}
+
+	if h.pooler != nil {
+		k, _ := KeyToHash(key)
+		var wg sync.WaitGroup
+		wg.Add(1)
+		h.pooler.Get(bits.Reverse64(k), func(item MapItem) {
+			s = item.(*SampleItem)
+			wg.Done()
+		})
+		wg.Wait()
+	} else {
+		s = &SampleItem{}
+	}
+
+	s.K, s.V = key.(string), value
+
 	if _, ok := h.ItemFn().(*SampleItem); !ok {
 		ItemFn(func() MapItem {
 			return EmptySampleHMapEntry

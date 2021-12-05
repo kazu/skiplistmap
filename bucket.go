@@ -12,7 +12,7 @@ type bucket struct {
 	level   int32
 	len     int32
 	reverse uint64
-	start   *list_head.ListHead // to MapEntry
+	head    *list_head.ListHead // to MapEntry
 
 	downLevels []bucket
 
@@ -147,16 +147,16 @@ func (b *bucket) PrevOnLevel() *bucket {
 
 func (b *bucket) NextEntry() *entryHMap {
 
-	if b.start == nil {
+	if b.head == nil {
 		return nil
 	}
-	start := b.start
-	if !start.DirectNext().Empty() {
-		start = start.DirectNext()
+	head := b.head
+	if !head.DirectNext().Empty() {
+		head = head.DirectNext()
 	}
 
-	if !start.Empty() {
-		return entryHMapFromListHead(start)
+	if !head.Empty() {
+		return entryHMapFromListHead(head)
 	}
 
 	return nil
@@ -165,16 +165,16 @@ func (b *bucket) NextEntry() *entryHMap {
 
 func (b *bucket) PrevEntry() *entryHMap {
 
-	if b.start == nil {
+	if b.head == nil {
 		return nil
 	}
-	start := b.start
-	if !start.DirectPrev().Empty() {
-		start = start.DirectPrev()
+	head := b.head
+	if !head.DirectPrev().Empty() {
+		head = head.DirectPrev()
 	}
 
-	if !start.Empty() {
-		return entryHMapFromListHead(start)
+	if !head.Empty() {
+		return entryHMapFromListHead(head)
 	}
 
 	return nil
@@ -183,12 +183,12 @@ func (b *bucket) PrevEntry() *entryHMap {
 
 func (b *bucket) entry(h *Map) (e HMapEntry) {
 
-	if b.start == nil {
+	if b.head == nil {
 		return nil
 	}
-	start := b.start
-	if !start.Empty() {
-		return h.ItemFn().HmapEntryFromListHead(start)
+	head := b.head
+	if !head.Empty() {
+		return h.ItemFn().HmapEntryFromListHead(head)
 	}
 	return b.NextEntry()
 
@@ -235,7 +235,7 @@ func (h *Map) bucketFromPool(reverse uint64) (b *bucket) {
 			b.downLevels = make([]bucket, 1, 16)
 			b.downLevels[0].level = b.level + 1
 			b.downLevels[0].reverse = b.reverse
-			b.downLevels[0].start = b.start
+			b.downLevels[0].head = b.head
 			b.downLevels[0].Init()
 			b.downLevels[0].LevelHead.Init()
 			lCur := h.levelBucket(l)

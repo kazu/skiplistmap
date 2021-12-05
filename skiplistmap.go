@@ -392,7 +392,10 @@ func (h *Map) initBeforeSet() {
 	}
 }
 
-//FIXME: renate _set
+func (h *Map) _update(item MapItem, v interface{}) bool {
+	return item.SetValue(v)
+}
+
 func (h *Map) _set(k, conflict uint64, item MapItem) bool {
 
 	item.PtrMapHead().reverse = bits.Reverse64(k)
@@ -437,13 +440,13 @@ func (h *Map) _set(k, conflict uint64, item MapItem) bool {
 		return bits.Reverse64(k) <= item.PtrMapHead().reverse
 	}, ignoreBucketEntry(false))
 	_ = cnt
-	if entry != nil && entry.PtrMapHead().reverse == bits.Reverse64(k) && entry.PtrMapHead().conflict == conflict {
-		entry.(MapItem).SetValue(item.Value())
-		if btable.level > 0 && cnt > int(btable.len) {
-			btable.len = int32(cnt)
-		}
-		return true
-	}
+	// if entry != nil && entry.PtrMapHead().reverse == bits.Reverse64(k) && entry.PtrMapHead().conflict == conflict {
+	// 	entry.(MapItem).SetValue(item.Value())
+	// 	if btable.level > 0 && cnt > int(btable.len) {
+	// 		btable.len = int32(cnt)
+	// 	}
+	// 	return true
+	// }
 	var pEntry HMapEntry
 	var tStart *list_head.ListHead
 	if entry != nil {
@@ -617,6 +620,12 @@ func (h *Map) LoadItemByHash(k uint64, conflict uint64) (MapItem, bool) {
 
 // Set ... set the value for a key
 func (h *Map) Set(key, value interface{}) bool {
+
+	item, found := h.LoadItem(key)
+	if found {
+		return h._update(item, value)
+	}
+
 	var s *SampleItem
 
 	if h.pooler == nil && h.modeForBucket == CombineSearch4 {
@@ -649,6 +658,12 @@ func (h *Map) Set(key, value interface{}) bool {
 // StoreItem ... set key/value item with embedded-linked-list
 func (h *Map) StoreItem(item MapItem) bool {
 	k, conflict := item.KeyHash()
+
+	oitem, found := h.LoadItemByHash(k, conflict)
+	if found {
+		return h._update(oitem, item.Value())
+	}
+
 	return h._set(k, conflict, item)
 }
 

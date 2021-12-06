@@ -54,7 +54,7 @@ func (p *Pool) startMgr() {
 
 func (p *Pool) Get(reverse uint64, fn successFn) {
 
-	idx := reverse >> (4 * 15)
+	idx := (reverse >> (4 * 15) % cntOfPoolMgr)
 	p.mgrCh[idx] <- poolReq{
 		cmd:       CmdGet,
 		onSuccess: fn,

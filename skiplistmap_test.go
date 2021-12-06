@@ -117,7 +117,8 @@ type WrapHMap struct {
 
 func (w *WrapHMap) Set(k string, v *list_head.ListHead) bool {
 
-	return w.base.StoreItem(&skiplistmap.SampleItem{K: k, V: v})
+	//return w.base.StoreItem(&skiplistmap.SampleItem{K: k, V: v})
+	return w.base.Set(k, v)
 }
 
 func (w *WrapHMap) Get(k string) (v *list_head.ListHead, ok bool) {
@@ -139,7 +140,9 @@ func newWrapHMap(hmap *skiplistmap.Map) *WrapHMap {
 
 func Test_HMap(t *testing.T) {
 
-	m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.BucketMode(skiplistmap.CombineSearch3)))
+	m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UsePool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch3)))
+
+	//m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.BucketMode(skiplistmap.CombineSearch3)))
 	//m := list_head.NewHMap(list_head.MaxPefBucket(32), list_head.BucketMode(list_head.NestedSearchForBucket))
 	//m := list_head.NewHMap(list_head.MaxPefBucket(32), list_head.BucketMode(list_head.LenearSearchForBucket))
 	skiplistmap.EnableStats = true
@@ -299,6 +302,8 @@ func Benchmark_Map(b *testing.B) {
 		{"skiplistmap                  ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
 		{"skiplistmap3                 ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
 		{"skiplistmap3                 ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
+		{"skiplistmap4                 ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap())},
+		{"skiplistmap4                 ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap())},
 		{"RMap                         ", 100, 100000, 0, 0x000, 0, newWRMap()},
 
 		// {"skiplistmap                  ", 100, 100000, 0, 0x008, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},

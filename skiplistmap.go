@@ -396,16 +396,19 @@ func (h *Map) _update(item MapItem, v interface{}) bool {
 	return item.SetValue(v)
 }
 
-func (h *Map) _set(k, conflict uint64, item MapItem) bool {
+func (h *Map) _set(k, conflict uint64, btable *bucket, item MapItem) bool {
 
 	item.PtrMapHead().reverse = bits.Reverse64(k)
 	item.PtrMapHead().conflict = conflict
 
 	h.initBeforeSet()
 
-	var btable *bucket
 	var addOpt HMethodOpt
 	_ = addOpt
+
+	if btable != nil {
+		goto SKIP_FETCH_BUCKET
+	}
 
 	if h.modeForBucket < CombineSearch && h.modeForBucket > CombineSearch4 {
 		btable = h.searchBucket(k)
@@ -425,6 +428,7 @@ func (h *Map) _set(k, conflict uint64, item MapItem) bool {
 		}
 
 	}
+SKIP_FETCH_BUCKET:
 
 	if btable != nil && btable.head == nil {
 		Log(LogWarn, "bucket.head not set")
@@ -440,13 +444,7 @@ func (h *Map) _set(k, conflict uint64, item MapItem) bool {
 		return bits.Reverse64(k) <= item.PtrMapHead().reverse
 	}, ignoreBucketEntry(false))
 	_ = cnt
-	// if entry != nil && entry.PtrMapHead().reverse == bits.Reverse64(k) && entry.PtrMapHead().conflict == conflict {
-	// 	entry.(MapItem).SetValue(item.Value())
-	// 	if btable.level > 0 && cnt > int(btable.len) {
-	// 		btable.len = int32(cnt)
-	// 	}
-	// 	return true
-	// }
+
 	var pEntry HMapEntry
 	var tStart *list_head.ListHead
 	if entry != nil {
@@ -508,6 +506,11 @@ func CondOfFind(reverse uint64, l sync.Locker) CondOfFinder {
 var Failreverse uint64 = 0
 
 func (h *Map) _get(k, conflict uint64) (MapItem, bool) {
+	item, _, ok := h._get2(k, conflict)
+	return item, ok
+}
+
+func (h *Map) _get2(k, conflict uint64) (MapItem, *bucket, bool) {
 
 	if EnableStats {
 		h.mu.Lock()
@@ -515,20 +518,24 @@ func (h *Map) _get(k, conflict uint64) (MapItem, bool) {
 		h.mu.Unlock()
 	}
 	var bucket *bucket
+	var reverse uint64
 	switch h.modeForBucket {
 	case CombineSearch, CombineSearch2, CombineSearch3, CombineSearch4:
 
-		e := h.searchKey(k, true)
+		//e := h.searchKey(k, true)
+		bucket, reverse = h.searchBucket4update(k)
+		e := h.searchBybucket(bucket, reverse, true)
+
 		if e == nil {
 			if Failreverse == 0 {
 				Failreverse = bits.Reverse64(k)
 			}
-			return nil, false
+			return nil, bucket, false
 		}
 		if e.PtrMapHead().reverse != bits.Reverse64(k) || e.PtrMapHead().conflict != conflict {
-			return nil, false
+			return nil, bucket, false
 		}
-		return e.(MapItem), true
+		return e.(MapItem), bucket, true
 
 	default:
 		bucket = h.searchBucket(k)
@@ -536,22 +543,22 @@ func (h *Map) _get(k, conflict uint64) (MapItem, bool) {
 	}
 
 	if bucket == nil {
-		return nil, false
+		return nil, nil, false
 	}
 	var e *entryHMap
 
 	if h.modeForBucket == FalsesSearchForBucket {
-		return nil, true
+		return nil, bucket, true
 	}
 
 	if e == nil {
-		return nil, false
+		return nil, bucket, false
 	}
 	if e.reverse != bits.Reverse64(k) || e.conflict != conflict {
-		return nil, false
+		return nil, bucket, false
 	}
 
-	return e, true
+	return e, bucket, true
 
 }
 
@@ -610,18 +617,30 @@ func (h *Map) GetWithFn(key interface{}, onSuccess func(interface{})) bool {
 }
 
 // LoadItem ... return key/value item with embedded-linked-list. if not found, ok is false
-func (h *Map) LoadItem(key interface{}) (MapItem, bool) {
-	return h._get(KeyToHash(key))
+func (h *Map) LoadItem(key interface{}) (item MapItem, success bool) {
+	item, _, success = h.loadItem(0, 0, key)
+	return
 }
 
-func (h *Map) LoadItemByHash(k uint64, conflict uint64) (MapItem, bool) {
-	return h._get(k, conflict)
+func (h *Map) LoadItemByHash(k uint64, conflict uint64) (item MapItem, success bool) {
+
+	item, _, success = h.loadItem(k, conflict, nil)
+	return
+}
+
+func (h *Map) loadItem(k uint64, conflict uint64, key interface{}) (MapItem, *bucket, bool) {
+	//return h._get(k, conflict)
+	if key == nil {
+		return h._get2(k, conflict)
+	}
+
+	return h._get2(KeyToHash(key))
 }
 
 // Set ... set the value for a key
 func (h *Map) Set(key, value interface{}) bool {
 
-	item, found := h.LoadItem(key)
+	item, bucket, found := h.loadItem(0, 0, key)
 	if found {
 		return h._update(item, value)
 	}
@@ -652,19 +671,20 @@ func (h *Map) Set(key, value interface{}) bool {
 			return EmptySampleHMapEntry
 		})(h)
 	}
-	return h.StoreItem(s)
+	k, conflict := KeyToHash(s.K)
+	return h._set(k, conflict, bucket, s)
 }
 
 // StoreItem ... set key/value item with embedded-linked-list
 func (h *Map) StoreItem(item MapItem) bool {
 	k, conflict := item.KeyHash()
 
-	oitem, found := h.LoadItemByHash(k, conflict)
+	oitem, bucket, found := h.loadItem(k, conflict, nil)
 	if found {
 		return h._update(oitem, item.Value())
 	}
 
-	return h._set(k, conflict, item)
+	return h._set(k, conflict, bucket, item)
 }
 
 func (h *Map) eachEntry(start *list_head.ListHead, fn func(*entryHMap)) {

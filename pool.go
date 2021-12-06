@@ -15,7 +15,7 @@ const (
 	CmdPut
 	CmdClose
 )
-const cntOfPoolMgr = 16
+const cntOfPoolMgr = 8
 
 type successFn func(MapItem)
 

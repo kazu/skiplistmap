@@ -850,8 +850,13 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 		}
 		return true
 	}
-	if opt != nil && opt.bucket != nil {
-		nextAsE(opt.bucket.entry(h)).PtrListHead().InsertBefore(e.PtrListHead())
+	if opt != nil && opt.bucket != nil && opt.bucket.entry(h) != nil {
+		// pos, _ = h.find(start, func(ehead HMapEntry) bool {
+		// 	return e.PtrMapHead().reverse < ehead.PtrMapHead().reverse
+		// }, ignoreBucketEntry(false))
+		nextE := nextAsE(opt.bucket.entry(h))
+
+		nextE.PtrListHead().InsertBefore(e.PtrListHead())
 		return true
 	}
 	h.tail.InsertBefore(e.PtrListHead())

@@ -160,10 +160,15 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool) {
 
 func calcCap(len int) int {
 
+	if len > 1024 {
+		return len + len/4
+	}
+
 	for i := 0; i < 60; i++ {
 		if (len >> i) == 0 {
 			return intPow(2, i)
 		}
+
 	}
 	return 512
 

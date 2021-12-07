@@ -4,8 +4,8 @@ go 1.17
 
 require (
 	github.com/cespare/xxhash v1.1.0
-	github.com/kazu/elist_head v0.0.0-20211202124417-90e692d6b07d
-	github.com/kazu/loncha v0.4.5
+	github.com/kazu/elist_head v0.1.3
+	github.com/kazu/loncha v0.4.6
 	github.com/stretchr/testify v1.7.0
 )
 
@@ -17,5 +17,5 @@ require (
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 )
 
-//replace github.com/kazu/loncha => ../loncha/
-replace github.com/kazu/elist_head => ../elist_head/
+// replace github.com/kazu/loncha => ../loncha/
+// replace github.com/kazu/elist_head => ../elist_head/

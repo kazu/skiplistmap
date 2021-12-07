@@ -113,7 +113,7 @@ func (mh *MapHead) Offset() uintptr {
 }
 
 func (mh *MapHead) fromListHead(l *elist_head.ListHead) *MapHead {
-	return (*MapHead)(elist_head.ElementOf(EmptyMapHead, l))
+	return (*MapHead)(ElementOf(unsafe.Pointer(l), mapheadOffset))
 }
 
 func (c *MapHead) FromListHead(l *elist_head.ListHead) elist_head.List {

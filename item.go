@@ -32,7 +32,8 @@ var (
 )
 
 func entryHMapFromListHead(head *elist_head.ListHead) *entryHMap {
-	return (*entryHMap)(elist_head.ElementOf(emptyEntryHMap, head))
+	return (*entryHMap)(ElementOf(unsafe.Pointer(head), entryHMapOffset))
+
 }
 
 func (e *entryHMap) entryHMapromListHead(lhead *elist_head.ListHead) *entryHMap {

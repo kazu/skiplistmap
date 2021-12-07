@@ -9,10 +9,12 @@ import (
 	"io"
 	"math/bits"
 	"os"
+	"os/signal"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"unsafe"
 
 	"github.com/kazu/elist_head"
@@ -214,7 +216,29 @@ func NewHMap(opts ...OptHMap) *Map {
 
 	hmap.initBeforeSet()
 
+	// FIXME: remove later
+	//hmap.cactchSigBua()
+
 	return hmap
+}
+
+func (h *Map) cactchSigBua() {
+
+	go func() {
+		sig := make(chan os.Signal, 1)
+		signal.Notify(sig, syscall.SIGBUS, syscall.SIGSEGV)
+
+		s := <-sig
+		_ = s
+		fmt.Printf("panic?\n")
+
+		var b strings.Builder
+		h.DumpBucket(&b)
+		h.DumpEntry(&b)
+		fmt.Println(b.String())
+		fmt.Printf("panic?\n")
+
+	}()
 }
 
 func (h *Map) Len() int {
@@ -238,10 +262,8 @@ func (h *Map) initBeforeSet() {
 	btable.Init()
 	btable.LevelHead.Init()
 
-	empty := &entryHMap{
-		key:   nil,
-		value: nil,
-	}
+	empty := &btable.dummy
+	empty.key, empty.value = nil, nil
 	empty.reverse, empty.conflict = btable.reverse, 0
 	empty.PtrMapHead().state |= mapIsDummy
 
@@ -272,10 +294,8 @@ func (h *Map) initBeforeSet() {
 		btable.Init()
 		btable.LevelHead.Init()
 
-		empty = &entryHMap{
-			key:   nil,
-			value: nil,
-		}
+		empty = &btable.dummy
+		empty.key, empty.value = nil, nil
 		empty.reverse, empty.conflict = btable.reverse, 0
 		empty.PtrMapHead().state |= mapIsDummy
 
@@ -357,7 +377,8 @@ SKIP_FETCH_BUCKET:
 	}
 
 	entry, cnt := h.find(btable.head, func(item HMapEntry) bool {
-		return bits.Reverse64(k) <= item.PtrMapHead().reverse
+		mHead := item.PtrMapHead()
+		return bits.Reverse64(k) <= mHead.reverse
 	}, ignoreBucketEntry(false))
 	_ = cnt
 
@@ -546,6 +567,7 @@ func (h *Map) Set(key, value interface{}) bool {
 	}
 
 	var s *SampleItem
+	useDump := false
 
 	if h.pooler == nil && h.modeForBucket == CombineSearch4 {
 		UsePool(true)(h)
@@ -560,6 +582,19 @@ func (h *Map) Set(key, value interface{}) bool {
 			wg.Done()
 		})
 		wg.Wait()
+		if IsExtended {
+			useDump = true
+			IsExtended = false
+		}
+		if useDump {
+			var b strings.Builder
+			fmt.Fprintf(&b, "dump: bucket and entry\n")
+			h.DumpBucket(&b)
+			h.DumpEntry(&b)
+			fmt.Fprintf(&b, "end: bucket and entry\n")
+			fmt.Println(b.String())
+			useDump = false
+		}
 	} else {
 		s = &SampleItem{}
 	}
@@ -703,7 +738,6 @@ func (h *Map) MakeBucket(ocur *elist_head.ListHead, back int) (err error) {
 		b.len++
 		e := entryHMapFromListHead(cur)
 		if e.reverse > b.reverse {
-			b.head = cur.DirectPrev()
 			break
 		}
 	}
@@ -853,7 +887,7 @@ func (h *Map) DumpBucket(w io.Writer) {
 
 	for cur := h.headBucket.Prev().Next(); !cur.Empty(); cur = cur.Next() {
 		btable := bucketFromListHead(cur)
-		fmt.Fprintf(&b, "bucket{reverse: 0x%16x, len: %d, start: %p, level{%d, cur: %p, prev: %p next: %p} down: %d}\n",
+		fmt.Fprintf(&b, "  bucket{reverse: 0x%16x, len: %d, start: %p, level{%d, cur: %p, prev: %p next: %p} down: %d}\n",
 			btable.reverse, btable.len, btable.head, btable.level, &btable.LevelHead, btable.LevelHead.DirectPrev(), btable.LevelHead.DirectNext(), len(btable.downLevels))
 	}
 	if w == nil {
@@ -879,7 +913,7 @@ func (h *Map) DumpBucketPerLevel(w io.Writer) {
 		for cur := cBucket.LevelHead.DirectPrev().DirectNext(); !cur.Empty(); {
 			cBucket = bucketFromLevelHead(cur)
 			cur = cBucket.LevelHead.DirectNext()
-			fmt.Fprintf(&b, "bucket{reverse: 0x%16x, len: %d, start: %p, level{%d, cur: %p, prev: %p next: %p} down: %d}\n",
+			fmt.Fprintf(&b, "  bucket{reverse: 0x%16x, len: %d, start: %p, level{%d, cur: %p, prev: %p next: %p} down: %d}\n",
 				cBucket.reverse, cBucket.len, cBucket.head, cBucket.level, &cBucket.LevelHead, cBucket.LevelHead.DirectPrev(), cBucket.LevelHead.DirectNext(), len(cBucket.downLevels))
 
 		}
@@ -903,7 +937,7 @@ func (h *Map) DumpEntry(w io.Writer) {
 
 		var ekey interface{}
 		ekey = e.Key()
-		fmt.Fprintf(&b, "entryHMap{key: %+10v, k: 0x%16x, reverse: 0x%16x), conflict: 0x%x, cur: %p, prev: %p, next: %p}\n",
+		fmt.Fprintf(&b, "  entryHMap{key: %+10v, k: 0x%16x, reverse: 0x%16x), conflict: 0x%x, cur: %p, prev: %p, next: %p}\n",
 			ekey, bits.Reverse64(mhead.reverse), mhead.reverse, mhead.conflict, mhead.PtrListHead(), mhead.PtrListHead().DirectPrev(), mhead.PtrListHead().DirectNext())
 	}
 
@@ -912,6 +946,17 @@ func (h *Map) DumpEntry(w io.Writer) {
 		return
 	}
 	w.Write([]byte(b.String()))
+
+}
+
+func (mhead *MapHead) dump(w io.Writer) {
+
+	e := fromMapHead(mhead)
+
+	var ekey interface{}
+	ekey = e.Key()
+	fmt.Fprintf(w, "  entryHMap{key: %+10v, k: 0x%16x, reverse: 0x%16x), conflict: 0x%x, cur: %p, prev: %p, next: %p}\n",
+		ekey, bits.Reverse64(mhead.reverse), mhead.reverse, mhead.conflict, mhead.PtrListHead(), mhead.PtrListHead().DirectPrev(), mhead.PtrListHead().DirectNext())
 
 }
 
@@ -947,10 +992,8 @@ func reverse2Index(level int, r uint64) (idx int) {
 
 func (h *Map) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket) {
 
-	empty := &entryHMap{
-		key:   nil,
-		value: nil,
-	}
+	empty := &nBtable.dummy
+	empty.key, empty.value = nil, nil
 	empty.reverse, empty.conflict = nBtable.reverse, 0
 	empty.PtrMapHead().state |= mapIsDummy
 	empty.Init()
@@ -962,6 +1005,7 @@ func (h *Map) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket) {
 		thead = tBucket.head.Prev().Next()
 	}
 	h.add2(thead, empty)
+	nBtable.head = &nBtable.dummy.ListHead
 
 	tBucket := bucketFromListHead(tBtable)
 	if IsDebug() {

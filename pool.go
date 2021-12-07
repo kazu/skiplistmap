@@ -2,8 +2,12 @@ package skiplistmap
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"strings"
 	"unsafe"
 
+	"github.com/kazu/elist_head"
 	list_head "github.com/kazu/loncha/lista_encabezado"
 )
 
@@ -36,6 +40,11 @@ func newPool() (p *Pool) {
 	p = &Pool{}
 	for i := range p.mgrCh {
 		p.mgrCh[i] = make(chan poolReq)
+		p.itemPool[i].InitAsEmpty()
+		s := &samepleItemPool{}
+		s.Init()
+		p.itemPool[i].DirectNext().InsertBefore(&s.ListHead)
+
 	}
 	p.ctx, p.cancel = context.WithCancel(context.Background())
 	return
@@ -46,7 +55,7 @@ func (p *Pool) startMgr() {
 	for i := range p.itemPool {
 
 		cctx, ccancel := context.WithCancel(p.ctx)
-		go idxMaagement(cctx, ccancel, &p.itemPool[i], p.mgrCh[i])
+		go idxMaagement(cctx, ccancel, samepleItemPoolFromListHead(&p.itemPool[i].ListHead), p.mgrCh[i])
 
 	}
 
@@ -71,11 +80,11 @@ func (p *Pool) Put(item MapItem) {
 }
 
 // count pool per one samepleItemPool
-const CntOfPersamepleItemPool = 512
+const CntOfPersamepleItemPool = 64
 
 type samepleItemPool struct {
-	freeHead *list_head.ListHead
-	freeTail *list_head.ListHead
+	freeHead elist_head.ListHead
+	freeTail elist_head.ListHead
 	items    []SampleItem
 	list_head.ListHead
 }
@@ -97,29 +106,32 @@ func (sp *samepleItemPool) FromListHead(l *list_head.ListHead) list_head.List {
 	return samepleItemPoolFromListHead(l)
 }
 func (sp *samepleItemPool) hasNoFree() bool {
-	return sp.freeHead.DirectNext() == sp.freeTail
+	return sp.freeHead.DirectNext() == &sp.freeTail
 }
 
 func (sp *samepleItemPool) init() {
-	list := &list_head.ListHead{}
-	list.InitAsEmpty()
-	sp.freeHead = list.DirectPrev()
-	sp.freeTail = list.DirectNext()
+
+	elist_head.InitAsEmpty(&sp.freeHead, &sp.freeTail)
+
 	sp.items = make([]SampleItem, 0, CntOfPersamepleItemPool)
-	sp.Init()
+	if !list_head.MODE_CONCURRENT {
+		list_head.MODE_CONCURRENT = true
+	}
+	//sp.Init()
 }
 
-func (sp *samepleItemPool) Get() (new MapItem) {
-	if sp.freeHead == nil {
+func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool) {
+	if sp.freeHead.DirectNext() == &sp.freeHead {
 		sp.init()
 	}
 
 	// found free item
-	if sp.freeHead.DirectNext() != sp.freeTail {
-		_, nElm := sp.freeTail.Prev().Purge()
+	if sp.freeHead.DirectNext() != &sp.freeTail {
+		nElm := sp.freeTail.Prev()
+		nElm.Delete()
 		if nElm != nil {
 			nElm.Init()
-			return SampleItemFromListHead(nElm)
+			return SampleItemFromListHead(nElm), false
 		}
 	}
 	// not limit pool
@@ -128,7 +140,7 @@ func (sp *samepleItemPool) Get() (new MapItem) {
 		new := &sp.items[len(sp.items)-1]
 		new.Init()
 
-		return new
+		return new, false
 	}
 
 	// found next pool
@@ -136,12 +148,108 @@ func (sp *samepleItemPool) Get() (new MapItem) {
 		return samepleItemPoolFromListHead(nsp).Get()
 	}
 
+	// dumping is only debug mode.
+	if IsDebug() {
+		isExpanded = true
+	}
+	nPool := sp.Expand()
+	new, _ = nPool.Get()
+	return new, isExpanded
+
+}
+
+func calcCap(len int) int {
+
+	for i := 0; i < 60; i++ {
+		if (len >> i) == 0 {
+			return intPow(2, i)
+		}
+	}
+	return 512
+
+}
+
+func intPow(a, b int) (r int) {
+	r = 1
+	for i := 0; i < b; i++ {
+		r *= a
+	}
+	return
+}
+
+func (sp *samepleItemPool) DumpExpandInfo(w io.Writer, outers []unsafe.Pointer, format string, args ...interface{}) {
+
+	for _, ptr := range outers {
+		cur := (*elist_head.ListHead)(ptr)
+		pCur := cur.DirectPrev()
+		nCur := cur.DirectNext()
+
+		fmt.Fprintf(w, format, args...)
+		mhead := EmptyMapHead.FromListHead(cur).(*MapHead)
+		mhead.dump(w)
+		mhead = EmptyMapHead.FromListHead(pCur).(*MapHead)
+		mhead.dump(w)
+		mhead = EmptyMapHead.FromListHead(nCur).(*MapHead)
+		mhead.dump(w)
+	}
+
+}
+
+func (sp *samepleItemPool) Expand() *samepleItemPool {
+
 	nPool := &samepleItemPool{}
-	nPool.init()
+	_ = nPool
 
-	sp.DirectNext().InsertBefore(&nPool.ListHead)
-	return nPool.Get()
+	next := sp.Next()
+	e := sp.MarkForDelete()
+	if e != nil {
+		panic("fail mark")
+	}
 
+	elist_head.InitAsEmpty(&nPool.freeHead, &nPool.freeTail)
+
+	nCap := 0
+	if len(sp.items) < 128 {
+		nCap = 256
+	} else {
+		nCap = calcCap(len(sp.items))
+	}
+
+	nPool.items = make([]SampleItem, 0, nCap)
+	nPool.items = append(nPool.items, sp.items...)
+
+	// for debugging
+	var outers []unsafe.Pointer
+	var b strings.Builder
+	if IsDebug() {
+		outers = elist_head.OuterPtrs(
+			unsafe.Pointer(&sp.items[0]),
+			unsafe.Pointer(&sp.items[len(sp.items)-1]),
+			unsafe.Pointer(&nPool.items[0]),
+			int(SampleItemSize),
+			int(SampleItemOffsetOf))
+		sp.DumpExpandInfo(&b, outers, "B:rewrite reverse=0x%x\n", &sp.items[0].reverse)
+	}
+
+	elist_head.RepaireSliceAfterCopy(
+		unsafe.Pointer(&sp.items[0]),
+		unsafe.Pointer(&sp.items[len(sp.items)-1]),
+		unsafe.Pointer(&nPool.items[0]),
+		int(SampleItemSize),
+		int(SampleItemOffsetOf))
+
+	// for debugging
+	if IsDebug() {
+		sp.DumpExpandInfo(&b, outers, "A:rewrite reverse=0x%x\n", &sp.items[0].reverse)
+		fmt.Println(b.String())
+	}
+
+	nPool.Init()
+
+	//FIXME: check
+	next.InsertBefore(&nPool.ListHead)
+	sp.Init()
+	return nPool
 }
 
 func (sp *samepleItemPool) Put(item MapItem) {
@@ -164,12 +272,23 @@ func (sp *samepleItemPool) Put(item MapItem) {
 
 }
 
-func idxMaagement(ctx context.Context, cancel context.CancelFunc, p *samepleItemPool, reqCh chan poolReq) {
+var LastItem MapItem = nil
+var IsExtended = false
+
+func idxMaagement(ctx context.Context, cancel context.CancelFunc, h *samepleItemPool, reqCh chan poolReq) {
 
 	for req := range reqCh {
+		p := samepleItemPoolFromListHead(h.DirectNext())
 		switch req.cmd {
 		case CmdGet:
-			e := p.Get()
+			e, extend := p.Get()
+			LastItem = e
+			// only debug mode
+			if extend {
+				fmt.Printf("expeand reverse=0x%x cap=%d\n ", p.items[0].reverse, cap(p.items))
+				fmt.Printf("dump: sampleItemPool.items\n%s\nend: sampleItemPool.items\n", p.dump())
+				IsExtended = extend
+			}
 			req.onSuccess(e)
 			continue
 		case CmdPut:
@@ -183,4 +302,15 @@ func idxMaagement(ctx context.Context, cancel context.CancelFunc, p *samepleItem
 		}
 	}
 
+}
+
+func (sp *samepleItemPool) dump() string {
+
+	var b strings.Builder
+
+	for i := 0; i < len(sp.items); i++ {
+		mhead := EmptyMapHead.FromListHead(&sp.items[i].ListHead).(*MapHead)
+		mhead.dump(&b)
+	}
+	return b.String()
 }

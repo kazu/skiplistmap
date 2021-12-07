@@ -25,7 +25,8 @@ const (
 	LogFatal
 )
 
-const CurrentLogLevel LogLevel = LogWarn
+//const CurrentLogLevel LogLevel = LogDebug
+const CurrentLogLevel LogLevel = LogInfo
 
 var logio io.Writer = io.Discard
 

@@ -25,6 +25,7 @@ var sampleItem MapItem = &SampleItem{}
 var EmptySampleHMapEntry *SampleItem = (*SampleItem)(unsafe.Pointer(uintptr(0)))
 
 const SampleItemOffsetOf = unsafe.Offsetof(EmptySampleHMapEntry.ListHead)
+const SampleItemSize = unsafe.Sizeof(*EmptySampleHMapEntry)
 
 func SampleItemFromListHead(head *elist_head.ListHead) *SampleItem {
 	return (*SampleItem)(elist_head.ElementOf(EmptySampleHMapEntry, head))

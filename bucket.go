@@ -13,6 +13,7 @@ type bucket struct {
 	level   int32
 	len     int32
 	reverse uint64
+	dummy   entryHMap
 	head    *elist_head.ListHead // to MapEntry
 
 	downLevels []bucket

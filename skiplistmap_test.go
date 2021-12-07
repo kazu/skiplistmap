@@ -146,9 +146,11 @@ func Test_HMap(t *testing.T) {
 	//m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.BucketMode(skiplistmap.CombineSearch3)))
 	//m := list_head.NewHMap(list_head.MaxPefBucket(32), list_head.BucketMode(list_head.NestedSearchForBucket))
 	//m := list_head.NewHMap(list_head.MaxPefBucket(32), list_head.BucketMode(list_head.LenearSearchForBucket))
-	skiplistmap.EnableStats = true
-	//levels := m.base.ActiveLevels()
-	//assert.Equal(t, 0, len(levels))
+	skiplistmap.EnableStats = false
+	//skiplistmap.CurrentLogLevel = skiplistmap.LogDebug
+
+	mc := list_head.MODE_CONCURRENT
+	_ = mc
 	a := skiplistmap.MapHead{}
 	_ = a
 	m.Set("hoge", &list_head.ListHead{})

@@ -4,7 +4,7 @@ go 1.17
 
 require (
 	github.com/cespare/xxhash v1.1.0
-	github.com/kazu/elist_head v0.1.3
+	github.com/kazu/elist_head v0.2.2
 	github.com/kazu/loncha v0.4.6
 	github.com/stretchr/testify v1.7.0
 )

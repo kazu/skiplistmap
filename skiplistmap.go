@@ -200,10 +200,10 @@ func NewHMap(opts ...OptHMap) *Map {
 	hmap.tailBucket = topBucket.Next()
 	hmap.headBucket = topBucket.Prev()
 
-	list := &elist_head.ListHead{}
-	list.InitAsEmpty()
-	hmap.head = list.Prev()
-	hmap.tail = list.Next()
+	hmap.head = &elist_head.ListHead{}
+	hmap.tail = &elist_head.ListHead{}
+	elist_head.InitAsEmpty(hmap.head, hmap.tail)
+
 	hmap.modeForBucket = NestedSearchForBucket
 	hmap.ItemFn = func() MapItem { return emptyEntryHMap }
 
@@ -267,8 +267,6 @@ func (h *Map) initBeforeSet() {
 	empty.reverse, empty.conflict = btable.reverse, 0
 	empty.PtrMapHead().state |= mapIsDummy
 
-	empty.Init()
-
 	h.add2(h.head.Prev().Next(), empty)
 
 	// add bucket
@@ -299,7 +297,6 @@ func (h *Map) initBeforeSet() {
 		empty.reverse, empty.conflict = btable.reverse, 0
 		empty.PtrMapHead().state |= mapIsDummy
 
-		empty.Init()
 		btablefirst.head.InsertBefore(&empty.ListHead)
 
 		// add bucket

@@ -1357,3 +1357,13 @@ func (h *Map) Range(f func(key, value interface{}) bool) {
 		return f(item.Key(), item.Value())
 	})
 }
+
+func (h *Map) First() HMapEntry {
+	cur := h.head.DirectPrev().DirectNext()
+	return h.ItemFn().HmapEntryFromListHead(cur)
+}
+
+func (h *Map) Last() HMapEntry {
+	cur := h.tail.DirectNext().DirectPrev()
+	return h.ItemFn().HmapEntryFromListHead(cur)
+}

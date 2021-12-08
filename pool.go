@@ -206,6 +206,7 @@ func (sp *samepleItemPool) Expand() *samepleItemPool {
 	_ = nPool
 
 	next := sp.Next()
+	pOpts := list_head.DefaultModeTraverse.Option(list_head.WaitNoM())
 	e := sp.MarkForDelete()
 	if e != nil {
 		panic("fail mark")
@@ -253,7 +254,13 @@ func (sp *samepleItemPool) Expand() *samepleItemPool {
 
 	//FIXME: check
 	next.InsertBefore(&nPool.ListHead)
-	sp.Init()
+	list_head.DefaultModeTraverse.Option(pOpts...)
+	if ok, _ := sp.IsSafety(); ok {
+		sp.Init()
+	} else {
+		sp.IsSafety()
+		fmt.Printf("old sampleItem pool is not safety")
+	}
 	return nPool
 }
 
@@ -283,7 +290,7 @@ var IsExtended = false
 func idxMaagement(ctx context.Context, cancel context.CancelFunc, h *samepleItemPool, reqCh chan poolReq) {
 
 	for req := range reqCh {
-		p := samepleItemPoolFromListHead(h.DirectNext())
+		p := samepleItemPoolFromListHead(h.Next())
 		switch req.cmd {
 		case CmdGet:
 			e, extend := p.Get()

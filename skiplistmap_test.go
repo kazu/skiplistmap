@@ -3,7 +3,6 @@ package skiplistmap_test
 import (
 	"fmt"
 	"math/rand"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -201,13 +200,15 @@ func Test_HMap(t *testing.T) {
 	}
 	conf = list_head.DefaultModeTraverse
 	_ = conf
-	DumpHmap(m.base)
+	//DumpHmap(m.base)
 
-	var b strings.Builder
-	m.base.DumpEntry(&b)
-	//assert.Equal(t, 0, len(b.String()))
-	assert.NotEqual(t, 0, len(b.String()))
-
+	// var b strings.Builder
+	// m.base.DumpEntry(&b)
+	// //assert.Equal(t, 0, len(b.String()))
+	// assert.NotEqual(t, 0, len(b.String()))
+	e := m.base.Last()
+	_ = e
+	assert.Equal(t, ^uint64(0), e.PtrMapHead().KeyInHmap())
 }
 
 func DumpHmap(h *skiplistmap.Map) {

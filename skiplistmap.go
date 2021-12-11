@@ -424,11 +424,26 @@ func (h *Map) get(key interface{}) (interface{}, bool) {
 var Failreverse uint64 = 0
 
 func (h *Map) _get(k, conflict uint64) (MapItem, bool) {
-	item, _, ok := h._get2(k, conflict)
-	return item, ok
+	if EnableStats {
+		h.mu.Lock()
+		DebugStats[CntOfGet]++
+		h.mu.Unlock()
+	}
+	e := h.searchKey(k, true)
+	if e == nil {
+		if Failreverse == 0 {
+			Failreverse = bits.Reverse64(k)
+		}
+		return nil, false
+	}
+	if e.PtrMapHead().reverse != bits.Reverse64(k) || e.PtrMapHead().conflict != conflict {
+		return nil, false
+	}
+	return e.(MapItem), true
+
 }
 
-func (h *Map) _get2(k, conflict uint64) (MapItem, *bucket, bool) {
+func (h *Map) getWithBucket(k, conflict uint64) (MapItem, *bucket, bool) {
 
 	if EnableStats {
 		h.mu.Lock()
@@ -437,46 +452,20 @@ func (h *Map) _get2(k, conflict uint64) (MapItem, *bucket, bool) {
 	}
 	var bucket *bucket
 	var reverse uint64
-	switch h.modeForBucket {
-	case CombineSearch, CombineSearch2, CombineSearch3, CombineSearch4:
 
-		//e := h.searchKey(k, true)
-		bucket, reverse = h.searchBucket4update(k)
-		e := h.searchBybucket(bucket, reverse, true)
-
-		if e == nil {
-			if Failreverse == 0 {
-				Failreverse = bits.Reverse64(k)
-			}
-			return nil, bucket, false
-		}
-		if e.PtrMapHead().reverse != bits.Reverse64(k) || e.PtrMapHead().conflict != conflict {
-			return nil, bucket, false
-		}
-		return e.(MapItem), bucket, true
-
-	default:
-		bucket = h.searchBucket(k)
-		break
-	}
-
-	if bucket == nil {
-		return nil, nil, false
-	}
-	var e *entryHMap
-
-	if h.modeForBucket == FalsesSearchForBucket {
-		return nil, bucket, true
-	}
+	bucket, reverse = h.searchBucket4update(k)
+	e := h.searchBybucket(bucket, reverse, true)
 
 	if e == nil {
+		if Failreverse == 0 {
+			Failreverse = bits.Reverse64(k)
+		}
 		return nil, bucket, false
 	}
-	if e.reverse != bits.Reverse64(k) || e.conflict != conflict {
+	if e.PtrMapHead().reverse != bits.Reverse64(k) || e.PtrMapHead().conflict != conflict {
 		return nil, bucket, false
 	}
-
-	return e, bucket, true
+	return e.(MapItem), bucket, true
 
 }
 
@@ -542,17 +531,17 @@ func (h *Map) LoadItem(key interface{}) (item MapItem, success bool) {
 
 func (h *Map) LoadItemByHash(k uint64, conflict uint64) (item MapItem, success bool) {
 
-	item, _, success = h.loadItem(k, conflict, nil)
+	item, success = h._get(k, conflict)
 	return
 }
 
 func (h *Map) loadItem(k uint64, conflict uint64, key interface{}) (MapItem, *bucket, bool) {
 	//return h._get(k, conflict)
 	if key == nil {
-		return h._get2(k, conflict)
+		return h.getWithBucket(k, conflict)
 	}
 
-	return h._get2(KeyToHash(key))
+	return h.getWithBucket(KeyToHash(key))
 }
 
 // Set ... set the value for a key

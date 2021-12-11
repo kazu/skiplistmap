@@ -21,6 +21,8 @@ const (
 )
 const cntOfPoolMgr = 8
 
+var UseGoroutineInPool bool = false
+
 type successFn func(MapItem)
 
 type poolReq struct {
@@ -51,7 +53,9 @@ func newPool() (p *Pool) {
 }
 
 func (p *Pool) startMgr() {
-
+	if !UseGoroutineInPool {
+		return
+	}
 	for i := range p.itemPool {
 
 		cctx, ccancel := context.WithCancel(p.ctx)
@@ -64,6 +68,14 @@ func (p *Pool) startMgr() {
 func (p *Pool) Get(reverse uint64, fn successFn) {
 
 	idx := (reverse >> (4 * 15) % cntOfPoolMgr)
+
+	if !UseGoroutineInPool {
+		p := samepleItemPoolFromListHead(p.itemPool[idx].Next())
+		e, _ := p.Get()
+		fn(e)
+		return
+	}
+
 	p.mgrCh[idx] <- poolReq{
 		cmd:       CmdGet,
 		onSuccess: fn,
@@ -73,6 +85,13 @@ func (p *Pool) Get(reverse uint64, fn successFn) {
 func (p *Pool) Put(item MapItem) {
 	reverse := item.PtrMapHead().reverse
 	idx := reverse >> (4 * 15)
+
+	if !UseGoroutineInPool {
+		p := samepleItemPoolFromListHead(p.itemPool[idx].Next())
+		p.Put(item)
+		return
+	}
+
 	p.mgrCh[idx] <- poolReq{
 		cmd:  CmdPut,
 		item: item,

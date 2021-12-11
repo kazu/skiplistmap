@@ -100,8 +100,8 @@ sMap.Purge("test2")
 - 100000 record. set key/value before benchmark
 - mapWithMutex map[interface{}]interface{} with sync.RWMutex
 - skiplistmap4 this package 
-- hashmap.HashMap "github.com/cornelk/hashmap" package
-- cmap.Cmap "github.com/lrita/cmap" package 
+- hashmap.HashMap [github.com/cornelk/hashmap] package
+- cmap.Cmap [github.com/lrita/cmap] package 
 
 ### read only
 ```
@@ -132,6 +132,9 @@ Benchmark_Map/cmap.Cmap_____________________w/50_bucket=__0-16           1592382
 - lock free , thread safe concurrent without lock
 - buckets, items(key/value items) is doubly linked-list. this linked list is embedded type. so faster
 - items is shards per hash key single bytes. items in the same shard is high-locality because in same slice.
-- next/prev pointer of items's linked list is relative pointer. low-cost copy for expand shad slice.
+- next/prev pointer of items's linked list is relative pointer. low-cost copy for expand shad slice. ([elist_head])
 
 [list_encabezado]: https://pkg.go.dev/github.com/kazu/loncha@v0.4.5/lista_encabezado
+[elist_head]: https://github.com/kazu/elist_head
+[github.com/cornelk/hashmap]: https://github.com/cornelk/hashmap
+[github.com/lrita/cmap]: https://github.com/lrita/cmap

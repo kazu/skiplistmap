@@ -100,17 +100,17 @@ sMap.Purge("test2")
 - 100000 record. set key/value before benchmark
 - mapWithMutex map[interface{}]interface{} with sync.RWMutex
 - skiplistmap4 this package 
-- hashmap.HashMap [github.com/cornelk/hashmap] package
-- cmap.Cmap [github.com/lrita/cmap] package 
+- hashmap [github.com/cornelk/hashmap] package
+- cmap [github.com/lrita/cmap] package 
 
 ### read only
 ```
-Benchmark_Map/mapWithMutex__________________w/_0_bucket=__0-16         	15610328	        76.12 ns/op	      15 B/op	       1 allocs/op
-Benchmark_Map/sync.Map______________________w/_0_bucket=__0-16         	25813341	        43.37 ns/op	      63 B/op	       2 allocs/op
-Benchmark_Map/skiplistmap4__________________w/_0_bucket=_16-16         	35947046	        38.25 ns/op	      15 B/op	       1 allocs/op
-Benchmark_Map/skiplistmap4__________________w/_0_bucket=_32-16         	36800390	        36.61 ns/op	      15 B/op	       1 allocs/op
-Benchmark_Map/hashmap.HashMap_______________w/_0_bucket=__0-16         	20071834	        63.11 ns/op	      31 B/op	       2 allocs/op
-Benchmark_Map/cmap.Cmap_____________________w/_0_bucket=__0-16           1841415	       721.00 ns/op	     935 B/op	       5 allocs/op
+Benchmark_Map/mapWithMutex_w/_0_bucket=__0-16         	15610328	        76.12 ns/op	      15 B/op	       1 allocs/op
+Benchmark_Map/sync.Map_____w/_0_bucket=__0-16         	25813341	        43.37 ns/op	      63 B/op	       2 allocs/op
+Benchmark_Map/skiplistmap4_w/_0_bucket=_16-16         	35947046	        38.25 ns/op	      15 B/op	       1 allocs/op
+Benchmark_Map/skiplistmap4_w/_0_bucket=_32-16         	36800390	        36.61 ns/op	      15 B/op	       1 allocs/op
+Benchmark_Map/hashmap______w/_0_bucket=__0-16         	20071834	        63.11 ns/op	      31 B/op	       2 allocs/op
+Benchmark_Map/cmap.Cmap____w/_0_bucket=__0-16            1841415	       721.00 ns/op	     935 B/op	       5 allocs/op
 
 ```
 
@@ -118,12 +118,12 @@ Benchmark_Map/cmap.Cmap_____________________w/_0_bucket=__0-16           1841415
 ### read 50%. update 50%
 
 ```
-Benchmark_Map/mapWithMutex__________________w/50_bucket=__0-16         	 2895382	       377.3  ns/op	      16 B/op	       1 allocs/op
-Benchmark_Map/sync.Map______________________w/50_bucket=__0-16         	 9532836	       137.4  ns/op	     140 B/op	       4 allocs/op
-Benchmark_Map/skiplistmap4__________________w/50_bucket=_16-16         	33024600	        50.80 ns/op	      21 B/op	       2 allocs/op
-Benchmark_Map/skiplistmap4__________________w/50_bucket=_32-16         	33231843	        48.75 ns/op	      21 B/op	       2 allocs/op
-Benchmark_Map/hashmap.HashMap_______________w/50_bucket=__0-16         	37279302	        66.94 ns/op	      65 B/op	       3 allocs/op
-Benchmark_Map/cmap.Cmap_____________________w/50_bucket=__0-16           1592382	       733.2  ns/op	    1069 B/op	       7 allocs/op
+Benchmark_Map/mapWithMutex_w/50_bucket=__0-16         	 2895382	       377.3  ns/op	      16 B/op	       1 allocs/op
+Benchmark_Map/sync.Map_____w/50_bucket=__0-16         	 9532836	       137.4  ns/op	     140 B/op	       4 allocs/op
+Benchmark_Map/skiplistmap4_w/50_bucket=_16-16         	33024600	        50.80 ns/op	      21 B/op	       2 allocs/op
+Benchmark_Map/skiplistmap4_w/50_bucket=_32-16         	33231843	        48.75 ns/op	      21 B/op	       2 allocs/op
+Benchmark_Map/hashmap______w/50_bucket=__0-16         	37279302	        66.94 ns/op	      65 B/op	       3 allocs/op
+Benchmark_Map/cmap_________w/50_bucket=__0-16            1592382	       733.2  ns/op	    1069 B/op	       7 allocs/op
 ```
 
 ## why faster ?

@@ -129,14 +129,228 @@ func (sp *samepleItemPool) hasNoFree() bool {
 }
 
 func (sp *samepleItemPool) init() {
+	sp._init(CntOfPersamepleItemPool)
+}
+
+func (sp *samepleItemPool) _init(cap int) {
 
 	elist_head.InitAsEmpty(&sp.freeHead, &sp.freeTail)
 
-	sp.items = make([]SampleItem, 0, CntOfPersamepleItemPool)
+	sp.items = make([]SampleItem, 0, cap)
 	if !list_head.MODE_CONCURRENT {
 		list_head.MODE_CONCURRENT = true
 	}
 	//sp.Init()
+}
+
+const (
+	getEmpty      byte = 1
+	getLargest         = 2
+	getNoCap           = 3
+	requireInsert      = 4
+)
+
+func (sp *samepleItemPool) state4get(reverse uint64, tail int) byte {
+
+	if len(sp.items) == 0 {
+		return getEmpty
+	}
+	if cap(sp.items) == len(sp.items) {
+		return getNoCap
+	}
+
+	last := &sp.items[tail]
+	if last.reverse < reverse {
+		return getLargest
+	}
+	return requireInsert
+
+}
+
+func (sp *samepleItemPool) validateItems() error {
+	old := -1
+	empty := elist_head.ListHead{}
+	for i := range sp.items {
+		if i == 0 && sp.items[i].PtrListHead().Prev().Next() != sp.items[i].PtrListHead() {
+			return fmt.Errorf("invalid item index i=0")
+		}
+		if sp.items[i].ListHead == empty {
+			old = i
+			continue
+		}
+
+		if i == 0 {
+			continue
+		}
+
+		if i == len(sp.items)-1 {
+			continue
+		}
+		pidx := i - 1
+		if pidx == old {
+			pidx--
+		}
+		if pidx < 0 {
+			continue
+		}
+
+		if sp.items[pidx].PtrListHead().Next() != sp.items[i].PtrListHead() {
+			p := sp.items[pidx].Next()
+			_ = p
+			return fmt.Errorf("invalid item index i=%d, %d", i, i-1)
+		}
+
+		if sp.items[i].PtrListHead().Prev() != sp.items[pidx].PtrListHead() {
+			p := sp.items[i].Prev()
+			_ = p
+			return fmt.Errorf("invalid item index i=%d, %d", i, i-1)
+		}
+	}
+	return nil
+
+}
+
+var lastgets []byte = nil
+
+func (sp *samepleItemPool) get(reverse uint64) (new MapItem, nPool *samepleItemPool) {
+
+	lastActiveIdx := -1
+	//var tail *SampleItem
+
+	// MENTION: debug only
+	//sp.validateItems()
+
+	for i := len(sp.items) - 1; i >= 0; i-- {
+		if sp.items[i].IsIgnored() {
+			continue
+		}
+		lastActiveIdx = i
+		//tail = &sp.items[lastActiveIdx]
+		break
+	}
+	defer func() {
+		// MENTION: debug only
+		// if nPool == nil {
+		// 	sp.validateItems()
+		// } else {
+		// 	nPool.validateItems()
+		// }
+	}()
+	lastgets = append(lastgets, sp.state4get(reverse, lastActiveIdx))
+	switch sp.state4get(reverse, lastActiveIdx) {
+	case getEmpty, getLargest:
+		sp.items = sp.items[:len(sp.items)+1]
+		new := &sp.items[len(sp.items)-1]
+		new.Init()
+		return new, nil
+	case getNoCap:
+		nPool, err := sp.Expand()
+		if err != nil {
+			Log(LogWarn, "pool.Expand() require retry")
+			//panic("retry?")
+		}
+		new, _ = nPool.get(reverse)
+		return new, nPool
+	}
+
+	// require insert
+	//FIXME: should bsearch
+	if IsDebug() {
+		var b strings.Builder
+		for i := range sp.items {
+			sp.items[i].PtrMapHead().dump(&b)
+		}
+		Log(LogDebug, "B: itemPool.items\n%s\n", b.String())
+	}
+	// FIXME: should disable not IsDebug()
+	//sp.validateItems()
+
+	olen := len(sp.items)
+	for i := range sp.items {
+		if sp.items[i].IsIgnored() {
+			continue
+		}
+		if sp.items[i].reverse < reverse {
+			continue
+		}
+		if i == olen-1 {
+			//fmt.Printf("invalid")
+		}
+
+		sp.items = sp.items[:olen+1]
+		copy(sp.items[i+1:], sp.items[i:])
+		sp.items[olen-1].ListHead = sp.items[olen].ListHead
+		sp.items[olen].ListHead = elist_head.ListHead{}
+
+		_, err := sp.items[olen-1].PtrListHead().Next().InsertBefore(sp.items[olen].PtrListHead())
+		if err != nil {
+			panic("fail insertion")
+		}
+		if i == 0 && olen > 1 {
+			sp.items[1].ListHead = nextListHeadOfSampleItem()
+		}
+		for i := 2; i < olen; i++ {
+			sp.items[i].ListHead = sp.items[1].ListHead
+		}
+
+		if IsDebug() {
+			var b strings.Builder
+			for i := range sp.items {
+				sp.items[i].PtrMapHead().dump(&b)
+			}
+			fmt.Printf("A: itemPool.items\n%s\n", b.String())
+		}
+
+		if i > 0 && sp.items[i-1].PtrListHead().Next() != sp.items[i].PtrListHead() {
+			panic("not connect next")
+		}
+		if i > 0 && sp.items[i].PtrListHead().Prev() != sp.items[i-1].PtrListHead() {
+			panic("not connect next.prev")
+		}
+		if olen-1 > 0 && sp.items[olen-1].PtrListHead().Next() != sp.items[olen].PtrListHead() {
+			panic("not connect sp.items[olen-1] -> sp.items[olen]")
+		}
+		if olen-1 > 0 && sp.items[olen].PtrListHead().Prev() != sp.items[olen-1].PtrListHead() {
+			panic("not connect sp.items[olen-1] <- sp.items[olen]")
+		}
+		pOpts := elist_head.SharedTrav(list_head.WaitNoM())
+		sp.items[i].MarkForDelete()
+		elist_head.SharedTrav(pOpts...)
+		sp.items[i].Init()
+
+		return &sp.items[i], nil
+	}
+	return nil, nil
+}
+
+func nextListHeadOfSampleItem() elist_head.ListHead {
+
+	list := elist_head.NewEmptyList()
+
+	items := make([]SampleItem, 3)
+
+	// for i := range items {
+	// 	list.Tail().InsertBefore(items[i].PtrListHead())
+	// }
+	list.Tail().InsertBefore(items[2].PtrListHead())
+	items[2].InsertBefore(items[1].PtrListHead())
+	items[1].InsertBefore(items[0].PtrListHead())
+
+	return items[1].ListHead
+}
+
+func (sp *samepleItemPool) findIdx(reverse uint64) (int, error) {
+
+	for i := range sp.items {
+		if sp.items[i].IsIgnored() {
+			continue
+		}
+		if reverse <= sp.items[i].reverse {
+			return i, nil
+		}
+	}
+	return -1, ErrIdxOverflow
+
 }
 
 func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool) {
@@ -171,7 +385,10 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool) {
 	if IsDebug() {
 		isExpanded = true
 	}
-	nPool := sp.Expand()
+	nPool, err := sp.Expand()
+	if err != nil {
+		panic("already deleted")
+	}
 	new, _ = nPool.Get()
 	return new, isExpanded
 
@@ -219,17 +436,45 @@ func (sp *samepleItemPool) DumpExpandInfo(w io.Writer, outers []unsafe.Pointer, 
 
 }
 
-func (sp *samepleItemPool) Expand() *samepleItemPool {
+func (sp *samepleItemPool) Split(idx int) (nPool *samepleItemPool, err error) {
+
+	if len(sp.items) <= idx {
+		return nil, ErrIdxOverflow
+	}
+
+	nPool = &samepleItemPool{}
+
+	nPool.items = sp.items[idx:]
+	sp.items = sp.items[:idx:idx]
+	nPool.Init()
+	//sp.validateItems()
+	//nPool.validateItems()
+
+	if sp.PtrListHead().Next() != nil && sp.PtrListHead().Next() != sp.PtrListHead() {
+		_, err = sp.PtrListHead().Next().InsertBefore(nPool.PtrListHead())
+	}
+	return
+
+}
+
+func (sp *samepleItemPool) Expand() (*samepleItemPool, error) {
 
 	nPool := &samepleItemPool{}
 	_ = nPool
-
-	next := sp.Next()
-	pOpts := list_head.DefaultModeTraverse.Option(list_head.WaitNoM())
-	e := sp.MarkForDelete()
-	if e != nil {
-		panic("fail mark")
+	var e error
+	var pOpts []list_head.TravOpt
+	var next *list_head.ListHead
+	a := samepleItemPool{}
+	if sp.ListHead == a.ListHead {
+		goto NO_DELETE
 	}
+	next = sp.Next()
+	pOpts = list_head.DefaultModeTraverse.Option(list_head.WaitNoM())
+	e = sp.MarkForDelete()
+	if e != nil {
+		return nil, EAlreadyDeleted
+	}
+NO_DELETE:
 
 	elist_head.InitAsEmpty(&nPool.freeHead, &nPool.freeTail)
 
@@ -255,19 +500,43 @@ func (sp *samepleItemPool) Expand() *samepleItemPool {
 			int(SampleItemOffsetOf))
 		sp.DumpExpandInfo(&b, outers, "B:rewrite reverse=0x%x\n", &sp.items[0].reverse)
 	}
+	// FIXME: only debug
+	// prev := sp.items[0].Prev()
+	// _ = prev
+	// cur := prev.Next()
+	// _ = cur
+	// prev2 := cur.Prev()
+	// _ = prev2
 
-	elist_head.RepaireSliceAfterCopy(
+	// if cur.PtrListHead() != &sp.items[0].ListHead {
+	// 	fmt.Println("fail create")
+	// }
+
+	err := elist_head.RepaireSliceAfterCopy(
 		unsafe.Pointer(&sp.items[0]),
 		unsafe.Pointer(&sp.items[len(sp.items)-1]),
 		unsafe.Pointer(&nPool.items[0]),
 		int(SampleItemSize),
 		int(SampleItemOffsetOf))
 
+	if err != nil {
+		return nil, EFailExpand
+		// FIXME: only debug
+		// prev := sp.items[0].Prev()
+		// _ = prev
+		// cur := prev.Next()
+		// _ = cur
+	}
+
 	// for debugging
 	if IsDebug() {
 		sp.DumpExpandInfo(&b, outers, "A:rewrite reverse=0x%x\n", &sp.items[0].reverse)
 		fmt.Println(b.String())
 	}
+	// cur = prev.Next()
+	// if cur.PtrListHead() != &nPool.items[0].ListHead {
+	// 	panic("fail create")
+	// }
 
 	nPool.Init()
 
@@ -278,9 +547,9 @@ func (sp *samepleItemPool) Expand() *samepleItemPool {
 		sp.Init()
 	} else {
 		sp.IsSafety()
-		fmt.Printf("old sampleItem pool is not safety")
+		Log(LogWarn, "old sampleItem pool is not safety")
 	}
-	return nPool
+	return nPool, nil
 }
 
 func (sp *samepleItemPool) Put(item MapItem) {

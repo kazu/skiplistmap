@@ -143,13 +143,14 @@ func newWrapHMap(hmap *skiplistmap.Map) *WrapHMap {
 
 func Test_HMap(t *testing.T) {
 
+	skiplistmap.EnableStats = false
 	//m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UsePool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch3)))
-	m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.BucketMode(skiplistmap.CombineSearch4)))
+	m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UseEmbeddedPool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch3)))
 
 	//m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.BucketMode(skiplistmap.CombineSearch3)))
 	//m := list_head.NewHMap(list_head.MaxPefBucket(32), list_head.BucketMode(list_head.NestedSearchForBucket))
 	//m := list_head.NewHMap(list_head.MaxPefBucket(32), list_head.BucketMode(list_head.LenearSearchForBucket))
-	skiplistmap.EnableStats = false
+
 	//skiplistmap.CurrentLogLevel = skiplistmap.LogDebug
 
 	mc := list_head.MODE_CONCURRENT
@@ -165,6 +166,7 @@ func Test_HMap(t *testing.T) {
 	m.Set("oge3", v)
 	m.Set("3", v)
 	//m.ValidateDirty()
+	//DumpHmap(m.base)
 
 	// levels = m.base.ActiveLevels()
 	// assert.Equal(t, 2, len(levels))
@@ -173,6 +175,7 @@ func Test_HMap(t *testing.T) {
 	for i := 0; i < 100000; i++ {
 		//for i := 0; i < 10000; i++ {
 		m.Set(fmt.Sprintf("fuge%d", i), v)
+		// m.base.DumpEntry(nil)
 	}
 	skiplistmap.ResetStats()
 

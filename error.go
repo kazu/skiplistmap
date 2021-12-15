@@ -11,12 +11,18 @@ const (
 	ENotFoundBucket
 	EFailBucketAlloc
 	EInvalidBucket
+	EIndexOverflow
+	EIAlreadyDeleted
+	EIFailExpand
 )
 
 var (
 	ErrInvalidAdd      error = NewError(EInvalidAdd, "dd: item is added. but not found", nil)
 	ErrNotFoundBUcket  error = NewError(ENotFoundBucket, "bucket is not found", nil)
 	ErrFailBucketAlloc error = NewError(EFailBucketAlloc, "cannot allocated level bucket buffer", nil)
+	ErrIdxOverflow     error = NewError(EIndexOverflow, "index overflow for slice", nil)
+	EAlreadyDeleted    error = NewError(EIAlreadyDeleted, "itemPool already deleted", nil)
+	EFailExpand        error = NewError(EIFailExpand, "fail expand itemPool", nil)
 )
 
 type Error struct {

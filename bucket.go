@@ -261,6 +261,11 @@ func (b *bucket) entry(h *Map) (e HMapEntry) {
 	return b.NextEntry()
 
 }
+
+func (h *Map) FindBucket(reverse uint64) (b *bucket) {
+	return h._findBucket(reverse, false)
+}
+
 func (h *Map) findBucket(reverse uint64) (b *bucket) {
 
 	return h._findBucket(reverse, false)
@@ -431,4 +436,8 @@ func (b *bucket) _validateItemsNear() {
 		bn = b.nextAsB().nextAsB()
 	}
 
+}
+
+func (b *bucket) GetItem(r uint64) (MapItem, *samepleItemPool) {
+	return b.itemPool().get(r)
 }

@@ -294,6 +294,11 @@ func (h *Map) _validateallbucket() {
 
 }
 
+// TestSet ... _set() for Test
+func (h *Map) TestSet(k, conflict uint64, btable *bucket, item MapItem) bool {
+	return h._set(k, conflict, btable.toBase(), item)
+}
+
 func (h *Map) _set(k, conflict uint64, btable *bucket, item MapItem) bool {
 
 	item.PtrMapHead().reverse = bits.Reverse64(k)
@@ -750,9 +755,9 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 	b.LevelHead.Init()
 
 	idx, err := bucket.itemPool().findIdx(newReverse)
-	// if err != nil || idx == 0 {
-	// 	b._itemPool = &samepleItemPool{}
-	// 	b._itemPool.init()
+	if err != nil || idx == 0 {
+		return err
+	}
 	// } else {
 	olen := len(bucket.itemPool().items)
 	nPool, err2 := bucket.itemPool().Split(idx)

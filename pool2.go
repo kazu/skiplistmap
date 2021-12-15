@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"unsafe"
 
 	"github.com/kazu/elist_head"
@@ -102,6 +103,7 @@ func (p *Pool) Put(item MapItem) {
 const CntOfPersamepleItemPool = 64
 
 type samepleItemPool struct {
+	mu       sync.Mutex
 	freeHead elist_head.ListHead
 	freeTail elist_head.ListHead
 	items    []SampleItem
@@ -213,6 +215,8 @@ func (sp *samepleItemPool) validateItems() error {
 var lastgets []byte = nil
 
 func (sp *samepleItemPool) get(reverse uint64) (new MapItem, nPool *samepleItemPool) {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
 
 	lastActiveIdx := -1
 	//var tail *SampleItem

@@ -2,6 +2,7 @@ package skiplistmap_test
 
 import (
 	"fmt"
+	"math/bits"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -91,6 +92,42 @@ func Test_HmapEntry(t *testing.T) {
 
 		})
 	}
+
+}
+
+func Test_ConccurentWriteEmbeddedBucket(t *testing.T) {
+
+	m := skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32),
+		skiplistmap.UseEmbeddedPool(true),
+		skiplistmap.BucketMode(skiplistmap.CombineSearch3))
+
+	tests := []struct {
+		r uint64
+	}{
+		{0x100007800a100000},
+		{0x100007800a200000},
+		{0x100007800a300000},
+		{0x100007800a400000},
+	}
+
+	var wg sync.WaitGroup
+
+	for i, t := range tests {
+		wg.Add(1)
+		go func(idx int, key uint64) {
+			//func(idx int, key uint64) {
+			for i := uint64(1); i < 10; i++ {
+				bucket := m.FindBucket(key + i)
+				item, _ := bucket.GetItem(key + i)
+				s := item.(*skiplistmap.SampleItem)
+				s.K = "???"
+				s.V = nil
+				m.TestSet(bits.Reverse64(key+i), i, bucket, s)
+			}
+			wg.Done()
+		}(i, t.r)
+	}
+	wg.Wait()
 
 }
 
@@ -371,10 +408,15 @@ func Benchmark_Map(b *testing.B) {
 		// {"skiplistmap                  ", 100, 100000, 10, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
 
 		// use
-		// {"mapWithMutex                 ", 100, 100000, 50, 0x000, 0, &list_head.MapWithLock{}},
-		// {"sync.Map                     ", 100, 100000, 50, 0x000, 0, syncMap{}},
-		// {"skiplistmap4                 ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap())},
-		// {"skiplistmap4                 ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap())},
+		{"mapWithMutex                 ", 100, 100000, 50, 0x000, 0, &list_head.MapWithLock{}},
+		{"sync.Map                     ", 100, 100000, 50, 0x000, 0, syncMap{}},
+		{"skiplistmap4                 ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap())},
+		{"skiplistmap4                 ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap())},
+		{"skiplistmap5                 ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
+		{"skiplistmap5                 ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
+		{"skiplistmap5                 ", 100, 100000, 50, 0x040, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
+
+		// use
 		// {"hashmap.HashMap              ", 100, 100000, 50, 0x000, 0, hashMap{m: &hashmap.HashMap{}}},
 		// {"cmap.Cmap              	   ", 100, 100000, 50, 0x000, 0, cMap{}},
 

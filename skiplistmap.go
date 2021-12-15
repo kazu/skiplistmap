@@ -1331,8 +1331,17 @@ func (h *Map) SearchKey(k uint64, opts ...searchArg) HMapEntry {
 }
 
 func (h *Map) searchKey(k uint64, ignoreBucketEnry bool) HMapEntry {
+	if h.isEmbededItemInBucket {
+		return h.searchKeyFromEmbeddedPool(k, ignoreBucketEnry)
+	}
 	return h.searchBybucket(h.searchBucket4Key4(k, ignoreBucketEnry))
-	//return h.searchBybucket(h.searchBucket4Key3(k, ignoreBucketEnry))
+}
+
+func (h *Map) searchKeyFromEmbeddedPool(k uint64, ignoreBucketEnry bool) HMapEntry {
+	rev := bits.Reverse64(k)
+	//return h.searchByEmbeddedbucket(h.findBucket(rev), rev, ignoreBucketEnry)
+	return h.bsearchBybucket(h.findBucket(rev), rev, ignoreBucketEnry)
+
 }
 
 func (h *Map) topLevelBucket(reverse uint64) *bucket {
@@ -1396,6 +1405,54 @@ func nearBucketFromCache(levels [16]*bucket, lbNext *bucket, reverseNoMask uint6
 		noNil = false
 	}
 	return
+}
+
+func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
+
+	pool := bucket.toBase().itemPool()
+
+	idx := sort.Search(len(pool.items), func(i int) bool {
+		return pool.items[i].reverse >= reverseNoMask
+	})
+	if idx < len(pool.items) && pool.items[idx].reverse == reverseNoMask {
+		return &pool.items[idx]
+	}
+
+	a := bucket.toBase().prevAsB()
+	_ = a
+	if a.reverse < reverseNoMask {
+		h.findBucket(reverseNoMask)
+	}
+
+	return nil
+}
+
+func (h *Map) searchByEmbeddedbucket(bucket *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
+
+	for i := range bucket.toBase().itemPool().items {
+		if EnableStats && ignoreBucketEnry {
+			h.mu.Lock()
+			DebugStats[CntSearchEntry]++
+			h.mu.Unlock()
+		}
+		if ignoreBucketEnry && bucket.toBase().itemPool().items[i].IsIgnored() {
+			continue
+		}
+		if bucket.toBase().itemPool().items[i].reverse < reverseNoMask {
+			continue
+		}
+		if bucket.toBase().itemPool().items[i].reverse == reverseNoMask {
+			return &bucket.toBase().itemPool().items[i]
+		}
+		return nil
+	}
+	a := bucket.toBase().prevAsB()
+	_ = a
+	if a.reverse < reverseNoMask {
+		h.findBucket(reverseNoMask)
+	}
+
+	return nil
 }
 
 func (h *Map) searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {

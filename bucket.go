@@ -275,24 +275,19 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool) (b *bucket) {
 			continue
 		}
 		idx := int((reverse >> (4 * (16 - l))) & 0xf)
-		// if len(b.downLevels) <= idx {
-		// 	break
-		// }
-		if len(b.downLevels) <= idx || b.downLevels[idx].level == 0 || b.downLevels[idx].reverse == 0 {
-			nb := b.toBase().nextAsB()
-			_ = nb
+		if len(b.downLevels) <= idx || b.downLevels[idx].level == 0 {
+
+			//if len(b.downLevels) <= idx || b.downLevels[idx].level == 0 || b.downLevels[idx].reverse == 0 {
 			nidx := idx
 			if nidx > len(b.downLevels)-1 {
 				nidx = len(b.downLevels) - 1
 			}
 			for i := nidx; i > -1; i-- {
-				if b.downLevels[i].level == 0 || b.downLevels[i].reverse == 0 {
+				if b.downLevels[i].level == 0 {
 					continue
 				}
 				if !ignoreNoPool || b.downLevels[i]._itemPool != nil {
 					b = b.downLevels[i].largestDown(ignoreNoPool)
-					nbb := b._prevAsB(false)
-					_ = nbb
 					return b
 				}
 			}

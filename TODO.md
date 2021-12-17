@@ -1,6 +1,6 @@
-- [ ] improve performance
+- [x] improve performance
   - [x] bucket buffer of donwlevel bucket as slice
-  - [ ] using elist_head as key/value item
+  - [x] using elist_head as key/value item
 - [ ] support user defined key order.
 - [x] refactoring
 - [ ] Implement Purge()

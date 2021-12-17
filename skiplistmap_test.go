@@ -2,16 +2,20 @@ package skiplistmap_test
 
 import (
 	"fmt"
+	"math/bits"
 	"math/rand"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"unsafe"
 
 	"github.com/cespare/xxhash"
+	"github.com/cornelk/hashmap"
+	"github.com/kazu/elist_head"
 	list_head "github.com/kazu/loncha/lista_encabezado"
 	"github.com/kazu/skiplistmap"
 	"github.com/kazu/skiplistmap/rmap"
+	"github.com/lrita/cmap"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -64,19 +68,19 @@ func Test_HmapEntry(t *testing.T) {
 	tests := []struct {
 		name   string
 		wanted skiplistmap.MapItem
-		got    func(*list_head.ListHead) skiplistmap.MapItem
+		got    func(*elist_head.ListHead) skiplistmap.MapItem
 	}{
 		{
 			name:   "SampleItem",
 			wanted: &skiplistmap.SampleItem{K: "hoge", V: "hoge value"},
-			got: func(lhead *list_head.ListHead) skiplistmap.MapItem {
+			got: func(lhead *elist_head.ListHead) skiplistmap.MapItem {
 				return (skiplistmap.EmptySampleHMapEntry).HmapEntryFromListHead(lhead).(skiplistmap.MapItem)
 			},
 		},
 		{
 			name:   "entryHMap",
 			wanted: skiplistmap.NewEntryMap("hogeentry", "hogevalue"),
-			got: func(lhead *list_head.ListHead) skiplistmap.MapItem {
+			got: func(lhead *elist_head.ListHead) skiplistmap.MapItem {
 				return (skiplistmap.EmptyEntryHMap).HmapEntryFromListHead(lhead).(skiplistmap.MapItem)
 			},
 		},
@@ -88,6 +92,51 @@ func Test_HmapEntry(t *testing.T) {
 
 		})
 	}
+
+}
+
+func Test_ConccurentWriteEmbeddedBucket(t *testing.T) {
+
+	m := skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32),
+		skiplistmap.UseEmbeddedPool(true),
+		skiplistmap.BucketMode(skiplistmap.CombineSearch3))
+
+	tests := []struct {
+		r uint64
+	}{
+		{0x100007800a100000},
+		{0x100007800a200000},
+		{0x100007800a300000},
+		{0x100007800a400000},
+	}
+
+	var wg sync.WaitGroup
+
+	for i, t := range tests {
+		wg.Add(1)
+		go func(idx int, key uint64) {
+			//func(idx int, key uint64) {
+			for i := uint64(1); i < 10; i++ {
+				bucket := m.FindBucket(key + i)
+				item, pool, fn := bucket.GetItem(key + i)
+				_ = fn
+				if pool != nil {
+					//panic("nPool is not extend")
+					bucket.SetItemPool(pool)
+				}
+
+				s := item.(*skiplistmap.SampleItem)
+				s.K = "???"
+				s.V = nil
+				m.TestSet(bits.Reverse64(key+i), i, bucket, s)
+				if fn != nil {
+					bucket.RunLazyUnlocker(fn)
+				}
+			}
+			wg.Done()
+		}(i, t.r)
+	}
+	wg.Wait()
 
 }
 
@@ -140,67 +189,64 @@ func newWrapHMap(hmap *skiplistmap.Map) *WrapHMap {
 
 func Test_HMap(t *testing.T) {
 
-	m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UsePool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch3)))
-
-	//m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.BucketMode(skiplistmap.CombineSearch3)))
-	//m := list_head.NewHMap(list_head.MaxPefBucket(32), list_head.BucketMode(list_head.NestedSearchForBucket))
-	//m := list_head.NewHMap(list_head.MaxPefBucket(32), list_head.BucketMode(list_head.LenearSearchForBucket))
-	skiplistmap.EnableStats = true
-	//levels := m.base.ActiveLevels()
-	//assert.Equal(t, 0, len(levels))
-	a := skiplistmap.MapHead{}
-	_ = a
-	m.Set("hoge", &list_head.ListHead{})
-
-	v := &list_head.ListHead{}
-	v.Init()
-	m.Set("hoge1", v)
-	m.Set("hoge3", v)
-	m.Set("oge3", v)
-	m.Set("3", v)
-	//m.ValidateDirty()
-
-	// levels = m.base.ActiveLevels()
-	// assert.Equal(t, 2, len(levels))
-
-	for i := 0; i < 10000; i++ {
-		m.Set(fmt.Sprintf("fuge%d", i), v)
+	tests := []struct {
+		name string
+		m    *WrapHMap
+	}{
+		{
+			"embedded pool",
+			newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UseEmbeddedPool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch3))),
+		},
+		{
+			"pool without goroutine",
+			newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UsePool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch3))),
+		},
+		{
+			"combine4",
+			newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UsePool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch4))),
+		},
 	}
-	skiplistmap.ResetStats()
 
-	_, success := m.Get("hoge1")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := tt.m
+			m.Set("hoge", &list_head.ListHead{})
+			v := &list_head.ListHead{}
+			v.Init()
+			m.Set("hoge1", v)
+			m.Set("hoge3", v)
+			m.Set("oge3", v)
+			m.Set("3", v)
+			for i := 0; i < 100000; i++ {
+				m.Set(fmt.Sprintf("fuge%d", i), v)
+			}
+			skiplistmap.ResetStats()
 
-	assert.True(t, success)
-	stat := skiplistmap.DebugStats
-	//DumpHmap(m.base)
+			_, success := m.Get("hoge1")
 
-	_, success = m.Get("1234")
+			assert.True(t, success)
 
-	assert.False(t, success)
-	stat = skiplistmap.DebugStats
-	_ = stat
-	conf := list_head.DefaultModeTraverse
-	_ = conf
+			_, success = m.Get("1234")
 
-	for i := 0; i < 10000; i++ {
-		_, ok := m.Get(fmt.Sprintf("fuge%d", i))
-		assert.Truef(t, ok, "not found key=%s", fmt.Sprintf("fuge%d", i))
-		if !ok {
-			skiplistmap.BucketMode(skiplistmap.NestedSearchForBucket)(m.base)
-			_, ok = m.Get(fmt.Sprintf("fuge%d", i))
-			skiplistmap.BucketMode(skiplistmap.CombineSearch)(m.base)
-			_, ok = m.Get(fmt.Sprintf("fuge%d", i))
-		}
+			assert.False(t, success)
+
+			for i := 0; i < 100000; i++ {
+				_, ok := m.Get(fmt.Sprintf("fuge%d", i))
+				assert.Truef(t, ok, "not found key=%s", fmt.Sprintf("fuge%d", i))
+				if !ok {
+					skiplistmap.BucketMode(skiplistmap.NestedSearchForBucket)(m.base)
+					_, ok = m.Get(fmt.Sprintf("fuge%d", i))
+					skiplistmap.BucketMode(skiplistmap.CombineSearch)(m.base)
+					_, ok = m.Get(fmt.Sprintf("fuge%d", i))
+				}
+			}
+
+			e := m.base.Last()
+			_ = e
+			assert.Equal(t, ^uint64(0), e.PtrMapHead().KeyInHmap())
+		})
+
 	}
-	conf = list_head.DefaultModeTraverse
-	_ = conf
-	DumpHmap(m.base)
-
-	var b strings.Builder
-	m.base.DumpEntry(&b)
-	//assert.Equal(t, 0, len(b.String()))
-	assert.NotEqual(t, 0, len(b.String()))
-
 }
 
 func DumpHmap(h *skiplistmap.Map) {
@@ -232,8 +278,10 @@ func Benchmark_HMap_forProfile(b *testing.B) {
 		mapInf     list_head.MapGetSet
 	}{
 		//{"RMap            ", 100, 100000, 50, 0x000, 0, newWRMap()},
+		{"skiplistmap5    ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
+		// use
+		//{"HMap_combine    ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap())},
 
-		{"HMap_combine    ", 100, 100000, 0x0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
 		//{"HMap_combine3    ", 100, 100000, 0x0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
 
 		//{"HMap_combine    ", 100, 100000, 100, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
@@ -280,6 +328,38 @@ func (m syncMap) Set(k string, v *list_head.ListHead) (ok bool) {
 	return true
 }
 
+type hashMap struct {
+	m *hashmap.HashMap
+}
+
+func (m hashMap) Get(k string) (v *list_head.ListHead, ok bool) {
+	inf, ok := m.m.Get(k)
+	v = inf.(*list_head.ListHead)
+	return v, ok
+}
+
+func (m hashMap) Set(k string, v *list_head.ListHead) (ok bool) {
+
+	m.m.Set(k, v)
+	return true
+}
+
+type cMap struct {
+	m cmap.Cmap
+}
+
+func (m cMap) Get(k string) (v *list_head.ListHead, ok bool) {
+	inf, ok := m.m.Load(k)
+	v, ok = inf.(*list_head.ListHead)
+	return v, ok
+}
+
+func (m cMap) Set(k string, v *list_head.ListHead) (ok bool) {
+
+	m.m.Store(k, v)
+	return true
+}
+
 func Benchmark_Map(b *testing.B) {
 	newShard := func(fn func(int) list_head.MapGetSet) list_head.MapGetSet {
 		s := &list_head.ShardMap{}
@@ -299,12 +379,22 @@ func Benchmark_Map(b *testing.B) {
 	}{
 		{"mapWithMutex                 ", 100, 100000, 0, 0x000, 0, &list_head.MapWithLock{}},
 		{"sync.Map                     ", 100, 100000, 0, 0x000, 0, syncMap{}},
-		{"skiplistmap                  ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
-		{"skiplistmap3                 ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
-		{"skiplistmap3                 ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
+
+		// {"skiplistmap                  ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
+		// {"skiplistmap3                 ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
+		// {"skiplistmap3                 ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
 		{"skiplistmap4                 ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap())},
 		{"skiplistmap4                 ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap())},
-		{"RMap                         ", 100, 100000, 0, 0x000, 0, newWRMap()},
+		{"skiplistmap5                 ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
+		{"skiplistmap5                 ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
+		{"skiplistmap5                 ", 100, 100000, 0, 0x040, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
+		{"skiplistmap5                 ", 100, 100000, 0, 0x080, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
+
+		// use
+		//{"hashmap.HashMap              ", 100, 100000, 0, 0x000, 0, hashMap{m: &hashmap.HashMap{}}},
+		//{"cmap.Cmap              	   ", 100, 100000, 0, 0x000, 0, cMap{}},
+
+		//{"RMap                         ", 100, 100000, 0, 0x000, 0, newWRMap()},
 
 		// {"skiplistmap                  ", 100, 100000, 0, 0x008, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
 
@@ -313,12 +403,20 @@ func Benchmark_Map(b *testing.B) {
 		// {"skiplistmap nestsearch       ", 100, 100000, 10, 0x020, skiplistmap.NestedSearchForBucket, newWrapHMap(skiplistmap.NewHMap())},
 		// {"skiplistmap                  ", 100, 100000, 10, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
 
+		// use
 		{"mapWithMutex                 ", 100, 100000, 50, 0x000, 0, &list_head.MapWithLock{}},
 		{"sync.Map                     ", 100, 100000, 50, 0x000, 0, syncMap{}},
-		{"skiplistmap                  ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
-		{"skiplistmap3                 ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
-		{"skiplistmap3                 ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
-		{"RMap                         ", 100, 100000, 50, 0x000, 0, newWRMap()},
+		{"skiplistmap4                 ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap())},
+		{"skiplistmap4                 ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap())},
+		{"skiplistmap5                 ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
+		{"skiplistmap5                 ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
+		{"skiplistmap5                 ", 100, 100000, 50, 0x040, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
+
+		// use
+		// {"hashmap.HashMap              ", 100, 100000, 50, 0x000, 0, hashMap{m: &hashmap.HashMap{}}},
+		// {"cmap.Cmap              	   ", 100, 100000, 50, 0x000, 0, cMap{}},
+
+		//{"RMap                         ", 100, 100000, 50, 0x000, 0, newWRMap()},
 	}
 
 	for _, bm := range benchmarks {
@@ -390,6 +488,66 @@ func Benchmark_HMap(b *testing.B) {
 				skiplistmap.BucketMode(bm.mode)(whmap.base)
 			}
 			runBnech(b, bm.mapInf, bm.concurrent, bm.cnt, uint64(bm.percent))
+		})
+	}
+
+}
+
+type TestElm struct {
+	I int
+	J int
+}
+
+func Benchmark_slice_vs_unsafe(b *testing.B) {
+
+	makeSlice := func(cnt int) []TestElm {
+
+		slice := make([]TestElm, cnt)
+		for i := range slice {
+			slice[i].J = i
+		}
+		return slice
+	}
+	const size int = int(unsafe.Sizeof(TestElm{}))
+
+	benchmarks := []struct {
+		name   string
+		cnt    int
+		travFn func([]TestElm, unsafe.Pointer, int) int
+	}{
+		{
+			"slice traverse",
+			100000,
+			func(slice []TestElm, f unsafe.Pointer, i int) int {
+
+				return slice[i].J
+
+			},
+		}, {
+			"unsafe traverse",
+			100000,
+			func(slice []TestElm, f unsafe.Pointer, i int) int {
+				pj := (*int)(unsafe.Add(f, i*size))
+				return *pj
+			},
+		},
+	}
+
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+
+			slice := makeSlice(bm.cnt)
+			first := unsafe.Pointer(&slice[0].J)
+			b.ResetTimer()
+
+			for jj := 0; jj < b.N; jj++ {
+				b.StartTimer()
+				for i := range slice {
+					bm.travFn(slice, first, i)
+				}
+				b.StopTimer()
+			}
+
 		})
 	}
 

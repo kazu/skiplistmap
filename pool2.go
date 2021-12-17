@@ -284,15 +284,18 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu *sync.Mutex) (newItem
 		sp.items[olen-1].ListHead = sp.items[olen].ListHead
 		sp.items[olen].ListHead = elist_head.ListHead{}
 
+		oldOutside := sp.items[olen-1].Next()
+		_ = oldOutside
 		_, err := sp.items[olen-1].PtrListHead().Next().InsertBefore(sp.items[olen].PtrListHead())
 		if err != nil {
 			panic("fail insertion")
 		}
-		if i == 0 && olen > 1 {
-			sp.items[1].ListHead = nextListHeadOfSampleItem()
-		}
-		for i := 2; i < olen; i++ {
-			sp.items[i].ListHead = sp.items[1].ListHead
+		// if i == 0 && olen > 1 {
+		// 	sp.items[1].ListHead = nextListHeadOfSampleItem()
+		// }
+		middle := nextListHeadOfSampleItem()
+		for i := 1; i < olen; i++ {
+			sp.items[i].ListHead = middle
 		}
 
 		if IsDebug() {
@@ -304,16 +307,27 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu *sync.Mutex) (newItem
 		}
 
 		if i > 0 && sp.items[i-1].PtrListHead().Next() != sp.items[i].PtrListHead() {
-			panic("not connect next")
+			toNext := sp.items[i-1].PtrListHead().Next()
+			next := sp.items[i].PtrListHead()
+
+			Log(LogFatal, "not connect next %d-1=%p %d=%p", i-1, toNext, i, next)
 		}
 		if i > 0 && sp.items[i].PtrListHead().Prev() != sp.items[i-1].PtrListHead() {
-			panic("not connect next.prev")
+			c := sp.items[i].PtrListHead().Prev()
+			p := sp.items[i-1].PtrListHead()
+			Log(LogFatal, "not connect next.prev c.prev(%p) = prev(%p)", c, p)
 		}
+		outside := sp.items[olen].Next()
+		_ = outside
 		if olen-1 > 0 && sp.items[olen-1].PtrListHead().Next() != sp.items[olen].PtrListHead() {
-			panic("not connect sp.items[olen-1] -> sp.items[olen]")
+			toNext := sp.items[olen-1].PtrListHead().Next()
+			next := sp.items[olen].PtrListHead()
+			Log(LogFatal, "not connect sp.items[olen-1]=%p -> sp.items[olen]=%p ", toNext, next)
 		}
 		if olen-1 > 0 && sp.items[olen].PtrListHead().Prev() != sp.items[olen-1].PtrListHead() {
-			panic("not connect sp.items[olen-1] <- sp.items[olen]")
+			c := sp.items[olen].PtrListHead().Prev()
+			p := sp.items[olen-1].PtrListHead()
+			Log(LogFatal, "not connect sp.items[olen-1]=%p <- sp.items[olen]=%p", p, c)
 		}
 		pOpts := elist_head.SharedTrav(list_head.WaitNoM())
 		sp.items[i].MarkForDelete()
@@ -339,14 +353,15 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu *sync.Mutex) (new MapIte
 		break
 	}
 
-	lastgets = append(lastgets, sp.state4get(reverse, lastActiveIdx))
+	// for debug
+	//lastgets = append(lastgets, sp.state4get(reverse, lastActiveIdx))
 	switch sp.state4get(reverse, lastActiveIdx) {
 	case getEmpty, getLargest:
 		return sp.appendLast(mu)
 	case getNoCap:
 
 		nPool, err := sp.Expand()
-		if err != nil {
+		if err != nil || nPool == nil {
 			Log(LogWarn, "pool.Expand() require retry")
 		}
 		return nPool.getWithFn(reverse, mu)

@@ -119,8 +119,8 @@ func (b *bucket) itemPool() *samepleItemPool {
 	if b.itemPoolFn != nil {
 		return b.itemPoolFn()
 	}
-	// MENTION: should not run this
-	return nil
+	// FIXME: should set max of retry
+	return b.itemPool()
 }
 
 func (b *bucket) SetItemPool(pool *samepleItemPool) {

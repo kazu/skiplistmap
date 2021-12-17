@@ -546,6 +546,13 @@ func (h *Map) Set(key, value interface{}) bool {
 		lastgets = nil
 
 		item, nPool, fn := bucket.itemPool().getWithFn(bits.Reverse64(k), &bucket.muPool)
+		// FIXME: why fail to get
+		if item == nil {
+			if fn != nil {
+				fn(&bucket.muPool)
+			}
+			item, nPool, fn = bucket.itemPool().getWithFn(bits.Reverse64(k), &bucket.muPool)
+		}
 		if fn != nil {
 			defer fn(&bucket.muPool)
 		}
@@ -1344,6 +1351,10 @@ func nearBucketFromCache(levels [16]*bucket, lbNext *bucket, reverseNoMask uint6
 func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
 
 	pool := bucket.toBase().itemPool()
+	// FIXME: why fail to get
+	if pool == nil {
+		pool = bucket.toBase().itemPool()
+	}
 
 	idx := sort.Search(len(pool.items), func(i int) bool {
 		return pool.items[i].reverse >= reverseNoMask
@@ -1374,12 +1385,21 @@ func (h *Map) searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketEn
 
 	if lbNext.reverse < reverseNoMask {
 		result := lbNext.entry(h)
+
+		// FIXME: why fail to get
+		var resultHead *MapHead
+		if result == nil {
+			result = lbNext.entry(h)
+		}
+		if result != nil {
+			resultHead = result.PtrMapHead()
+		}
 		var pCur *MapHead
 		_ = pCur
 		if IsDebug() {
 			lbNext.itemPool().validateItems()
 		}
-		for cur := result.PtrMapHead(); cur != nil; cur = cur.NextWithNil() {
+		for cur := resultHead; cur != nil; cur = cur.NextWithNil() {
 			pCur = cur
 			if EnableStats && ignoreBucketEnry {
 				h.mu.Lock()

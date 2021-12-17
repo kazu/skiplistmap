@@ -215,55 +215,35 @@ func (sp *samepleItemPool) validateItems() error {
 
 var lastgets []byte = nil
 
-func (sp *samepleItemPool) get(reverse uint64) (new MapItem, nPool *samepleItemPool) {
-	sp.mu.Lock()
-	defer sp.mu.Unlock()
+func lazyUnlock(mu *sync.Mutex) {
+	if mu != nil {
+		mu.Unlock()
+	}
+}
 
-	lastActiveIdx := -1
-	//var tail *SampleItem
+type unlocker func(mu *sync.Mutex)
 
-	// MENTION: debug only
-	//sp.validateItems()
+func (sp *samepleItemPool) appendLast(mu *sync.Mutex) (newItem MapItem, nPool *samepleItemPool, fn unlocker) {
+
+	mu.Lock()
+	fn = lazyUnlock
 
 	olen := len(sp.items)
+	sp.items = sp.items[:olen+1]
+	new := &sp.items[olen]
+	new.Init()
+	return new, nil, fn
 
-	for i := olen - 1; i >= 0; i-- {
-		if sp.items[i].IsIgnored() {
-			continue
-		}
-		lastActiveIdx = i
-		//tail = &sp.items[lastActiveIdx]
-		break
-	}
-	defer func() {
-		// MENTION: debug only
-		// if nPool == nil {
-		// 	sp.validateItems()
-		// } else {
-		// 	nPool.validateItems()
-		// }
-	}()
-	// sp.mu.Lock()
-	// defer sp.mu.Unlock()
+}
 
-	lastgets = append(lastgets, sp.state4get(reverse, lastActiveIdx))
-	switch sp.state4get(reverse, lastActiveIdx) {
-	case getEmpty, getLargest:
-		olen := len(sp.items)
-		sp.items = sp.items[:olen+1]
-		new := &sp.items[olen]
-		new.Init()
-		return new, nil
-	case getNoCap:
+// requireInsert
 
-		nPool, err := sp.Expand()
-		if err != nil {
-			Log(LogWarn, "pool.Expand() require retry")
-			//panic("retry?")
-		}
-		new, _ = nPool.get(reverse)
-		return new, nPool
-	}
+func (sp *samepleItemPool) insertToPool(reverse uint64, mu *sync.Mutex) (newItem MapItem, nPool *samepleItemPool, fn unlocker) {
+
+	mu.Lock()
+	fn = lazyUnlock
+
+	olen := len(sp.items)
 
 	// require insert
 	//FIXME: should bsearch
@@ -279,7 +259,7 @@ func (sp *samepleItemPool) get(reverse uint64) (new MapItem, nPool *samepleItemP
 	if olen != len(sp.items) {
 		Log(LogDebug, "update olen")
 		sp.mu.Unlock()
-		return sp.get(reverse)
+		return sp.getWithFn(reverse, mu)
 	}
 	//olen = len(sp.items)
 	nlen := int64(olen)
@@ -297,7 +277,7 @@ func (sp *samepleItemPool) get(reverse uint64) (new MapItem, nPool *samepleItemP
 		if !atomic.CompareAndSwapInt64(&nlen, int64(len(sp.items)), nlen+1) {
 			Log(LogDebug, "update olen")
 			sp.mu.Unlock()
-			return sp.get(reverse)
+			return sp.getWithFn(reverse, mu)
 		}
 		sp.items = sp.items[:olen+1]
 		copy(sp.items[i+1:], sp.items[i:])
@@ -340,9 +320,40 @@ func (sp *samepleItemPool) get(reverse uint64) (new MapItem, nPool *samepleItemP
 		elist_head.SharedTrav(pOpts...)
 		sp.items[i].Init()
 
-		return &sp.items[i], nil
+		return &sp.items[i], nil, lazyUnlock
 	}
-	return nil, nil
+	return nil, nil, nil
+
+}
+func (sp *samepleItemPool) getWithFn(reverse uint64, mu *sync.Mutex) (new MapItem, nPool *samepleItemPool, fn unlocker) {
+
+	lastActiveIdx := -1
+
+	olen := len(sp.items)
+
+	for i := olen - 1; i >= 0; i-- {
+		if sp.items[i].IsIgnored() {
+			continue
+		}
+		lastActiveIdx = i
+		break
+	}
+
+	lastgets = append(lastgets, sp.state4get(reverse, lastActiveIdx))
+	switch sp.state4get(reverse, lastActiveIdx) {
+	case getEmpty, getLargest:
+		return sp.appendLast(mu)
+	case getNoCap:
+
+		nPool, err := sp.Expand()
+		if err != nil {
+			Log(LogWarn, "pool.Expand() require retry")
+		}
+		return nPool.getWithFn(reverse, mu)
+	}
+
+	return sp.insertToPool(reverse, mu)
+
 }
 
 func nextListHeadOfSampleItem() elist_head.ListHead {
@@ -351,9 +362,6 @@ func nextListHeadOfSampleItem() elist_head.ListHead {
 
 	items := make([]SampleItem, 3)
 
-	// for i := range items {
-	// 	list.Tail().InsertBefore(items[i].PtrListHead())
-	// }
 	list.Tail().InsertBefore(items[2].PtrListHead())
 	items[2].InsertBefore(items[1].PtrListHead())
 	items[1].InsertBefore(items[0].PtrListHead())
@@ -530,17 +538,6 @@ NO_DELETE:
 			int(SampleItemOffsetOf))
 		sp.DumpExpandInfo(&b, outers, "B:rewrite reverse=0x%x\n", &sp.items[0].reverse)
 	}
-	// FIXME: only debug
-	// prev := sp.items[0].Prev()
-	// _ = prev
-	// cur := prev.Next()
-	// _ = cur
-	// prev2 := cur.Prev()
-	// _ = prev2
-
-	// if cur.PtrListHead() != &sp.items[0].ListHead {
-	// 	fmt.Println("fail create")
-	// }
 
 	err := elist_head.RepaireSliceAfterCopy(
 		unsafe.Pointer(&sp.items[0]),
@@ -551,11 +548,6 @@ NO_DELETE:
 
 	if err != nil {
 		return nil, EFailExpand
-		// FIXME: only debug
-		// prev := sp.items[0].Prev()
-		// _ = prev
-		// cur := prev.Next()
-		// _ = cur
 	}
 
 	// for debugging
@@ -563,10 +555,6 @@ NO_DELETE:
 		sp.DumpExpandInfo(&b, outers, "A:rewrite reverse=0x%x\n", &sp.items[0].reverse)
 		fmt.Println(b.String())
 	}
-	// cur = prev.Next()
-	// if cur.PtrListHead() != &nPool.items[0].ListHead {
-	// 	panic("fail create")
-	// }
 
 	nPool.Init()
 

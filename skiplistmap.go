@@ -542,42 +542,16 @@ func (h *Map) Set(key, value interface{}) bool {
 	if h.isEmbededItemInBucket {
 		k, conflict := KeyToHash(key)
 		var nPool *samepleItemPool
-		defer func() {
-			//h._validateallbucket()
 
-			// if bucket.itemPool().validateItems() != nil {
-			// 	cnt := madeBucket
-			// 	_ = cnt
-			// 	k, _ := KeyToHash(key)
-			// 	r := bits.Reverse64(k)
-			// 	_ = r
-			// 	bb := h.findBucket(r)
-			// 	_ = bb
-			// 	prevBB := bb.toBase()._prevAsB(false)
-			// 	_ = prevBB
-			// 	var b strings.Builder
-			// 	fmt.Fprintf(&b, "dump: bucket and entry\n")
-			// 	h.DumpBucket(&b)
-			// 	h.DumpEntry(&b)
-			// 	fmt.Fprintf(&b, "end: bucket and entry\n")
-			// 	fmt.Println(b.String())
-			// }
-
-		}()
-
-		//bucket.itemPool().validateItems()
 		lastgets = nil
 
-		// for debug
-		// if &bucket.toBase()._itemPool.ListHead != bucket.toBase().tailPool.Prev() {
-		// 	Log(LogError, "invalid pool?")
-		// }
-
-		item, nPool := bucket.itemPool().get(bits.Reverse64(k))
+		item, nPool, fn := bucket.itemPool().getWithFn(bits.Reverse64(k), &bucket.muPool)
+		if fn != nil {
+			defer fn(&bucket.muPool)
+		}
 
 		s = item.(*SampleItem)
 		if nPool != nil {
-			//panic("nPool is not extend")
 			bucket.setItemPool(nPool)
 		}
 
@@ -610,21 +584,7 @@ func (h *Map) Set(key, value interface{}) bool {
 	}
 
 	s.K, s.V = key.(string), value
-	//var emptyListHead elist_head.ListHead
-	// if h.isEmbededItemInBucket && s.ListHead != emptyListHead {
-	// 	atomic.AddInt64(&h.len, 1)
-	// 	atomic.AddInt32(&bucket._len, 1)
 
-	// 	isMake := false
-	// 	_ = isMake
-	// 	if int(bucket.len()) >= h.maxPerBucket {
-	// 		h.makeBucket2(bucket)
-	// 		//bucket.itemPool().validateItems()
-	// 		isMake = true
-	// 	}
-
-	// 	return true
-	// }
 	if _, ok := h.ItemFn().(*SampleItem); !ok {
 		ItemFn(func() MapItem {
 			return EmptySampleHMapEntry
@@ -701,49 +661,12 @@ func (h *Map) find(start *elist_head.ListHead, cond func(HMapEntry) bool, opts .
 
 }
 
-// func (h *Map) makeBucket2(bucket *bucket) (err error) {
-
-// 	parent := bucket.parent(h)
-// 	idxInParent := int((bucket.reverse >> (4 * (16 - bucket.level))) & 0xf)
-
-// 	return nil
-
-// }
 func (h *Map) makeBucket2(bucket *bucket) (err error) {
 	madeBucket++
 
-	// var bucket *bucket
-	// if obucket._itemPool != nil {
-	// 	bucket = obucket
-	// } else {
-	// 	obucket.len()
-	// 	var b strings.Builder
-	// 	bucket = h._findBucket(obucket.reverse, true)
-	// 	obucket.len()
-	// 	if obucket == bucket {
-	// 		fmt.Println("???")
-	// 		h.DumpBucketPerLevel(&b)
-	// 		fmt.Println(b.String())
-	// 	}
-	// }
-
 	nextBucket := bucket.prevAsB()
-	// if nextBucket != obucket.toBase()._prevAsB(false) {
-	// 	nextBucket = obucket.toBase()._prevAsB(false)
-	// }
 
 	nextReverse := nextBucket.reverse
-	// if nextReverse == bucket.reverse {
-	// 	var b strings.Builder
-	// 	h.DumpBucketPerLevel(&b)
-	// 	fmt.Println(b.String())
-	// 	b2 := h._findBucket(bucket.reverse, true)
-	// 	_ = b2
-	// 	bucket.nextAsB()
-	// 	bucket.prevAsB()
-	// 	nextReverse = 0
-
-	// }
 
 	newReverse := nextReverse/2 + bucket.reverse/2
 	if newReverse&1 > 0 {
@@ -767,20 +690,15 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 	if err != nil || idx == 0 {
 		return err
 	}
-	// } else {
+
 	olen := len(bucket.itemPool().items)
 	nPool, err2 := bucket.itemPool()._split(idx, false)
 	_ = err2
 	b.setItemPool(nPool)
 	atomic.StoreInt32(&bucket._len, int32(idx))
 	atomic.StoreInt32(&b._len, int32(olen-idx))
-	//}
 
 	h.addBucket(b)
-
-	// MENTION: debug only
-	// b.itemPool().validateItems()
-	// bucket.itemPool().validateItems()
 
 	nextLevel := h.findNextLevelBucket(b.reverse, b.level)
 
@@ -1434,34 +1352,6 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 		return &pool.items[idx]
 	}
 
-	a := bucket.toBase().prevAsB()
-	_ = a
-	if a.reverse < reverseNoMask {
-		h.findBucket(reverseNoMask)
-	}
-
-	return nil
-}
-
-func (h *Map) searchByEmbeddedbucket(bucket *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
-
-	for i := range bucket.toBase().itemPool().items {
-		if EnableStats && ignoreBucketEnry {
-			h.mu.Lock()
-			DebugStats[CntSearchEntry]++
-			h.mu.Unlock()
-		}
-		if ignoreBucketEnry && bucket.toBase().itemPool().items[i].IsIgnored() {
-			continue
-		}
-		if bucket.toBase().itemPool().items[i].reverse < reverseNoMask {
-			continue
-		}
-		if bucket.toBase().itemPool().items[i].reverse == reverseNoMask {
-			return &bucket.toBase().itemPool().items[i]
-		}
-		return nil
-	}
 	a := bucket.toBase().prevAsB()
 	_ = a
 	if a.reverse < reverseNoMask {

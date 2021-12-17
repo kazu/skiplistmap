@@ -3,6 +3,7 @@ package skiplistmap
 import (
 	"errors"
 	"math/bits"
+	"sync"
 	"unsafe"
 
 	"github.com/kazu/elist_head"
@@ -24,6 +25,8 @@ type bucket struct {
 	setItemPoolFn func(*samepleItemPool)
 	headPool      list_head.ListHead
 	tailPool      list_head.ListHead
+
+	muPool sync.Mutex
 
 	LevelHead list_head.ListHead // to same level bucket
 	list_head.ListHead
@@ -118,6 +121,10 @@ func (b *bucket) itemPool() *samepleItemPool {
 	}
 	// MENTION: should not run this
 	return nil
+}
+
+func (b *bucket) SetItemPool(pool *samepleItemPool) {
+	b.setItemPool(pool)
 }
 
 func (b *bucket) setItemPool(pool *samepleItemPool) {
@@ -475,6 +482,12 @@ func (b *bucket) _validateItemsNear() {
 
 }
 
-func (b *bucket) GetItem(r uint64) (MapItem, *samepleItemPool) {
-	return b.itemPool().get(r)
+func (b *bucket) GetItem(r uint64) (MapItem, *samepleItemPool, unlocker) {
+	return b.itemPool().getWithFn(r, &b.muPool)
+}
+
+func (b *bucket) RunLazyUnlocker(fn unlocker) {
+
+	fn(&b.muPool)
+
 }

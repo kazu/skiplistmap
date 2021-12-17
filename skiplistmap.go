@@ -236,10 +236,12 @@ func (h *Map) initBeforeSet() {
 		btable.LevelHead.Init()
 
 		if h.isEmbededItemInBucket {
+			btable.initItemPool()
 			if btable._itemPool == nil {
 				btable._itemPool = &samepleItemPool{}
 				btable._itemPool.Init()
 			}
+			btable.setupPool()
 			btable._itemPool._init(h.maxPerBucket * 3 / 2)
 		}
 
@@ -565,6 +567,12 @@ func (h *Map) Set(key, value interface{}) bool {
 
 		//bucket.itemPool().validateItems()
 		lastgets = nil
+
+		// for debug
+		// if &bucket.toBase()._itemPool.ListHead != bucket.toBase().tailPool.Prev() {
+		// 	Log(LogError, "invalid pool?")
+		// }
+
 		item, nPool := bucket.itemPool().get(bits.Reverse64(k))
 
 		s = item.(*SampleItem)
@@ -753,6 +761,7 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 	}
 	b.Init()
 	b.LevelHead.Init()
+	b.initItemPool()
 
 	idx, err := bucket.itemPool().findIdx(newReverse)
 	if err != nil || idx == 0 {
@@ -760,7 +769,7 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 	}
 	// } else {
 	olen := len(bucket.itemPool().items)
-	nPool, err2 := bucket.itemPool().Split(idx)
+	nPool, err2 := bucket.itemPool()._split(idx, false)
 	_ = err2
 	b.setItemPool(nPool)
 	atomic.StoreInt32(&bucket._len, int32(idx))
@@ -971,12 +980,14 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 			sharedSearchOpt.e = ErrInvalidAdd
 			sharedSearchOpt.Unlock()
 		}
-		//h._validateallbucket()
 
 	}()
 
 	if pos != nil {
-		pos.PtrListHead().InsertBefore(e.PtrListHead())
+		_, err := pos.PtrListHead().InsertBefore(e.PtrListHead())
+		if err != nil {
+			Log(LogError, "fail insert")
+		}
 		if opt == nil || opt.bucket == nil {
 			return true
 		}

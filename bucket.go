@@ -22,6 +22,8 @@ type bucket struct {
 	_parent       *bucket
 	itemPoolFn    func() *samepleItemPool
 	setItemPoolFn func(*samepleItemPool)
+	headPool      list_head.ListHead
+	tailPool      list_head.ListHead
 
 	LevelHead list_head.ListHead // to same level bucket
 	list_head.ListHead
@@ -30,10 +32,32 @@ type bucket struct {
 const bucketOffset = unsafe.Offsetof(emptyBucket.ListHead)
 const bucketOffsetLevel = unsafe.Offsetof(emptyBucket.LevelHead)
 
-func newBucket() *bucket {
+func newBucket() (new *bucket) {
 
-	return &bucket{
+	new = &bucket{
 		_itemPool: &samepleItemPool{},
+	}
+	new._itemPool.Init()
+	new._initItemPool(true)
+	new.setupPool()
+	return new
+}
+
+func (e *bucket) initItemPool() {
+	e._initItemPool(false)
+}
+
+func (e *bucket) _initItemPool(force bool) {
+
+	if force || e._itemPool == nil {
+		list_head.InitAsEmpty(&e.headPool, &e.tailPool)
+	}
+}
+
+func (e *bucket) setupPool() {
+
+	if e._itemPool != nil && e._itemPool.Prev() != &e.headPool {
+		e.tailPool.InsertBefore(e._itemPool.PtrListHead())
 	}
 
 }
@@ -82,8 +106,8 @@ func (b *bucket) len() int32 {
 
 func (b *bucket) itemPool() *samepleItemPool {
 
-	if b._itemPool != nil {
-		return b._itemPool
+	if b._itemPool != nil && b.tailPool.Prev() != b.headPool.Prev() {
+		return samepleItemPoolFromListHead(b.tailPool.Prev())
 	}
 	if b._parent != nil {
 		return b._parent.itemPool()
@@ -98,12 +122,19 @@ func (b *bucket) itemPool() *samepleItemPool {
 
 func (b *bucket) setItemPool(pool *samepleItemPool) {
 
-	if b._itemPool != nil {
+	if b._parent != nil {
+		b._parent.setItemPool(pool)
+		return
+	}
+	if b._itemPool != nil && b.tailPool.Prev() != b.headPool.Prev() {
 		b._itemPool = pool
 		return
 	}
-	if b._parent != nil {
-		b._parent.setItemPool(pool)
+
+	if b.tailPool.Prev() == b.headPool.Prev() {
+		pool.Init()
+		b.tailPool.InsertBefore(pool.PtrListHead())
+		b._itemPool = pool
 		return
 	}
 
@@ -111,7 +142,10 @@ func (b *bucket) setItemPool(pool *samepleItemPool) {
 		b.setItemPoolFn(pool)
 		return
 	}
+
+	pool.Init()
 	b._itemPool = pool
+	b.setupPool()
 	return
 }
 
@@ -291,6 +325,7 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool) (b *bucket) {
 				if b.downLevels[i].level == 0 {
 					continue
 				}
+				// FIXME: should not lookup direct
 				if !ignoreNoPool || b.downLevels[i]._itemPool != nil {
 					b = b.downLevels[i].largestDown(ignoreNoPool)
 					return b
@@ -298,6 +333,7 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool) (b *bucket) {
 			}
 			break
 		}
+		// FIXME: should not lookup direct
 		if ignoreNoPool && b.downLevels[idx]._itemPool == nil {
 			break
 		}
@@ -411,6 +447,7 @@ func (b *bucket) largestDown(ignoreNoPool bool) *bucket {
 		if b.downLevels[i].level == 0 || b.downLevels[i].reverse == 0 {
 			continue
 		}
+		//FIXME: should not lookup direct
 		if !ignoreNoPool || b.downLevels[i]._itemPool != nil {
 			return b.downLevels[i].largestDown(ignoreNoPool)
 		}

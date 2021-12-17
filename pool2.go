@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/kazu/elist_head"
@@ -224,7 +225,9 @@ func (sp *samepleItemPool) get(reverse uint64) (new MapItem, nPool *samepleItemP
 	// MENTION: debug only
 	//sp.validateItems()
 
-	for i := len(sp.items) - 1; i >= 0; i-- {
+	olen := len(sp.items)
+
+	for i := olen - 1; i >= 0; i-- {
 		if sp.items[i].IsIgnored() {
 			continue
 		}
@@ -240,14 +243,19 @@ func (sp *samepleItemPool) get(reverse uint64) (new MapItem, nPool *samepleItemP
 		// 	nPool.validateItems()
 		// }
 	}()
+	// sp.mu.Lock()
+	// defer sp.mu.Unlock()
+
 	lastgets = append(lastgets, sp.state4get(reverse, lastActiveIdx))
 	switch sp.state4get(reverse, lastActiveIdx) {
 	case getEmpty, getLargest:
-		sp.items = sp.items[:len(sp.items)+1]
-		new := &sp.items[len(sp.items)-1]
+		olen := len(sp.items)
+		sp.items = sp.items[:olen+1]
+		new := &sp.items[olen]
 		new.Init()
 		return new, nil
 	case getNoCap:
+
 		nPool, err := sp.Expand()
 		if err != nil {
 			Log(LogWarn, "pool.Expand() require retry")
@@ -268,9 +276,15 @@ func (sp *samepleItemPool) get(reverse uint64) (new MapItem, nPool *samepleItemP
 	}
 	// FIXME: should disable not IsDebug()
 	//sp.validateItems()
-
-	olen := len(sp.items)
-	for i := range sp.items {
+	if olen != len(sp.items) {
+		Log(LogDebug, "update olen")
+		sp.mu.Unlock()
+		return sp.get(reverse)
+	}
+	//olen = len(sp.items)
+	nlen := int64(olen)
+	for i := 0; i < olen; i++ {
+		//for i := range sp.items {
 		if sp.items[i].IsIgnored() {
 			continue
 		}
@@ -280,7 +294,11 @@ func (sp *samepleItemPool) get(reverse uint64) (new MapItem, nPool *samepleItemP
 		if i == olen-1 {
 			//fmt.Printf("invalid")
 		}
-
+		if !atomic.CompareAndSwapInt64(&nlen, int64(len(sp.items)), nlen+1) {
+			Log(LogDebug, "update olen")
+			sp.mu.Unlock()
+			return sp.get(reverse)
+		}
 		sp.items = sp.items[:olen+1]
 		copy(sp.items[i+1:], sp.items[i:])
 		sp.items[olen-1].ListHead = sp.items[olen].ListHead
@@ -440,21 +458,29 @@ func (sp *samepleItemPool) DumpExpandInfo(w io.Writer, outers []unsafe.Pointer, 
 
 }
 
-func (sp *samepleItemPool) Split(idx int) (nPool *samepleItemPool, err error) {
+func (sp *samepleItemPool) split(idx int) (nPool *samepleItemPool, err error) {
+	return sp._split(idx, true)
 
-	if len(sp.items) <= idx {
+}
+func (sp *samepleItemPool) _split(idx int, connect bool) (nPool *samepleItemPool, err error) {
+
+	nlen := int64(len(sp.items))
+	if int(nlen) <= idx {
 		return nil, ErrIdxOverflow
 	}
 
 	nPool = &samepleItemPool{}
 
+	if !atomic.CompareAndSwapInt64(&nlen, int64(len(sp.items)), nlen+1) {
+		return sp._split(idx, connect)
+	}
 	nPool.items = sp.items[idx:]
 	sp.items = sp.items[:idx:idx]
 	nPool.Init()
 	//sp.validateItems()
 	//nPool.validateItems()
 
-	if sp.PtrListHead().Next() != nil && sp.PtrListHead().Next() != sp.PtrListHead() {
+	if connect && sp.PtrListHead().Next() != nil && sp.PtrListHead().Next() != sp.PtrListHead() {
 		_, err = sp.PtrListHead().Next().InsertBefore(nPool.PtrListHead())
 	}
 	return

@@ -1381,7 +1381,7 @@ func (h *Map) searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketEn
 		return h.bsearchBybucket(lbCur, reverseNoMask, ignoreBucketEnry)
 	}
 
-	return h.searchBybucket(lbCur, reverseNoMask, ignoreBucketEnry)
+	return h._searchBybucket(lbCur, reverseNoMask, ignoreBucketEnry)
 }
 
 func (h *Map) _searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {

@@ -427,9 +427,17 @@ func (h *Map) getWithBucket(k, conflict uint64) (MapItem, *bucket, bool) {
 	}
 	var bucket *bucket
 	var reverse uint64
+	var e HMapEntry
 
-	bucket, reverse = h.searchBucket4update(k)
-	e := h.searchBybucket(bucket, reverse, true)
+	if h.isEmbededItemInBucket {
+		reverse = bits.Reverse64(k)
+		bucket = h.findBucket(reverse)
+		e = h.bsearchBybucket(bucket, reverse, true)
+
+	} else {
+		bucket, reverse = h.searchBucket4update(k)
+		e = h.searchBybucket(bucket, reverse, true)
+	}
 
 	if e == nil {
 		if Failreverse == 0 {
@@ -544,13 +552,6 @@ func (h *Map) Set(key, value interface{}) bool {
 		lastgets = nil
 
 		item, nPool, fn := bucket.itemPool().getWithFn(bits.Reverse64(k), &bucket.muPool)
-		// FIXME: why fail to get
-		if item == nil {
-			if fn != nil {
-				fn(&bucket.muPool)
-			}
-			item, nPool, fn = bucket.itemPool().getWithFn(bits.Reverse64(k), &bucket.muPool)
-		}
 		if fn != nil {
 			defer fn(&bucket.muPool)
 		}
@@ -1375,6 +1376,15 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 }
 
 func (h *Map) searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
+	if h.isEmbededItemInBucket {
+		Log(LogWarn, "should use bsearchBybucket() not searchBybucket() in embedded bucket")
+		return h.bsearchBybucket(lbCur, reverseNoMask, ignoreBucketEnry)
+	}
+
+	return h.searchBybucket(lbCur, reverseNoMask, ignoreBucketEnry)
+}
+
+func (h *Map) _searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
 	if lbCur == nil {
 		return nil
 	}

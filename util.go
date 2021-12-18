@@ -38,3 +38,40 @@ func halfUint64(os uint64, oe uint64) (hafl uint64) {
 func ElementOf(head unsafe.Pointer, offset uintptr) unsafe.Pointer {
 	return unsafe.Pointer(uintptr(head) - offset)
 }
+
+func calcCap(len int) int {
+
+	if len > 1024 {
+		return len + len/4
+	}
+
+	for i := 0; i < 60; i++ {
+		if (len >> i) == 0 {
+			return intPow(2, i)
+		}
+
+	}
+	return 512
+
+}
+
+func intPow(a, b int) (r int) {
+	r = 1
+	for i := 0; i < b; i++ {
+		r *= a
+	}
+	return
+}
+
+func maxInts(ints ...int) (max int) {
+	for i := range ints {
+		if i == 0 {
+			max = ints[i]
+			continue
+		}
+		if max < ints[i] {
+			max = ints[i]
+		}
+	}
+	return
+}

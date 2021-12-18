@@ -225,8 +225,10 @@ type unlocker func(mu *sync.Mutex)
 
 func (sp *samepleItemPool) appendLast(mu *sync.Mutex) (newItem MapItem, nPool *samepleItemPool, fn unlocker) {
 
-	mu.Lock()
-	fn = lazyUnlock
+	if mu != nil {
+		mu.Lock()
+		fn = lazyUnlock
+	}
 
 	olen := len(sp.items)
 	sp.items = sp.items[:olen+1]
@@ -239,9 +241,10 @@ func (sp *samepleItemPool) appendLast(mu *sync.Mutex) (newItem MapItem, nPool *s
 // requireInsert
 
 func (sp *samepleItemPool) insertToPool(reverse uint64, mu *sync.Mutex) (newItem MapItem, nPool *samepleItemPool, fn unlocker) {
-
-	mu.Lock()
-	fn = lazyUnlock
+	if mu != nil {
+		mu.Lock()
+		fn = lazyUnlock
+	}
 
 	olen := len(sp.items)
 	ocap := cap(sp.items)
@@ -259,8 +262,7 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu *sync.Mutex) (newItem
 	//sp.validateItems()
 	if olen != len(sp.items) {
 		Log(LogDebug, "update olen")
-		sp.mu.Unlock()
-		return sp.getWithFn(reverse, mu)
+		return sp.getWithFn(reverse, nil)
 	}
 	//olen = len(sp.items)
 	nlen := int64(olen)
@@ -278,16 +280,17 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu *sync.Mutex) (newItem
 		}
 		if !atomic.CompareAndSwapInt64(&nlen, int64(len(sp.items)), nlen+1) {
 			Log(LogDebug, "update olen")
-			sp.mu.Unlock()
-			return sp.getWithFn(reverse, mu)
+			return sp.getWithFn(reverse, nil)
 		}
 		var err error
 		prevItem := sp.items[0].ListHead.Prev()
 		nextItem := sp.items[olen-1].ListHead.Next()
 
 		// copy to new slice
-		newItems := make([]SampleItem, olen+1, ocap)
-		copy(newItems[0:i], sp.items[0:i])
+		newItems := make([]SampleItem, olen+1, maxInts(ocap, olen+1))
+		if i > 0 {
+			copy(newItems[0:i], sp.items[0:i])
+		}
 		copy(newItems[i+1:], sp.items[i:])
 
 		newListHead := &elist_head.ListHead{}
@@ -353,13 +356,13 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu *sync.Mutex) (newItem
 
 		return &sp.items[i], nil, lazyUnlock
 	}
-	return nil, nil, nil
+	return sp.getWithFn(reverse, nil)
+	//return nil, nil, nil
 
 }
 func (sp *samepleItemPool) getWithFn(reverse uint64, mu *sync.Mutex) (new MapItem, nPool *samepleItemPool, fn unlocker) {
 
 	lastActiveIdx := -1
-
 	olen := len(sp.items)
 
 	for i := olen - 1; i >= 0; i-- {
@@ -369,6 +372,13 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu *sync.Mutex) (new MapIte
 		lastActiveIdx = i
 		break
 	}
+
+	defer func() {
+		if new == nil {
+			Log(LogWarn, "getWithFn(): item is nil")
+		}
+
+	}()
 
 	// for debug
 	//lastgets = append(lastgets, sp.state4get(reverse, lastActiveIdx))
@@ -380,8 +390,8 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu *sync.Mutex) (new MapIte
 		if err != nil {
 			Log(LogWarn, "pool.expand() require retry")
 		}
-		fn(mu)
-		return sp.getWithFn(reverse, mu)
+		new, nPool, _ = sp.getWithFn(reverse, nil)
+		return new, nPool, fn
 	}
 
 	return sp.insertToPool(reverse, mu)
@@ -456,30 +466,6 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool) {
 
 }
 
-func calcCap(len int) int {
-
-	if len > 1024 {
-		return len + len/4
-	}
-
-	for i := 0; i < 60; i++ {
-		if (len >> i) == 0 {
-			return intPow(2, i)
-		}
-
-	}
-	return 512
-
-}
-
-func intPow(a, b int) (r int) {
-	r = 1
-	for i := 0; i < b; i++ {
-		r *= a
-	}
-	return
-}
-
 func (sp *samepleItemPool) DumpExpandInfo(w io.Writer, outers []unsafe.Pointer, format string, args ...interface{}) {
 
 	for _, ptr := range outers {
@@ -528,24 +514,25 @@ func (sp *samepleItemPool) _split(idx int, connect bool) (nPool *samepleItemPool
 }
 
 func (sp *samepleItemPool) expand(mu *sync.Mutex) (unlocker, error) {
-
-	mu.Lock()
-	fn := lazyUnlock
+	var fn unlocker
+	if mu != nil {
+		mu.Lock()
+		fn = lazyUnlock
+	}
 
 	olen := len(sp.items)
 	//ocap := cap(sp.items)
 
 	if olen != len(sp.items) {
 		Log(LogDebug, "update olen")
-		sp.mu.Unlock()
-		return sp.expand(mu)
+		return sp.expand(nil)
 	}
 	nlen := int64(olen)
 
 	if !atomic.CompareAndSwapInt64(&nlen, int64(len(sp.items)), nlen+1) {
 		Log(LogDebug, "update olen")
 		sp.mu.Unlock()
-		return sp.expand(mu)
+		return sp.expand(nil)
 	}
 
 	var err error

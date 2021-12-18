@@ -15,7 +15,6 @@ type bucket struct {
 	_len    int32
 	reverse uint64
 	dummy   entryHMap
-	head    *elist_head.ListHead // to MapEntry
 
 	downLevels []bucket
 
@@ -256,10 +255,10 @@ func (b *bucket) PrevOnLevel() *bucket {
 
 func (b *bucket) NextEntry() *entryHMap {
 
-	if b.head == nil {
+	if b.head() == nil {
 		return nil
 	}
-	head := b.head
+	head := b.head()
 	if !head.DirectNext().Empty() {
 		head = head.DirectNext()
 	}
@@ -274,10 +273,10 @@ func (b *bucket) NextEntry() *entryHMap {
 
 func (b *bucket) PrevEntry() *entryHMap {
 
-	if b.head == nil {
+	if b.head() == nil {
 		return nil
 	}
-	head := b.head
+	head := b.head()
 	if !head.DirectPrev().Empty() {
 		head = head.DirectPrev()
 	}
@@ -292,10 +291,10 @@ func (b *bucket) PrevEntry() *entryHMap {
 
 func (b *bucket) entry(h *Map) (e HMapEntry) {
 
-	if b.head == nil {
+	if b.head() == nil {
 		return nil
 	}
-	head := b.head
+	head := b.head()
 	if !head.Empty() {
 		return h.ItemFn().HmapEntryFromListHead(head)
 	}
@@ -393,7 +392,6 @@ func (h *Map) bucketFromPool(reverse uint64) (b *bucket) {
 			b.downLevels = make([]bucket, 1, 16)
 			b.downLevels[0].level = b.level + 1
 			b.downLevels[0].reverse = b.reverse
-			b.downLevels[0].head = b.head
 			b.downLevels[0].Init()
 			b.downLevels[0].LevelHead.Init()
 			b.downLevels[0]._parent = b
@@ -490,4 +488,25 @@ func (b *bucket) RunLazyUnlocker(fn unlocker) {
 
 	fn(&b.muPool)
 
+}
+
+func (b *bucket) head() *elist_head.ListHead {
+	if b._parent != nil {
+		return b._parent.head()
+	}
+
+	// no embedded pool
+	if b._itemPool == nil {
+		return &b.dummy.ListHead
+	}
+
+	if b.tailPool.Prev() == b.headPool.Prev() {
+		return &b.dummy.ListHead
+	}
+
+	if b.tailPool.Prev().IsMarked() {
+		return b.nextAsB().head()
+	}
+
+	return &b.dummy.ListHead
 }

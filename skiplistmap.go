@@ -214,7 +214,6 @@ func (h *Map) initBeforeSet() {
 
 	// add bucket
 	h.tailBucket.InsertBefore(&btable.ListHead)
-	btable.head = &empty.ListHead
 
 	levelBucket := h.levelBucket(btable.level)
 	levelBucket.LevelHead.DirectPrev().DirectNext().InsertBefore(&btable.LevelHead)
@@ -250,7 +249,7 @@ func (h *Map) initBeforeSet() {
 		empty.reverse, empty.conflict = btable.reverse, 0
 		empty.PtrMapHead().state |= mapIsDummy
 
-		btablefirst.head.InsertBefore(&empty.ListHead)
+		btablefirst.head().InsertBefore(&empty.ListHead)
 
 		// add bucket
 		btablefirst.Next().InsertBefore(&btable.ListHead)
@@ -258,7 +257,6 @@ func (h *Map) initBeforeSet() {
 			h.validateBucket(btable)
 		}
 
-		btable.head = &empty.ListHead
 		btable.LevelHead.Init()
 		if i > 0 {
 			h.buckets[i-1].LevelHead.InsertBefore(&btable.LevelHead)
@@ -336,17 +334,17 @@ func (h *Map) _set(k, conflict uint64, btable *bucket, item MapItem) bool {
 	}
 SKIP_FETCH_BUCKET:
 
-	if btable != nil && btable.head == nil {
+	if btable != nil && btable.head() == nil {
 		Log(LogWarn, "bucket.head not set")
 	}
-	if btable == nil || btable.head == nil {
+	if btable == nil || btable.head() == nil {
 		btable = newBucket()
-		btable.head = h.head.Prev().Next()
+		//btable.head = h.head.Prev().Next()
 	} else {
 		addOpt = WithBucket(btable)
 	}
 
-	entry, cnt := h.find(btable.head, func(item HMapEntry) bool {
+	entry, cnt := h.find(btable.head(), func(item HMapEntry) bool {
 		mHead := item.PtrMapHead()
 		return bits.Reverse64(k) <= mHead.reverse
 	}, ignoreBucketEntry(false))
@@ -370,7 +368,7 @@ SKIP_FETCH_BUCKET:
 		}
 	}
 	if tStart == nil {
-		tStart = btable.head
+		tStart = btable.head()
 	}
 
 	item.PtrListHead().Init()
@@ -802,7 +800,7 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 	b.Init()
 	b.LevelHead.Init()
 
-	for cur := cBucket.head.Prev().Next(); !cur.Empty(); cur = cur.Next() {
+	for cur := cBucket.head().Prev().Next(); !cur.Empty(); cur = cur.Next() {
 		b._len++
 		e := entryHMapFromListHead(cur)
 		if e.reverse > b.reverse {
@@ -857,10 +855,10 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 	}
 
 	if int(b.len()) > h.maxPerBucket {
-		h.makeBucket(cBucket.head.Next(), int(b.len())/2)
+		h.makeBucket(cBucket.head().Next(), int(b.len())/2)
 	}
 	if int(cBucket.len()) > h.maxPerBucket {
-		h.makeBucket(nextBucket.head.Prev(), int(b.len())/2)
+		h.makeBucket(nextBucket.head().Prev(), int(b.len())/2)
 	}
 
 	return
@@ -1075,10 +1073,9 @@ func (h *Map) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket) {
 		thead = h.head.Prev().Next()
 	} else {
 		tBucket := bucketFromListHead(tBtable)
-		thead = tBucket.head.Prev().Next()
+		thead = tBucket.head().Prev().Next()
 	}
 	h.add2(thead, empty)
-	nBtable.head = &nBtable.dummy.ListHead
 
 	tBucket := bucketFromListHead(tBtable)
 	if IsDebug() {
@@ -1093,7 +1090,6 @@ func (h *Map) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket) {
 		h.validateBucket((nBtable))
 	}
 
-	nBtable.head = &empty.ListHead
 }
 
 func (h *Map) addBucket(nBtable *bucket) {

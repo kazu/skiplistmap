@@ -197,14 +197,14 @@ func Test_HMap(t *testing.T) {
 			"embedded pool",
 			newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UseEmbeddedPool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch3))),
 		},
-		{
-			"pool without goroutine",
-			newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UsePool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch3))),
-		},
-		{
-			"combine4",
-			newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UsePool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch4))),
-		},
+		// {
+		// 	"pool without goroutine",
+		// 	newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UsePool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch3))),
+		// },
+		// {
+		// 	"combine4",
+		// 	newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UsePool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch4))),
+		// },
 	}
 
 	for _, tt := range tests {
@@ -217,6 +217,7 @@ func Test_HMap(t *testing.T) {
 			m.Set("hoge3", v)
 			m.Set("oge3", v)
 			m.Set("3", v)
+			DumpHmap(m.base)
 			for i := 0; i < 100000; i++ {
 				m.Set(fmt.Sprintf("fuge%d", i), v)
 			}
@@ -278,7 +279,7 @@ func Benchmark_HMap_forProfile(b *testing.B) {
 		mapInf     list_head.MapGetSet
 	}{
 		//{"RMap            ", 100, 100000, 50, 0x000, 0, newWRMap()},
-		{"skiplistmap5    ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
+		{"skiplistmap5    ", 100, 100000, 50, 0x080, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
 		// use
 		//{"HMap_combine    ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap())},
 
@@ -377,23 +378,24 @@ func Benchmark_Map(b *testing.B) {
 		mode       skiplistmap.SearchMode
 		mapInf     list_head.MapGetSet
 	}{
-		{"mapWithMutex                 ", 100, 100000, 0, 0x000, 0, &list_head.MapWithLock{}},
-		{"sync.Map                     ", 100, 100000, 0, 0x000, 0, syncMap{}},
+		// use
+		// {"mapWithMutex                 ", 100, 100000, 0, 0x000, 0, &list_head.MapWithLock{}},
+		// {"sync.Map                     ", 100, 100000, 0, 0x000, 0, syncMap{}},
 
-		// {"skiplistmap                  ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
-		// {"skiplistmap3                 ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
-		// {"skiplistmap3                 ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
-		{"skiplistmap4                 ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap())},
-		{"skiplistmap4                 ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap())},
-		{"skiplistmap5                 ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
-		{"skiplistmap5                 ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
-		{"skiplistmap5                 ", 100, 100000, 0, 0x040, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
-		{"skiplistmap5                 ", 100, 100000, 0, 0x080, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
+		// {"skiplistmap4                 ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap())},
+		// {"skiplistmap4                 ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap())},
+		// {"skiplistmap5                 ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
+		// {"skiplistmap5                 ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
+		// {"skiplistmap5                 ", 100, 100000, 0, 0x040, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
+		// {"skiplistmap5                 ", 100, 100000, 0, 0x080, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
 
 		// use
 		//{"hashmap.HashMap              ", 100, 100000, 0, 0x000, 0, hashMap{m: &hashmap.HashMap{}}},
 		//{"cmap.Cmap              	   ", 100, 100000, 0, 0x000, 0, cMap{}},
 
+		// {"skiplistmap                  ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
+		// {"skiplistmap3                 ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
+		// {"skiplistmap3                 ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
 		//{"RMap                         ", 100, 100000, 0, 0x000, 0, newWRMap()},
 
 		// {"skiplistmap                  ", 100, 100000, 0, 0x008, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
@@ -404,13 +406,13 @@ func Benchmark_Map(b *testing.B) {
 		// {"skiplistmap                  ", 100, 100000, 10, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
 
 		// use
-		{"mapWithMutex                 ", 100, 100000, 50, 0x000, 0, &list_head.MapWithLock{}},
-		{"sync.Map                     ", 100, 100000, 50, 0x000, 0, syncMap{}},
+		// {"mapWithMutex                 ", 100, 100000, 50, 0x000, 0, &list_head.MapWithLock{}},
+		// {"sync.Map                     ", 100, 100000, 50, 0x000, 0, syncMap{}},
+		{"skiplistmap5                 ", 100, 100000, 50, 0x080, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
+		{"skiplistmap5                 ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
+		{"skiplistmap5                 ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
 		{"skiplistmap4                 ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap())},
 		{"skiplistmap4                 ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap())},
-		{"skiplistmap5                 ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
-		{"skiplistmap5                 ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
-		{"skiplistmap5                 ", 100, 100000, 50, 0x040, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true)))},
 
 		// use
 		// {"hashmap.HashMap              ", 100, 100000, 50, 0x000, 0, hashMap{m: &hashmap.HashMap{}}},

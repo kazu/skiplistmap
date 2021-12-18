@@ -360,7 +360,7 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu *sync.Mutex) (new MapIte
 		return sp.appendLast(mu)
 	case getNoCap:
 
-		nPool, err := sp.Expand()
+		nPool, err := sp.expand()
 		if err != nil || nPool == nil {
 			Log(LogWarn, "pool.Expand() require retry")
 		}
@@ -430,7 +430,7 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool) {
 	if IsDebug() {
 		isExpanded = true
 	}
-	nPool, err := sp.Expand()
+	nPool, err := sp.expand()
 	if err != nil {
 		panic("already deleted")
 	}
@@ -510,7 +510,7 @@ func (sp *samepleItemPool) _split(idx int, connect bool) (nPool *samepleItemPool
 
 }
 
-func (sp *samepleItemPool) Expand() (*samepleItemPool, error) {
+func (sp *samepleItemPool) expand() (*samepleItemPool, error) {
 
 	nPool := &samepleItemPool{}
 	_ = nPool

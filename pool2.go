@@ -289,8 +289,7 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu *sync.Mutex) (newItem
 		newItems := make([]SampleItem, olen+1, ocap)
 		copy(newItems[0:i], sp.items[0:i])
 		copy(newItems[i+1:], sp.items[i:])
-		// newItems[0].Init()
-		// newItems[olen].Init()
+
 		newListHead := &elist_head.ListHead{}
 		newListTail := &elist_head.ListHead{}
 		elist_head.InitAsEmpty(newListHead, newListTail)
@@ -330,16 +329,6 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu *sync.Mutex) (newItem
 		_ = oldItemNext
 		ItemNext := sp.items[olen].Next().PtrMapHead()
 		_ = ItemNext
-
-		// oldOutside := sp.items[olen-1].Next()
-		// _ = oldOutside
-		// _, err := sp.items[olen-1].PtrListHead().Next().InsertBefore(sp.items[olen].PtrListHead())
-		// if err != nil {
-		// 	panic("fail insertion")
-		// }
-		// if i == 0 && olen > 1 {
-		// 	sp.items[1].ListHead = nextListHeadOfSampleItem()
-		// }
 
 		if IsDebug() {
 			var b strings.Builder
@@ -387,12 +376,12 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu *sync.Mutex) (new MapIte
 	case getEmpty, getLargest:
 		return sp.appendLast(mu)
 	case getNoCap:
-
-		nPool, err := sp.expand()
-		if err != nil || nPool == nil {
-			Log(LogWarn, "pool.Expand() require retry")
+		fn, err := sp.expand(mu)
+		if err != nil {
+			Log(LogWarn, "pool.expand() require retry")
 		}
-		return nPool.getWithFn(reverse, mu)
+		fn(mu)
+		return sp.getWithFn(reverse, mu)
 	}
 
 	return sp.insertToPool(reverse, mu)
@@ -458,7 +447,7 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool) {
 	if IsDebug() {
 		isExpanded = true
 	}
-	nPool, err := sp.expand()
+	nPool, err := sp._expand()
 	if err != nil {
 		panic("already deleted")
 	}
@@ -538,7 +527,78 @@ func (sp *samepleItemPool) _split(idx int, connect bool) (nPool *samepleItemPool
 
 }
 
-func (sp *samepleItemPool) expand() (*samepleItemPool, error) {
+func (sp *samepleItemPool) expand(mu *sync.Mutex) (unlocker, error) {
+
+	mu.Lock()
+	fn := lazyUnlock
+
+	olen := len(sp.items)
+	//ocap := cap(sp.items)
+
+	if olen != len(sp.items) {
+		Log(LogDebug, "update olen")
+		sp.mu.Unlock()
+		return sp.expand(mu)
+	}
+	nlen := int64(olen)
+
+	if !atomic.CompareAndSwapInt64(&nlen, int64(len(sp.items)), nlen+1) {
+		Log(LogDebug, "update olen")
+		sp.mu.Unlock()
+		return sp.expand(mu)
+	}
+
+	var err error
+	prevItem := sp.items[0].ListHead.Prev()
+	nextItem := sp.items[olen-1].ListHead.Next()
+
+	nCap := 0
+	if len(sp.items) < 128 {
+		nCap = 256
+	} else {
+		nCap = calcCap(len(sp.items))
+	}
+
+	newItems := make([]SampleItem, olen, nCap)
+	copy(newItems, sp.items[0:olen])
+
+	newListHead := &elist_head.ListHead{}
+	newListTail := &elist_head.ListHead{}
+	elist_head.InitAsEmpty(newListHead, newListTail)
+
+	err = newListHead.ReplaceNext(&newItems[0].ListHead, &newItems[olen-1].ListHead, newListTail)
+	if err != nil {
+		Log(LogFatal, "replace fail")
+	}
+
+	err = prevItem.ReplaceNext(newListHead.Next(), newListTail.Prev(), nextItem)
+	if err != nil {
+		Log(LogFatal, "fail to replace newItems")
+	}
+	oldItems := sp.items
+	sp.items = newItems
+
+	// for debug
+	oldItemFirst := oldItems[0].Prev().Next().PtrMapHead()
+	oldItemNext := oldItems[olen-1].Next().PtrMapHead()
+	_ = oldItemFirst
+	_ = oldItemNext
+	ItemNext := sp.items[olen-1].Next().PtrMapHead()
+	_ = ItemNext
+
+	if IsDebug() {
+		var b strings.Builder
+		for i := range sp.items {
+			sp.items[i].PtrMapHead().dump(&b)
+		}
+		fmt.Printf("A: itemPool.items\n%s\n", b.String())
+	}
+
+	return fn, nil
+
+}
+
+func (sp *samepleItemPool) _expand() (*samepleItemPool, error) {
 
 	nPool := &samepleItemPool{}
 	_ = nPool

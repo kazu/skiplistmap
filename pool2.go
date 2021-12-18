@@ -244,6 +244,7 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu *sync.Mutex) (newItem
 	fn = lazyUnlock
 
 	olen := len(sp.items)
+	ocap := cap(sp.items)
 
 	// require insert
 	//FIXME: should bsearch
@@ -263,6 +264,7 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu *sync.Mutex) (newItem
 	}
 	//olen = len(sp.items)
 	nlen := int64(olen)
+
 	for i := 0; i < olen; i++ {
 		//for i := range sp.items {
 		if sp.items[i].IsIgnored() {
@@ -279,24 +281,65 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu *sync.Mutex) (newItem
 			sp.mu.Unlock()
 			return sp.getWithFn(reverse, mu)
 		}
-		sp.items = sp.items[:olen+1]
-		copy(sp.items[i+1:], sp.items[i:])
-		sp.items[olen-1].ListHead = sp.items[olen].ListHead
-		sp.items[olen].ListHead = elist_head.ListHead{}
+		var err error
+		prevItem := sp.items[0].ListHead.Prev()
+		nextItem := sp.items[olen-1].ListHead.Next()
 
-		oldOutside := sp.items[olen-1].Next()
-		_ = oldOutside
-		_, err := sp.items[olen-1].PtrListHead().Next().InsertBefore(sp.items[olen].PtrListHead())
-		if err != nil {
-			panic("fail insertion")
+		// copy to new slice
+		newItems := make([]SampleItem, olen+1, ocap)
+		copy(newItems[0:i], sp.items[0:i])
+		copy(newItems[i+1:], sp.items[i:])
+		// newItems[0].Init()
+		// newItems[olen].Init()
+		newListHead := &elist_head.ListHead{}
+		newListTail := &elist_head.ListHead{}
+		elist_head.InitAsEmpty(newListHead, newListTail)
+
+		middle := nextListHeadOfSampleItem()
+		for i := 0; i < olen+1; i++ {
+			newItems[i].ListHead = middle
 		}
+
+		err = newListHead.ReplaceNext(&newItems[0].ListHead, &newItems[olen].ListHead, newListTail)
+		if err != nil {
+			Log(LogFatal, "replace fail")
+		}
+		first := EmptyMapHead.fromListHead(newListHead.Next())
+		last := EmptyMapHead.fromListHead(newListTail.Prev())
+		pOpts := elist_head.SharedTrav(list_head.WaitNoM())
+		newItems[i].MarkForDelete()
+		elist_head.SharedTrav(pOpts...)
+		newItems[i].Init()
+
+		// for debug
+		first = EmptyMapHead.fromListHead(newListHead.Next())
+		last = EmptyMapHead.fromListHead(newListTail.Next())
+		_, _ = first, last
+
+		err = prevItem.ReplaceNext(newListHead.Next(), newListTail.Prev(), nextItem)
+		if err != nil {
+			Log(LogFatal, "fail to replace newItems")
+		}
+		oldItems := sp.items
+		sp.items = newItems
+
+		// for debug
+		oldItemFirst := oldItems[0].Prev().Next().PtrMapHead()
+		oldItemNext := oldItems[olen-1].Next().PtrMapHead()
+		_ = oldItemFirst
+		_ = oldItemNext
+		ItemNext := sp.items[olen].Next().PtrMapHead()
+		_ = ItemNext
+
+		// oldOutside := sp.items[olen-1].Next()
+		// _ = oldOutside
+		// _, err := sp.items[olen-1].PtrListHead().Next().InsertBefore(sp.items[olen].PtrListHead())
+		// if err != nil {
+		// 	panic("fail insertion")
+		// }
 		// if i == 0 && olen > 1 {
 		// 	sp.items[1].ListHead = nextListHeadOfSampleItem()
 		// }
-		middle := nextListHeadOfSampleItem()
-		for i := 1; i < olen; i++ {
-			sp.items[i].ListHead = middle
-		}
 
 		if IsDebug() {
 			var b strings.Builder
@@ -306,33 +349,18 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu *sync.Mutex) (newItem
 			fmt.Printf("A: itemPool.items\n%s\n", b.String())
 		}
 
-		if i > 0 && sp.items[i-1].PtrListHead().Next() != sp.items[i].PtrListHead() {
-			toNext := sp.items[i-1].PtrListHead().Next()
-			next := sp.items[i].PtrListHead()
-
-			Log(LogFatal, "not connect next %d-1=%p %d=%p", i-1, toNext, i, next)
-		}
-		if i > 0 && sp.items[i].PtrListHead().Prev() != sp.items[i-1].PtrListHead() {
-			c := sp.items[i].PtrListHead().Prev()
-			p := sp.items[i-1].PtrListHead()
-			Log(LogFatal, "not connect next.prev c.prev(%p) = prev(%p)", c, p)
-		}
 		outside := sp.items[olen].Next()
 		_ = outside
-		if olen-1 > 0 && sp.items[olen-1].PtrListHead().Next() != sp.items[olen].PtrListHead() {
+		if olen != i && olen-1 != i && olen-1 > 0 && sp.items[olen-1].PtrListHead().Next() != sp.items[olen].PtrListHead() {
 			toNext := sp.items[olen-1].PtrListHead().Next()
 			next := sp.items[olen].PtrListHead()
 			Log(LogFatal, "not connect sp.items[olen-1]=%p -> sp.items[olen]=%p ", toNext, next)
 		}
-		if olen-1 > 0 && sp.items[olen].PtrListHead().Prev() != sp.items[olen-1].PtrListHead() {
+		if olen != i && olen-1 != i && olen-1 > 0 && sp.items[olen].PtrListHead().Prev() != sp.items[olen-1].PtrListHead() {
 			c := sp.items[olen].PtrListHead().Prev()
 			p := sp.items[olen-1].PtrListHead()
 			Log(LogFatal, "not connect sp.items[olen-1]=%p <- sp.items[olen]=%p", p, c)
 		}
-		pOpts := elist_head.SharedTrav(list_head.WaitNoM())
-		sp.items[i].MarkForDelete()
-		elist_head.SharedTrav(pOpts...)
-		sp.items[i].Init()
 
 		return &sp.items[i], nil, lazyUnlock
 	}

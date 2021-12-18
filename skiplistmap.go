@@ -932,6 +932,12 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 		// 	return e.PtrMapHead().reverse < ehead.PtrMapHead().reverse
 		// }, ignoreBucketEntry(false))
 		nextE := nextAsE(opt.bucket.entry(h))
+		if nextE.PtrMapHead().reverse <= EmptyMapHead.fromListHead(opt.bucket.head()).reverse {
+			Log(LogWarn, "map.add2() re-try get target")
+			mHead := EmptyMapHead.fromListHead(opt.bucket.head().Next())
+			_ = mHead
+			nextE = opt.bucket.prevAsB().entry(h)
+		}
 
 		nextE.PtrListHead().InsertBefore(e.PtrListHead())
 		return true

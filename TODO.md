@@ -3,6 +3,9 @@
   - [x] using elist_head as key/value item
 - [ ] support user defined key order.
 - [x] refactoring
+- [ ] fix race condition
+  - [x] add/update  in embedded itempool 
+  - [ ] add/update  in outside itempool
 - [ ] Implement Purge()
   - [ ] basic impleent
   - [ ] waiting/locking to traverse on pursing

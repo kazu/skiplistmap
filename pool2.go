@@ -25,7 +25,7 @@ const cntOfPoolMgr = 8
 
 var UseGoroutineInPool bool = false
 
-type successFn func(MapItem)
+type successFn func(MapItem, *sync.Mutex)
 
 type poolReq struct {
 	cmd       poolCmd
@@ -73,8 +73,8 @@ func (p *Pool) Get(reverse uint64, fn successFn) {
 
 	if !UseGoroutineInPool {
 		p := samepleItemPoolFromListHead(p.itemPool[idx].Next())
-		e, _ := p.Get()
-		fn(e)
+		e, _, mu := p.Get()
+		fn(e, mu)
 		return
 	}
 
@@ -425,7 +425,7 @@ func (sp *samepleItemPool) findIdx(reverse uint64) (int, error) {
 
 }
 
-func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool) {
+func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock *sync.Mutex) {
 	if sp.freeHead.DirectNext() == &sp.freeHead {
 		sp.init()
 	}
@@ -436,16 +436,31 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool) {
 		nElm.Delete()
 		if nElm != nil {
 			nElm.Init()
-			return SampleItemFromListHead(nElm), false
+			return SampleItemFromListHead(nElm), false, nil
 		}
 	}
 	// not limit pool
 	if cap(sp.items) > len(sp.items) {
-		sp.items = sp.items[:len(sp.items)+1]
-		new := &sp.items[len(sp.items)-1]
-		new.Init()
+		var mu *sync.Mutex
+		i := len(sp.items)
 
-		return new, false
+		if i+1 == cap(sp.items) {
+			mu = &sp.mu
+			mu.Lock()
+			if i+1 != cap(sp.items) {
+				mu.Unlock()
+				return sp.Get()
+			}
+		}
+
+		sp.items = sp.items[:i+1]
+		new := &sp.items[i]
+		new.Init()
+		if mu != nil {
+			return new, false, mu
+		}
+
+		return new, false, nil
 	}
 
 	// found next pool
@@ -461,8 +476,8 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool) {
 	if err != nil {
 		panic("already deleted")
 	}
-	new, _ = nPool.Get()
-	return new, isExpanded
+	new, _, _ = nPool.Get()
+	return new, isExpanded, nil
 
 }
 
@@ -531,7 +546,6 @@ func (sp *samepleItemPool) expand(mu *sync.Mutex) (unlocker, error) {
 
 	if !atomic.CompareAndSwapInt64(&nlen, int64(len(sp.items)), nlen+1) {
 		Log(LogDebug, "update olen")
-		sp.mu.Unlock()
 		return sp.expand(nil)
 	}
 
@@ -587,6 +601,15 @@ func (sp *samepleItemPool) expand(mu *sync.Mutex) (unlocker, error) {
 
 func (sp *samepleItemPool) _expand() (*samepleItemPool, error) {
 
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+
+	olen := len(sp.items)
+	empty := elist_head.ListHead{}
+	if sp.items[olen-1].ListHead == empty {
+		Log(LogError, "last item must not be empty")
+	}
+
 	nPool := &samepleItemPool{}
 	_ = nPool
 	var e error
@@ -600,7 +623,7 @@ func (sp *samepleItemPool) _expand() (*samepleItemPool, error) {
 	pOpts = list_head.DefaultModeTraverse.Option(list_head.WaitNoM())
 	e = sp.MarkForDelete()
 	if e != nil {
-		return nil, EAlreadyDeleted
+		return nil, EPoolAlreadyDeleted
 	}
 NO_DELETE:
 
@@ -637,7 +660,7 @@ NO_DELETE:
 		int(SampleItemOffsetOf))
 
 	if err != nil {
-		return nil, EFailExpand
+		return nil, EPoolExpandFail
 	}
 
 	// for debugging
@@ -689,7 +712,10 @@ func idxMaagement(ctx context.Context, cancel context.CancelFunc, h *samepleItem
 		p := samepleItemPoolFromListHead(h.Next())
 		switch req.cmd {
 		case CmdGet:
-			e, extend := p.Get()
+			e, extend, mu := p.Get()
+			if mu != nil {
+				mu.Unlock()
+			}
 			LastItem = e
 			// only debug mode
 			if extend {
@@ -697,12 +723,12 @@ func idxMaagement(ctx context.Context, cancel context.CancelFunc, h *samepleItem
 				fmt.Printf("dump: sampleItemPool.items\n%s\nend: sampleItemPool.items\n", p.dump())
 				IsExtended = extend
 			}
-			req.onSuccess(e)
+			req.onSuccess(e, nil)
 			continue
 		case CmdPut:
 			p.Put(req.item)
 			if req.onSuccess != nil {
-				req.onSuccess(nil)
+				req.onSuccess(nil, nil)
 			}
 			continue
 		case CmdClose:

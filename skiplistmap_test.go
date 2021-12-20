@@ -95,18 +95,18 @@ func Test_HMap(t *testing.T) {
 		name string
 		m    *WrapHMap
 	}{
-		{
-			"embedded pool",
-			newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UseEmbeddedPool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch3))),
-		},
+		// {
+		// 	"embedded pool",
+		// 	newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UseEmbeddedPool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch3))),
+		// },
 		// {
 		// 	"pool without goroutine",
 		// 	newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UsePool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch3))),
 		// },
-		// {
-		// 	"combine4",
-		// 	newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UsePool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch4))),
-		// },
+		{
+			"combine4",
+			newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UsePool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch4))),
+		},
 	}
 
 	for _, tt := range tests {
@@ -119,7 +119,7 @@ func Test_HMap(t *testing.T) {
 			m.Set("hoge3", v)
 			m.Set("oge3", v)
 			m.Set("3", v)
-			DumpHmap(m.base)
+			//DumpHmap(m.base)
 			for i := 0; i < 100000; i++ {
 				m.Set(fmt.Sprintf("fuge%d", i), v)
 			}

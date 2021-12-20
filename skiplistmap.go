@@ -210,7 +210,7 @@ func (h *Map) initBeforeSet() {
 	empty.reverse, empty.conflict = btable.reverse, 0
 	empty.PtrMapHead().state |= mapIsDummy
 
-	h.add2(h.head.Prev().Next(), empty)
+	h.tail.InsertBefore(empty.PtrListHead())
 
 	// add bucket
 	h.tailBucket.InsertBefore(&btable.ListHead)
@@ -218,6 +218,7 @@ func (h *Map) initBeforeSet() {
 	levelBucket := h.levelBucket(btable.level)
 	levelBucket.LevelHead.DirectPrev().DirectNext().InsertBefore(&btable.LevelHead)
 	h.setLevel(btable.level, levelBucket)
+	btable.state = bucketStateActive
 	btablefirst := btable
 
 	topReverses := make([]uint64, 16)
@@ -231,6 +232,7 @@ func (h *Map) initBeforeSet() {
 		reverse := topReverses[i]
 		btable = &h.buckets[i]
 		btable.level, btable._len, btable.reverse = 1, 0, reverse
+		btable.state = bucketStateInit
 		btable.Init()
 		btable.LevelHead.Init()
 
@@ -249,7 +251,7 @@ func (h *Map) initBeforeSet() {
 		empty.reverse, empty.conflict = btable.reverse, 0
 		empty.PtrMapHead().state |= mapIsDummy
 
-		btablefirst.head().InsertBefore(&empty.ListHead)
+		inserBeforeWithCheck(btablefirst.head(), &empty.ListHead)
 
 		// add bucket
 		btablefirst.Next().InsertBefore(&btable.ListHead)
@@ -264,7 +266,7 @@ func (h *Map) initBeforeSet() {
 			levelBucket = h.levelBucket(btable.level)
 			levelBucket.LevelHead.DirectPrev().DirectNext().InsertBefore(&btable.LevelHead)
 		}
-
+		btable.state = bucketStateActive
 	}
 
 	if EnableStats {
@@ -343,6 +345,15 @@ SKIP_FETCH_BUCKET:
 	} else {
 		addOpt = WithBucket(btable)
 	}
+	if !h.isEmbededItemInBucket && btable.head().Empty() {
+		if IsInfo() {
+			nbtable := btable.nextAsB()
+			pbtable := btable.prevAsB()
+			_ = nbtable
+			_ = pbtable
+		}
+		btable.head()
+	}
 
 	entry, cnt := h.find(btable.head(), func(item HMapEntry) bool {
 		mHead := item.PtrMapHead()
@@ -385,6 +396,10 @@ SKIP_FETCH_BUCKET:
 	if btable.level > 0 {
 		atomic.AddInt32(&btable._len, 1)
 	}
+	if !h.isEmbededItemInBucket && btable != nil && int(btable.len()) > h.maxPerBucket {
+		h.makeBucket(item.PtrListHead(), int(btable.len())/2)
+	}
+
 	return true
 }
 
@@ -436,6 +451,9 @@ func (h *Map) getWithBucket(k, conflict uint64) (MapItem, *bucket, bool) {
 
 	} else {
 		bucket, reverse = h.searchBucket4update(k)
+		if !h.isEmbededItemInBucket && bucket.head() == nil {
+			bucket, reverse = h.searchBucket4update(k)
+		}
 		e = h.searchBybucket(bucket, reverse, true)
 	}
 
@@ -544,6 +562,11 @@ func (h *Map) Set(key, value interface{}) bool {
 	if h.pooler == nil && h.modeForBucket == CombineSearch4 && !h.isEmbededItemInBucket {
 		UsePool(true)(h)
 	}
+	if !h.isEmbededItemInBucket && bucket.head().Empty() {
+		bucket.head()
+		h.loadItem(0, 0, key)
+		Log(LogDebug, "empty is invalid")
+	}
 
 	if h.isEmbededItemInBucket {
 		k, conflict := KeyToHash(key)
@@ -566,11 +589,25 @@ func (h *Map) Set(key, value interface{}) bool {
 	} else if h.pooler != nil {
 		k, _ := KeyToHash(key)
 		var wg sync.WaitGroup
+		var fn func()
+		fn = nil
 		wg.Add(1)
-		h.pooler.Get(bits.Reverse64(k), func(item MapItem) {
+		h.pooler.Get(bits.Reverse64(k), func(item MapItem, mu *sync.Mutex) {
 			s = item.(*SampleItem)
+			if mu != nil {
+				fn = func() {
+					mu.Unlock()
+				}
+			}
 			wg.Done()
 		})
+		if fn != nil {
+			defer fn()
+		}
+
+		if s != nil && !s.IsSingle() {
+			Log(LogWarn, "get not single entry?")
+		}
 		wg.Wait()
 		if IsExtended {
 			useDump = true
@@ -600,6 +637,9 @@ func (h *Map) Set(key, value interface{}) bool {
 	k, conflict := KeyToHash(s.K)
 	if h.isEmbededItemInBucket {
 		return h._set(k, conflict, bucket.toBase(), s)
+	}
+	if !s.IsSingle() {
+		Log(LogWarn, "is not single")
 	}
 	return h._set(k, conflict, bucket, s)
 }
@@ -678,13 +718,13 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 	if newReverse&1 > 0 {
 		newReverse++
 	}
-	b := h.bucketFromPool(newReverse)
+	b := h.bucketFromPoolEmbedded(newReverse)
 	if b == nil {
-		return ErrFailBucketAlloc
+		return ErrBucketAllocatedFail
 	}
 
 	if b.reverse == 0 && b.level > 1 {
-		err = NewError(EInvalidBucket, "bucket.reverse = 0. but level 1= 1", nil)
+		err = NewError(EBucketInvalid, "bucket.reverse = 0. but level 1= 1", nil)
 		Log(LogWarn, err.Error())
 		return
 	}
@@ -750,7 +790,7 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 	e := entryHMapFromListHead(cur)
 	cBucket := h.searchBucket(bits.Reverse64(e.reverse))
 	if cBucket == nil || cBucket.reverse > e.reverse {
-		return ErrNotFoundBUcket
+		return ErrBucketNotFound
 	}
 	nextBucket := cBucket
 	for ; nextBucket.prevAsB() != nextBucket; nextBucket = nextBucket.prevAsB() {
@@ -763,7 +803,7 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 		}
 	}
 	if nextBucket.reverse < e.reverse || cBucket.reverse > e.reverse {
-		return ErrNotFoundBUcket
+		return ErrBucketNotFound
 	}
 
 	newReverse := cBucket.reverse / 2
@@ -778,14 +818,33 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 		newReverse = halfUint64(cBucket.reverse, nextBucket.reverse)
 	}
 
-	b := h.bucketFromPool(newReverse)
+	b, onOk := h.bucketFromPool(newReverse, useOnOk(true))
+	if onOk == nil {
+		Log(LogWarn, "no okFn")
+	}
+	defer func() {
+		if onOk != nil {
+			onOk()
+		} else {
+			Log(LogWarn, "no okFn")
+		}
+		if b.state != bucketStateActive {
+			Log(LogWarn, "not active?")
+		}
+	}()
+	if !b.headNoWaitEmpty().Empty() {
+		Log(LogDebug, "not empty")
+		return ErrBucketAlreadyExit
+	} else {
+		Log(LogDebug, "empty")
+	}
 
 	if b == nil {
 		if IsDebug() {
 			h.searchBucket(bits.Reverse64(e.reverse))
 		}
 
-		return ErrFailBucketAlloc
+		return ErrBucketAllocatedFail
 	}
 	//b.reverse, b.level, b.len = newReverse, level, 0
 	if b.reverse != newReverse {
@@ -793,7 +852,7 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 	}
 
 	if b.reverse == 0 && b.level > 1 {
-		err = NewError(EInvalidBucket, "bucket.reverse = 0. but level 1= 1", nil)
+		err = NewError(EBucketInvalid, "bucket.reverse = 0. but level 1= 1", nil)
 		Log(LogWarn, err.Error())
 		return
 	}
@@ -810,7 +869,13 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 	}
 
 	atomic.AddInt32(&cBucket._len, -b._len)
-	h.addBucket(b)
+	err = h.addBucket(b)
+	if err != nil {
+		Log(LogWarn, "fail addBucket() e=%+v\n", err)
+	}
+	if !h.isEmbededItemInBucket && b.head().Empty() {
+		panic("bucket head empty")
+	}
 
 	nextLevel := h.findNextLevelBucket(b.reverse, b.level)
 
@@ -855,13 +920,6 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 		h.DumpBucket(w)
 	}
 
-	if int(b.len()) > h.maxPerBucket {
-		h.makeBucket(cBucket.head().Next(), int(b.len())/2)
-	}
-	if int(cBucket.len()) > h.maxPerBucket {
-		h.makeBucket(nextBucket.head().Prev(), int(b.len())/2)
-	}
-
 	return
 
 }
@@ -891,8 +949,24 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 	cnt := 0
 	pos, _ := h.find(start, func(ehead HMapEntry) bool {
 		cnt++
+		if !e.PtrListHead().IsSingle() {
+			Log(LogWarn, "add2: element for insertion  is not single ")
+		}
 		return e.PtrMapHead().reverse < ehead.PtrMapHead().reverse
 	}, ignoreBucketEntry(false))
+	if !e.PtrListHead().IsSingle() {
+
+		// rev := e.PtrMapHead().reverse
+		// idx := (rev >> (4 * 15) % cntOfPoolMgr)
+		// p := samepleItemPoolFromListHead(h.pooler.itemPool[idx].Next())
+		// _ = p
+		if IsInfo() {
+			pools := h.allpools()
+			_ = pools
+			e.PtrListHead().IsSingle()
+		}
+		Log(LogWarn, "add2: element for insertion  is not single ")
+	}
 
 	defer func() {
 		if !EnableStats || e.PtrMapHead().IsIgnored() {
@@ -901,14 +975,23 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 
 		if h.SearchKey(bits.Reverse64(e.PtrMapHead().reverse), ignoreBucketEntry(false)) == nil {
 			sharedSearchOpt.Lock()
-			sharedSearchOpt.e = ErrInvalidAdd
+			sharedSearchOpt.e = ErrItemInvalidAdd
 			sharedSearchOpt.Unlock()
 		}
 
 	}()
 
 	if pos != nil {
-		_, err := pos.PtrListHead().InsertBefore(e.PtrListHead())
+		if !e.PtrListHead().IsSingle() {
+			Log(LogWarn, "add2: element for insertion  is not single ")
+			err := e.PtrListHead().MarkForDelete()
+			if err != nil {
+				Log(LogError, "fail delete")
+			}
+			e.PtrListHead().Init()
+		}
+
+		_, err := inserBeforeWithCheck(pos.PtrListHead(), e.PtrListHead())
 		if err != nil {
 			Log(LogError, "fail insert")
 		}
@@ -920,8 +1003,9 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 			return true
 		}
 
+		// FIXME: not run on !h.isEmbededItemInBucket
 		if !h.isEmbededItemInBucket {
-			h.makeBucket(e.PtrListHead(), int(btable.len())/2)
+			//h.makeBucket(e.PtrListHead(), int(btable.len())/2)
 		} else {
 			h.makeBucket2(btable)
 		}
@@ -940,10 +1024,22 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 			nextE = opt.bucket.prevAsB().entry(h)
 		}
 
-		nextE.PtrListHead().InsertBefore(e.PtrListHead())
+		_, err := inserBeforeWithCheck(nextE.PtrListHead(), e.PtrListHead())
+		if err != nil {
+			pos, _ = h.find(start, func(ehead HMapEntry) bool {
+				return e.PtrMapHead().reverse < ehead.PtrMapHead().reverse
+			}, ignoreBucketEntry(false))
+			nextE := nextAsE(opt.bucket.entry(h))
+			_ = nextE
+		}
 		return true
 	}
-	h.tail.InsertBefore(e.PtrListHead())
+	pos, _ = h.find(start, func(ehead HMapEntry) bool {
+		cnt++
+		return e.PtrMapHead().reverse < ehead.PtrMapHead().reverse
+	}, ignoreBucketEntry(false))
+
+	inserBeforeWithCheck(h.tail.Prev(), e.PtrListHead())
 	return true
 }
 
@@ -1083,6 +1179,10 @@ func (h *Map) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket) {
 		thead = tBucket.head().Prev().Next()
 	}
 	h.add2(thead, empty)
+	emptyElist := elist_head.ListHead{}
+	if empty.ListHead == emptyElist {
+		Log(LogWarn, "fail register dummy of bucket")
+	}
 
 	tBucket := bucketFromListHead(tBtable)
 	if IsDebug() {
@@ -1099,12 +1199,12 @@ func (h *Map) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket) {
 
 }
 
-func (h *Map) addBucket(nBtable *bucket) {
+func (h *Map) addBucket(nBtable *bucket) error {
 
 	for bcur := h.headBucket.Prev().Next(); !bcur.Empty(); bcur = bcur.Next() {
 		cBtable := bucketFromListHead(bcur)
 		if cBtable.reverse == nBtable.reverse {
-			return
+			return ErrBucketAlreadyExit
 		}
 
 		if cBtable.reverse < nBtable.reverse {
@@ -1112,10 +1212,10 @@ func (h *Map) addBucket(nBtable *bucket) {
 			if nBtable.reverse <= cBtable.reverse {
 				Log(LogError, "brokne relation bucket")
 			}
-			return
+			return ErrBucketInvalidOrder
 		}
 	}
-	return
+	return nil
 }
 
 func (h *Map) findNextLevelBucket(reverse uint64, level int32) (cur *list_head.ListHead) {
@@ -1294,7 +1394,7 @@ func (h *Map) topLevelBucket(reverse uint64) *bucket {
 	return &h.buckets[idx]
 }
 
-func (h *Map) searchBucket4update(k uint64) (*bucket, uint64) {
+func (h *Map) searchBucket4update(k uint64) (b *bucket, r uint64) {
 
 	reverseNoMask := bits.Reverse64(k)
 
@@ -1406,12 +1506,21 @@ func (h *Map) _searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketE
 		if result != nil {
 			resultHead = result.PtrMapHead()
 		}
-		var pCur *MapHead
-		_ = pCur
+		pCur := resultHead
 		if IsDebug() {
 			lbNext.itemPool().validateItems()
 		}
+		cnt := 0
 		for cur := resultHead; cur != nil; cur = cur.NextWithNil() {
+			cnt++
+			curReverse := cur.reverse
+			if cur.reverse == ^uint64(0) {
+				Log(LogDebug, "last dummy item")
+			}
+			if pCur.reverse > cur.reverse {
+				fmt.Println("invalid item order ")
+			}
+
 			pCur = cur
 			if EnableStats && ignoreBucketEnry {
 				h.mu.Lock()
@@ -1421,7 +1530,7 @@ func (h *Map) _searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketE
 			if ignoreBucketEnry && cur.IsIgnored() {
 				continue
 			}
-			curReverse := cur.reverse
+
 			if curReverse < reverseNoMask {
 				continue
 			}
@@ -1503,4 +1612,15 @@ func (h *Map) First() HMapEntry {
 func (h *Map) Last() HMapEntry {
 	cur := h.tail.DirectNext().DirectPrev()
 	return h.ItemFn().HmapEntryFromListHead(cur)
+}
+
+func (h *Map) allpools() (pools []*samepleItemPool) {
+	if h.pooler == nil {
+		return
+	}
+
+	for i := range h.pooler.itemPool {
+		pools = append(pools, samepleItemPoolFromListHead(h.pooler.itemPool[i].Next()))
+	}
+	return
 }

@@ -55,8 +55,12 @@ func (mh *MapHead) Offset() uintptr {
 	return mapheadOffset
 }
 
-func (mh *MapHead) fromListHead(l *elist_head.ListHead) *MapHead {
+func mapheadFromLListHead(l *elist_head.ListHead) *MapHead {
 	return (*MapHead)(ElementOf(unsafe.Pointer(l), mapheadOffset))
+}
+
+func (mh *MapHead) fromListHead(l *elist_head.ListHead) *MapHead {
+	return mapheadFromLListHead(l)
 }
 
 func (c *MapHead) FromListHead(l *elist_head.ListHead) elist_head.List {
@@ -67,11 +71,17 @@ func (c *MapHead) NextWithNil() *MapHead {
 	if c.Next() == &c.ListHead {
 		return nil
 	}
+	if c.Next().Empty() {
+		return nil
+	}
 	return c.fromListHead(c.Next())
 }
 
 func (c *MapHead) PrevtWithNil() *MapHead {
 	if c.Prev() == &c.ListHead {
+		return nil
+	}
+	if c.Prev().Empty() {
 		return nil
 	}
 	return c.fromListHead(c.Prev())

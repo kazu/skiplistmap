@@ -49,3 +49,7 @@ func Log(l LogLevel, s string, args ...interface{}) {
 func IsDebug() bool {
 	return CurrentLogLevel == LogDebug
 }
+
+func IsInfo() bool {
+	return CurrentLogLevel <= LogInfo
+}

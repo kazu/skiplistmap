@@ -196,7 +196,10 @@ func Benchmark_HMap_forProfile(b *testing.B) {
 	_ = newShard
 
 	benchmarks := []mapTestParam{
-		{"skiplistmap5    ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true))), false},
+		{"skiplistmap4    ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap()), false},
+		{"skiplistmap4    ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap()), true},
+		{"skiplistmap5    ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true))), false},
+		{"skiplistmap5    ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true))), true},
 	}
 
 	for _, bm := range benchmarks {

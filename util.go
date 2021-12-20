@@ -4,7 +4,11 @@
 // license that can be found in the LICENSE file.
 package skiplistmap
 
-import "unsafe"
+import (
+	"unsafe"
+
+	"github.com/kazu/elist_head"
+)
 
 func absDiffUint64(x, y uint64) uint64 {
 	if x < y {
@@ -74,4 +78,27 @@ func maxInts(ints ...int) (max int) {
 		}
 	}
 	return
+}
+
+func NilMapEntry() HMapEntry {
+	return (*entryHMap)(nil)
+}
+
+func inserBeforeWithCheck(right *elist_head.ListHead, center *elist_head.ListHead) (*elist_head.ListHead, error) {
+
+	centermHead := mapheadFromLListHead(center)
+	rightmHead := mapheadFromLListHead(right)
+	leftmHead := mapheadFromLListHead(right.Prev())
+	if !center.Empty() && !center.IsSingle() {
+		return nil, NewError(EIItemInvalidAdd, "invalid left state ", nil)
+	}
+
+	if rightmHead.reverse < centermHead.reverse {
+		return nil, NewError(EIItemInvalidAdd, "invalid insert order", nil)
+	}
+	if !leftmHead.Empty() && centermHead.reverse < leftmHead.reverse {
+		return nil, NewError(EIItemInvalidAdd, "invalid insert order", nil)
+	}
+
+	return right.InsertBefore(center)
 }

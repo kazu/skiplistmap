@@ -2,6 +2,7 @@
 // Copyright 2201 Kazuhisa TAKEI<xtakei@rytr.jp>. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
+
 package skiplistmap
 
 import (
@@ -39,6 +40,7 @@ func halfUint64(os uint64, oe uint64) (hafl uint64) {
 
 }
 
+//go:nocheckptr
 func ElementOf(head unsafe.Pointer, offset uintptr) unsafe.Pointer {
 	return unsafe.Pointer(uintptr(head) - offset)
 }

@@ -103,6 +103,7 @@ func bucketFromListHead(head *list_head.ListHead) *bucket {
 	return (*bucket)(ElementOf(unsafe.Pointer(head), bucketOffset))
 }
 
+//go:nocheckptr
 func bucketFromLevelHead(head *list_head.ListHead) *bucket {
 	// if head == nil {
 	// 	return nil

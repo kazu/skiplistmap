@@ -251,7 +251,8 @@ func (h *Map) initBeforeSet() {
 		empty.reverse, empty.conflict = btable.reverse, 0
 		empty.PtrMapHead().state |= mapIsDummy
 
-		inserBeforeWithCheck(btablefirst.head(), &empty.ListHead)
+		//inserBeforeWithCheck(btablefirst.head(), &empty.ListHead)
+		btablefirst.head().InsertBefore(&empty.ListHead)
 
 		// add bucket
 		btablefirst.Next().InsertBefore(&btable.ListHead)
@@ -545,11 +546,11 @@ func (h *Map) loadItem(k uint64, conflict uint64, key interface{}) (MapItem, *bu
 	return h.getWithBucket(KeyToHash(key))
 }
 
-var madeBucket int = 0
+var madeBucket int32 = 0
 
 // Set ... set the value for a key
 func (h *Map) Set(key, value interface{}) bool {
-	madeBucket = 0
+	atomic.StoreInt32(&madeBucket, 0)
 
 	item, bucket, found := h.loadItem(0, 0, key)
 	if found {
@@ -708,7 +709,7 @@ func (h *Map) find(start *elist_head.ListHead, cond func(HMapEntry) bool, opts .
 }
 
 func (h *Map) makeBucket2(bucket *bucket) (err error) {
-	madeBucket++
+	atomic.AddInt32(&madeBucket, 1)
 
 	nextBucket := bucket.prevAsB()
 

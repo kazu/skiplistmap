@@ -696,7 +696,7 @@ func (h *Map) find(start *elist_head.ListHead, cond func(HMapEntry) bool, opts .
 	for cur := start; cur != cur.Next(); cur = cur.Next() {
 		e = entryHMapFromListHead(cur)
 
-		if conf.ignoreBucketEntry && e.PtrMapHead().IsIgnored() {
+		if conf.ignoreBucketEntry() && e.PtrMapHead().IsIgnored() {
 			continue
 		}
 		if cond(e) {
@@ -1336,20 +1336,21 @@ func prevAsE(e HMapEntry) HMapEntry {
 	return nil
 }
 
-type searchOpt struct {
-	h                 *Map
-	e                 error
-	ignoreBucketEntry bool
-	sync.Mutex
-}
-
 var _sharedSearchOpt atomic.Value
 
 func init() {
-	_sharedSearchOpt.Store(&searchOpt{ignoreBucketEntry: true})
+	o := &searchOpt{}
+	o._ignoreBucketEntry.Store(true)
+
+	_sharedSearchOpt.Store(o)
 }
 
-//var sharedSearchOpt *searchOpt = &searchOpt{ignoreBucketEntry: true}
+type searchOpt struct {
+	h                  *Map
+	e                  error
+	_ignoreBucketEntry atomic.Value
+	sync.Mutex
+}
 
 func sharedSearchOpt(setter *searchOpt) *searchOpt {
 
@@ -1360,13 +1361,17 @@ func sharedSearchOpt(setter *searchOpt) *searchOpt {
 	return _sharedSearchOpt.Load().(*searchOpt)
 }
 
+func (o *searchOpt) ignoreBucketEntry() bool {
+	return o._ignoreBucketEntry.Load().(bool)
+}
+
 type searchArg func(*searchOpt) searchArg
 
 func ignoreBucketEntry(t bool) searchArg {
 
 	return func(opt *searchOpt) searchArg {
-		prev := opt.ignoreBucketEntry
-		opt.ignoreBucketEntry = t
+		prev := opt._ignoreBucketEntry.Load().(bool)
+		opt._ignoreBucketEntry.Store(t)
 		return ignoreBucketEntry(prev)
 	}
 }
@@ -1390,7 +1395,7 @@ func (h *Map) SearchKey(k uint64, opts ...searchArg) HMapEntry {
 			sharedSearchOpt(conf)
 		}
 	}()
-	return h.searchKey(k, conf.ignoreBucketEntry)
+	return h.searchKey(k, conf.ignoreBucketEntry())
 
 }
 

@@ -6,6 +6,9 @@
 - [ ] fix race condition
   - [x] add/update  in embedded itempool 
   - [ ] add/update  in outside itempool
+  - [x] global sharedSearchOpt . define atomic.Value
+  - [ ] SampleItem.SetValue
+  - [ ] //go:nocheckptr elist_head.Ptr()
 - [ ] Implement Purge()
   - [ ] basic impleent
   - [ ] waiting/locking to traverse on pursing

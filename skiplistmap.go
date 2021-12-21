@@ -680,11 +680,12 @@ func (h *Map) each(start *elist_head.ListHead, fn func(key, value interface{})) 
 // must renename to find
 func (h *Map) find(start *elist_head.ListHead, cond func(HMapEntry) bool, opts ...searchArg) (result HMapEntry, cnt int) {
 
-	conf := sharedSearchOpt
+	conf := sharedSearchOpt(nil)
 	previous := conf.Options(opts...)
 	defer func() {
 		if previous != nil {
 			conf.Options(previous)
+			sharedSearchOpt(conf)
 		}
 	}()
 	cnt = 0
@@ -975,9 +976,11 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 		}
 
 		if h.SearchKey(bits.Reverse64(e.PtrMapHead().reverse), ignoreBucketEntry(false)) == nil {
-			sharedSearchOpt.Lock()
-			sharedSearchOpt.e = ErrItemInvalidAdd
-			sharedSearchOpt.Unlock()
+			o := sharedSearchOpt(nil)
+			o.Lock()
+			o.e = ErrItemInvalidAdd
+			o.Unlock()
+			sharedSearchOpt(o)
 		}
 
 	}()
@@ -1340,7 +1343,22 @@ type searchOpt struct {
 	sync.Mutex
 }
 
-var sharedSearchOpt *searchOpt = &searchOpt{ignoreBucketEntry: true}
+var _sharedSearchOpt atomic.Value
+
+func init() {
+	_sharedSearchOpt.Store(&searchOpt{ignoreBucketEntry: true})
+}
+
+//var sharedSearchOpt *searchOpt = &searchOpt{ignoreBucketEntry: true}
+
+func sharedSearchOpt(setter *searchOpt) *searchOpt {
+
+	if setter != nil {
+		_sharedSearchOpt.Store(setter)
+		return setter
+	}
+	return _sharedSearchOpt.Load().(*searchOpt)
+}
 
 type searchArg func(*searchOpt) searchArg
 
@@ -1364,11 +1382,12 @@ func (o *searchOpt) Options(opts ...searchArg) (previous searchArg) {
 }
 func (h *Map) SearchKey(k uint64, opts ...searchArg) HMapEntry {
 
-	conf := sharedSearchOpt
+	conf := sharedSearchOpt(nil)
 	previous := conf.Options(opts...)
 	defer func() {
 		if previous != nil {
 			conf.Options(previous)
+			sharedSearchOpt(conf)
 		}
 	}()
 	return h.searchKey(k, conf.ignoreBucketEntry)

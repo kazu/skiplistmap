@@ -7,6 +7,7 @@
 package skiplistmap
 
 import (
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/cespare/xxhash"
@@ -15,7 +16,7 @@ import (
 
 type SampleItem struct {
 	K string
-	V interface{}
+	V atomic.Value
 	MapHead
 }
 
@@ -52,11 +53,11 @@ func (s *SampleItem) Key() interface{} {
 }
 
 func (s *SampleItem) Value() interface{} {
-	return s.V
+	return s.V.Load()
 }
 
 func (s *SampleItem) SetValue(v interface{}) bool {
-	s.V = v
+	s.V.Store(v)
 	return true
 }
 
@@ -82,4 +83,10 @@ func (s *SampleItem) Delete() {
 
 func (s *SampleItem) KeyHash() (uint64, uint64) {
 	return MemHashString(s.K), xxhash.Sum64String(s.K)
+}
+
+func NewSampleItem(key string, value interface{}) (item *SampleItem) {
+	item = &SampleItem{K: key}
+	item.SetValue(value)
+	return
 }

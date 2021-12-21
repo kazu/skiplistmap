@@ -627,7 +627,8 @@ func (h *Map) Set(key, value interface{}) bool {
 		s = &SampleItem{}
 	}
 
-	s.K, s.V = key.(string), value
+	s.K = key.(string)
+	s.SetValue(value)
 
 	if _, ok := h.ItemFn().(*SampleItem); !ok {
 		ItemFn(func() MapItem {

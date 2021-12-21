@@ -7,8 +7,9 @@
   - [x] add/update  in embedded itempool 
   - [ ] add/update  in outside itempool
   - [x] global sharedSearchOpt . define atomic.Value
-  - [ ] SampleItem.SetValue
-  - [ ] //go:nocheckptr elist_head.Ptr()
+  - [x] SampleItem.SetValue
+  - [x] //go:nocheckptr elist_head.Ptr()
+  - [ ] sp.items = sp.items[:i+1] 
 - [ ] Implement Purge()
   - [ ] basic impleent
   - [ ] waiting/locking to traverse on pursing

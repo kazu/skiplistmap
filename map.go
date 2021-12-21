@@ -710,79 +710,6 @@ func (h *Map) find(start *elist_head.ListHead, cond func(HMapEntry) bool, opts .
 
 }
 
-func (h *Map) makeBucket2(bucket *bucket) (err error) {
-	atomic.AddInt32(&madeBucket, 1)
-
-	nextBucket := bucket.prevAsB()
-
-	nextReverse := nextBucket.reverse
-
-	newReverse := nextReverse/2 + bucket.reverse/2
-	if newReverse&1 > 0 {
-		newReverse++
-	}
-	b := h.bucketFromPoolEmbedded(newReverse)
-	if b == nil {
-		return ErrBucketAllocatedFail
-	}
-
-	if b.reverse == 0 && b.level > 1 {
-		err = NewError(EBucketInvalid, "bucket.reverse = 0. but level 1= 1", nil)
-		Log(LogWarn, err.Error())
-		return
-	}
-	b.Init()
-	b.LevelHead.Init()
-	b.initItemPool()
-
-	idx, err := bucket.itemPool().findIdx(newReverse)
-	if err != nil || idx == 0 {
-		return err
-	}
-
-	olen := len(bucket.itemPool().items)
-	nPool, err2 := bucket.itemPool()._split(idx, false)
-	_ = err2
-	b.setItemPool(nPool)
-	atomic.StoreInt32(&bucket._len, int32(idx))
-	atomic.StoreInt32(&b._len, int32(olen-idx))
-
-	h.addBucket(b)
-
-	nextLevel := h.findNextLevelBucket(b.reverse, b.level)
-
-	if b.LevelHead.DirectNext() == &b.LevelHead {
-		Log(LogWarn, "bucket.LevelHead is pointed to self")
-	}
-
-	if nextLevel != nil {
-
-		nextLevelBucket := bucketFromLevelHead(nextLevel)
-		if nextLevelBucket.reverse < b.reverse {
-			nextLevel.InsertBefore(&b.LevelHead)
-		} else if nextLevelBucket.reverse != b.reverse {
-
-			nextnextBucket := bucketFromLevelHead(nextLevel.Next())
-			_ = nextnextBucket
-			nextLevel.DirectNext().InsertBefore(&b.LevelHead)
-		}
-
-	} else {
-		Log(LogWarn, "not found level bucket.")
-	}
-	if b.LevelHead.Next() == &b.LevelHead {
-		Log(LogWarn, "bucket.LevelHead is pointed to self")
-	}
-
-	if int(b.len()) > h.maxPerBucket {
-		h.makeBucket2(b)
-	} else if int(bucket.len()) > h.maxPerBucket {
-		h.makeBucket2(bucket)
-	}
-
-	return nil
-}
-
 func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 
 	enableDumpBucket := false
@@ -1407,13 +1334,6 @@ func (h *Map) searchKey(k uint64, ignoreBucketEnry bool) HMapEntry {
 	return h.searchBybucket(h.searchBucket4Key4(k, ignoreBucketEnry))
 }
 
-func (h *Map) searchKeyFromEmbeddedPool(k uint64, ignoreBucketEnry bool) HMapEntry {
-	rev := bits.Reverse64(k)
-	//return h.searchByEmbeddedbucket(h.findBucket(rev), rev, ignoreBucketEnry)
-	return h.bsearchBybucket(h.findBucket(rev), rev, ignoreBucketEnry)
-
-}
-
 func (h *Map) topLevelBucket(reverse uint64) *bucket {
 	idx := (reverse >> (4 * 15))
 
@@ -1475,30 +1395,6 @@ func nearBucketFromCache(levels [16]*bucket, lbNext *bucket, reverseNoMask uint6
 		noNil = false
 	}
 	return
-}
-
-func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
-
-	pool := bucket.toBase().itemPool()
-	// FIXME: why fail to get
-	if pool == nil {
-		pool = bucket.toBase().itemPool()
-	}
-
-	idx := sort.Search(len(pool.items), func(i int) bool {
-		return pool.items[i].reverse >= reverseNoMask
-	})
-	if idx < len(pool.items) && pool.items[idx].reverse == reverseNoMask {
-		return &pool.items[idx]
-	}
-
-	a := bucket.toBase().prevAsB()
-	_ = a
-	if a.reverse < reverseNoMask {
-		h.findBucket(reverseNoMask)
-	}
-
-	return nil
 }
 
 func (h *Map) searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {

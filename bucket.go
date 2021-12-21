@@ -422,14 +422,6 @@ func (b *bucket) parent(m *Map) (p *bucket) {
 	return
 }
 
-func (b *bucket) toBase() *bucket {
-
-	if b._parent == nil {
-		return b
-	}
-	return b._parent.toBase()
-}
-
 type commonOpt struct {
 	onOk bool
 }
@@ -451,71 +443,6 @@ func (o *commonOpt) Option(opts ...cOptFn) (prevs []cOptFn) {
 	}
 
 	return
-}
-func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
-
-	level := int32(0)
-	for cur := bits.Reverse64(reverse); cur != 0; cur >>= 4 {
-		level++
-	}
-
-	for l := int32(1); l <= level; l++ {
-		if l == 1 {
-			idx := (reverse >> (4 * 15))
-			b = &h.buckets[idx]
-			continue
-		}
-		idx := int((reverse >> (4 * (16 - l))) & 0xf)
-		if cap(b.downLevels) == 0 {
-			b.downLevels = make([]bucket, 1, 16)
-			b.downLevels[0].level = b.level + 1
-			b.downLevels[0].reverse = b.reverse
-			b.downLevels[0].Init()
-			b.downLevels[0].LevelHead.Init()
-			b.downLevels[0]._parent = b
-
-			b.downLevels[0].setItemPoolFn = func(p *samepleItemPool) {
-				b.setItemPool(p)
-			}
-
-			lCur := h.levelBucket(l)
-			if lCur.LevelHead.Empty() {
-				lCur = bucketFromLevelHead(lCur.LevelHead.DirectPrev().DirectNext())
-			}
-			for ; lCur != lCur.NextOnLevel(); lCur = lCur.NextOnLevel() {
-				if lCur.LevelHead.Empty() {
-					break
-				}
-				if lCur.reverse < b.reverse {
-					break
-				}
-			}
-			lCur.LevelHead.InsertBefore(&b.downLevels[0].LevelHead)
-		}
-		if len(b.downLevels) <= idx {
-			b.downLevels = b.downLevels[:idx+1]
-		}
-
-		if b.downLevels[idx].level == 0 {
-			if l != level {
-				Log(LogWarn, "not collected already inited")
-			}
-			b.downLevels[idx].level = b.level + 1
-			b.downLevels[idx].reverse = b.reverse | (uint64(idx) << (4 * (16 - l)))
-			b = &b.downLevels[idx]
-			if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {
-				Log(LogWarn, "already inited")
-			}
-			break
-		}
-		b = &b.downLevels[idx]
-	}
-	if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {
-		h.DumpBucket(logio)
-		Log(LogWarn, "already inited")
-	}
-	return
-
 }
 
 const recoverBucketWithOutInit bool = false

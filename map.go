@@ -304,8 +304,14 @@ func (h *Map) TestSet(k, conflict uint64, btable *bucket, item MapItem) bool {
 
 func (h *Map) _set(k, conflict uint64, btable *bucket, item MapItem) bool {
 
-	item.PtrMapHead().reverse = bits.Reverse64(k)
-	item.PtrMapHead().conflict = conflict
+	if !h.isEmbededItemInBucket {
+		if !atomic.CompareAndSwapUint64(&item.PtrMapHead().reverse, 0, bits.Reverse64(k)) {
+			Log(LogDebug, "already set reverse")
+		}
+		if !atomic.CompareAndSwapUint64(&item.PtrMapHead().conflict, 0, conflict) {
+			Log(LogDebug, "already set conflict")
+		}
+	}
 
 	h.initBeforeSet()
 
@@ -464,9 +470,13 @@ func (h *Map) getWithBucket(k, conflict uint64) (MapItem, *bucket, bool) {
 		}
 		return nil, bucket, false
 	}
-	if e.PtrMapHead().reverse != bits.Reverse64(k) || e.PtrMapHead().conflict != conflict {
+	if ereverse := atomic.LoadUint64(&e.PtrMapHead().reverse); ereverse != bits.Reverse64(k) {
 		return nil, bucket, false
 	}
+	if econflict := atomic.LoadUint64(&e.PtrMapHead().conflict); econflict != conflict {
+		return nil, bucket, false
+	}
+
 	return e.(MapItem), bucket, true
 
 }
@@ -585,8 +595,14 @@ func (h *Map) Set(key, value interface{}) bool {
 			bucket.setItemPool(nPool)
 		}
 
-		s.PtrMapHead().reverse = bits.Reverse64(k)
-		s.PtrMapHead().conflict = conflict
+		// s.PtrMapHead().reverse = bits.Reverse64(k)
+		// s.PtrMapHead().conflict = conflict
+		if !atomic.CompareAndSwapUint64(&s.PtrMapHead().reverse, 0, bits.Reverse64(k)) {
+			Log(LogDebug, "already set reverse")
+		}
+		if !atomic.CompareAndSwapUint64(&item.PtrMapHead().conflict, 0, conflict) {
+			Log(LogDebug, "already set conflict")
+		}
 	} else if h.pooler != nil {
 		k, _ := KeyToHash(key)
 		var wg sync.WaitGroup

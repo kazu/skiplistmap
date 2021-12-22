@@ -15,9 +15,11 @@
     - [x] _findBucket -> b.downLevels[idx].level  bucketFromPoolEmbedded -> b.downLevels = b.downLevels[:idx
     - [x] appendLast-> sp.items = sp.items[:olen+1] -> use updateItem() ?
     - [ ] map.Set() -> s.PtrMapHead().reverse = bits.Reverse64(k)
-    - [ ] getWithBucket -> e.PtrMapHead().reverse != bits.Reverse64(k) || e.PtrMapHead().conflict != conflict  m.TestSet -> item.PtrMapHead().reverse = bits.Reverse64(k)
+    - [x] getWithBucket -> e.PtrMapHead().reverse != bits.Reverse64(k) || e.PtrMapHead().conflict != conflict  m.TestSet -> item.PtrMapHead().reverse = bits.Reverse64(k)
     - [ ] samepleItemPool.insertToPool() -> copy(newItems[i+1:], sp.items[i:])  SampleItem.SetValue() -> s.V.Store()
     - [ ] insertToPool-> updateItems() , map._set() -> item.PtrMapHead().conflict = conflict
+    - [x] state4get -> len, cap   updateItems()    
+
 - [ ] Implement Purge()
   - [ ] basic impleent
   - [ ] waiting/locking to traverse on pursing

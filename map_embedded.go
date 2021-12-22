@@ -253,6 +253,12 @@ func (sp *samepleItemPool) getWithLock(fn func(s *samepleItemPool)) {
 
 func (sp *samepleItemPool) lenWithStart() (int, unsafe.Pointer) {
 
+	l, _, ptr := sp.lencapWithStart()
+	return l, ptr
+}
+
+func (sp *samepleItemPool) lencapWithStart() (int, int, unsafe.Pointer) {
+
 	defer func() {
 		for {
 			if atomic.CompareAndSwapUint32(&sp.iMode, poolReading, poolNone) {
@@ -270,11 +276,13 @@ func (sp *samepleItemPool) lenWithStart() (int, unsafe.Pointer) {
 		}
 	}
 	l := len(sp.items)
+	c := cap(sp.items)
+
 	var ptr unsafe.Pointer
 	if l > 0 {
 		ptr = unsafe.Pointer(&sp.items[0])
 	}
-	return l, ptr
+	return l, c, ptr
 }
 
 func (sp *samepleItemPool) at(i int) (r *SampleItem) {
@@ -322,12 +330,12 @@ func (sp *samepleItemPool) updateItems(items []SampleItem) (prev []SampleItem) {
 	return
 }
 
-func (sp *samepleItemPool) state4get(reverse uint64, tail int) byte {
+func (sp *samepleItemPool) state4get(reverse uint64, tail int, len int, cap int) byte {
 
-	if len(sp.items) == 0 {
+	if len == 0 {
 		return getEmpty
 	}
-	if cap(sp.items) == len(sp.items) {
+	if cap == len {
 		return getNoCap
 	}
 
@@ -506,7 +514,7 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu *sync.Mutex) (new MapIte
 
 	lastActiveIdx := -1
 
-	olen, sPtr := sp.lenWithStart()
+	olen, ocap, sPtr := sp.lencapWithStart()
 
 	for i := olen - 1; i >= 0; i-- {
 		if sp.IsIgnoredByptr(i, sPtr) {
@@ -525,7 +533,7 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu *sync.Mutex) (new MapIte
 
 	// for debug
 	//lastgets = append(lastgets, sp.state4get(reverse, lastActiveIdx))
-	switch sp.state4get(reverse, lastActiveIdx) {
+	switch sp.state4get(reverse, lastActiveIdx, olen, ocap) {
 	case getEmpty, getLargest:
 		return sp.appendLast(mu)
 	case getNoCap:

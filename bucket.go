@@ -363,44 +363,45 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy b
 			b = &h.buckets[idx]
 			continue
 		}
+		bucketDowns := b.downLevels
 		idx := int((reverse >> (4 * (16 - l))) & 0xf)
-		if len(b.downLevels) <= idx || b.downLevels[idx].level == 0 {
+		if len(bucketDowns) <= idx || bucketDowns[idx].level == 0 {
 
 			//if len(b.downLevels) <= idx || b.downLevels[idx].level == 0 || b.downLevels[idx].reverse == 0 {
 			nidx := idx
-			if nidx > len(b.downLevels)-1 {
-				nidx = len(b.downLevels) - 1
+			if nidx > len(bucketDowns)-1 {
+				nidx = len(bucketDowns) - 1
 			}
 			for i := nidx; i > -1; i-- {
-				if b.downLevels[i].level == 0 {
+				if bucketDowns[i].level == 0 {
 					continue
 				}
 				// FIXME: should not lookup direct
-				if ignoreNoPool && b.downLevels[i]._itemPool == nil {
+				if ignoreNoPool && bucketDowns[i]._itemPool == nil {
 					continue
 				}
-				if ignoreNoInitDummy && b.downLevels[i].state != bucketStateActive {
+				if ignoreNoInitDummy && bucketDowns[i].state != bucketStateActive {
 					continue
 				}
 
-				b = b.downLevels[i].largestDown(ignoreNoPool, ignoreNoInitDummy)
+				b = bucketDowns[i].largestDown(ignoreNoPool, ignoreNoInitDummy)
 				return b
 
 			}
 			break
 		}
 		// FIXME: should not lookup direct
-		if ignoreNoPool && b.downLevels[idx]._itemPool == nil {
+		if ignoreNoPool && bucketDowns[idx]._itemPool == nil {
 			break
 		}
-		if ignoreNoInitDummy && b.downLevels[idx].state != bucketStateActive {
+		if ignoreNoInitDummy && bucketDowns[idx].state != bucketStateActive {
 			break
 		}
 		if !h.isEmbededItemInBucket {
-			results = append(results, &b.downLevels[idx])
+			results = append(results, &bucketDowns[idx])
 		}
 
-		b = &b.downLevels[idx]
+		b = &bucketDowns[idx]
 	}
 	if b.level == 0 {
 		return nil

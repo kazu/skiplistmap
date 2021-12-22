@@ -10,10 +10,38 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"unsafe"
 
 	"github.com/kazu/elist_head"
 	list_head "github.com/kazu/loncha/lista_encabezado"
 )
+
+//go:nocheckptr
+func (sp *samepleItemPool) reverseByptr(idx int, sPtr unsafe.Pointer) (r uint64) {
+	start := sPtr
+	if start == nil {
+		start = unsafe.Pointer(sp.at(0))
+	}
+
+	const toReverse = unsafe.Offsetof(EmptySampleHMapEntry.reverse)
+
+	ptr := unsafe.Add(start, idx*int(SampleItemSize)+int(toReverse))
+	r = atomic.LoadUint64((*uint64)(ptr))
+	return
+}
+
+//go:nocheckptr
+func (sp *samepleItemPool) IsIgnoredByptr(idx int, sPtr unsafe.Pointer) bool {
+	start := sPtr
+	if start == nil {
+		start = unsafe.Pointer(sp.at(0))
+	}
+	const toMapHead = unsafe.Offsetof(EmptySampleHMapEntry.MapHead)
+
+	ptr := unsafe.Add(start, idx*int(SampleItemSize)+int(toMapHead))
+	val := (*MapHead)(ptr)
+	return val.IsIgnored()
+}
 
 func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
 
@@ -23,11 +51,14 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 		pool = bucket.toBase().itemPool()
 	}
 
-	idx := sort.Search(len(pool.items), func(i int) bool {
-		return pool.items[i].reverse >= reverseNoMask
+	l, sPtr := pool.lenWithStart()
+
+	idx := sort.Search(l, func(i int) bool {
+		return pool.reverseByptr(i, sPtr) >= reverseNoMask
+		//return pool.items[i].reverse >= reverseNoMask
 	})
-	if idx < len(pool.items) && pool.items[idx].reverse == reverseNoMask {
-		return &pool.items[idx]
+	if idx < l && pool.reverseByptr(idx, sPtr) == reverseNoMask {
+		return pool.at(idx)
 	}
 
 	a := bucket.toBase().prevAsB()
@@ -200,6 +231,97 @@ const (
 	requireInsert      = 4
 )
 
+func (sp *samepleItemPool) getWithLock(fn func(s *samepleItemPool)) {
+	defer func() {
+		for {
+			if atomic.CompareAndSwapUint32(&sp.iMode, poolReading, poolNone) {
+				break
+			}
+			if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolNone) {
+				break
+			}
+		}
+	}()
+
+	for {
+		if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolReading) {
+			break
+		}
+	}
+	fn(sp)
+}
+
+func (sp *samepleItemPool) lenWithStart() (int, unsafe.Pointer) {
+
+	defer func() {
+		for {
+			if atomic.CompareAndSwapUint32(&sp.iMode, poolReading, poolNone) {
+				break
+			}
+			if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolNone) {
+				break
+			}
+		}
+	}()
+
+	for {
+		if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolReading) {
+			break
+		}
+	}
+	l := len(sp.items)
+	var ptr unsafe.Pointer
+	if l > 0 {
+		ptr = unsafe.Pointer(&sp.items[0])
+	}
+	return l, ptr
+}
+
+func (sp *samepleItemPool) at(i int) (r *SampleItem) {
+	sp.getWithLock(func(s *samepleItemPool) {
+		r = &s.items[i]
+	})
+	return
+}
+
+func (sp *samepleItemPool) len() (l int) {
+	sp.getWithLock(func(s *samepleItemPool) {
+		l = len(s.items)
+	})
+	return
+}
+
+func (sp *samepleItemPool) cap() (l int) {
+	sp.getWithLock(func(s *samepleItemPool) {
+		l = cap(s.items)
+	})
+	return
+}
+
+// updateItems ... concurrent update sp.items. dont use items[idx]
+func (sp *samepleItemPool) updateItems(items []SampleItem) (prev []SampleItem) {
+
+	defer func() {
+		for {
+			if atomic.CompareAndSwapUint32(&sp.iMode, poolUpdating, poolNone) {
+				break
+			}
+			if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolNone) {
+				break
+			}
+		}
+	}()
+
+	for {
+		if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolUpdating) {
+			prev = sp.items
+			sp.items = items
+			break
+		}
+	}
+	return
+}
+
 func (sp *samepleItemPool) state4get(reverse uint64, tail int) byte {
 
 	if len(sp.items) == 0 {
@@ -209,7 +331,8 @@ func (sp *samepleItemPool) state4get(reverse uint64, tail int) byte {
 		return getNoCap
 	}
 
-	last := &sp.items[tail]
+	//last := &sp.items[tail]
+	last := sp.at(tail)
 	if last.reverse < reverse {
 		return getLargest
 	}
@@ -324,8 +447,8 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu *sync.Mutex) (newItem
 		if err != nil {
 			Log(LogFatal, "fail to replace newItems")
 		}
-		oldItems := sp.items
-		sp.items = newItems
+
+		oldItems := sp.updateItems(newItems)
 
 		// for debug
 		oldItemFirst := oldItems[0].Prev().Next().PtrMapHead()
@@ -366,10 +489,11 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu *sync.Mutex) (newItem
 func (sp *samepleItemPool) getWithFn(reverse uint64, mu *sync.Mutex) (new MapItem, nPool *samepleItemPool, fn unlocker) {
 
 	lastActiveIdx := -1
-	olen := len(sp.items)
+
+	olen, sPtr := sp.lenWithStart()
 
 	for i := olen - 1; i >= 0; i-- {
-		if sp.items[i].IsIgnored() {
+		if sp.IsIgnoredByptr(i, sPtr) {
 			continue
 		}
 		lastActiveIdx = i
@@ -449,8 +573,7 @@ func (sp *samepleItemPool) expand(mu *sync.Mutex) (unlocker, error) {
 	if err != nil {
 		Log(LogFatal, "fail to replace newItems")
 	}
-	oldItems := sp.items
-	sp.items = newItems
+	oldItems := sp.updateItems(newItems)
 
 	// for debug
 	oldItemFirst := oldItems[0].Prev().Next().PtrMapHead()

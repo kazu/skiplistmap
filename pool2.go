@@ -102,8 +102,15 @@ func (p *Pool) Put(item MapItem) {
 // count pool per one samepleItemPool
 const CntOfPersamepleItemPool = 64
 
+const (
+	poolNone     uint32 = 0
+	poolReading         = 1
+	poolUpdating        = 2
+)
+
 type samepleItemPool struct {
 	mu       sync.Mutex
+	iMode    uint32 // only embedded mode
 	freeHead elist_head.ListHead
 	freeTail elist_head.ListHead
 	items    []SampleItem

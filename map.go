@@ -288,8 +288,8 @@ func (h *Map) _validateallbucket() {
 	for bucket := bucketFromListHead(h.headBucket.Next()); bucket != bucket.nextAsB(); bucket = bucket.nextAsB() {
 		if bucket.itemPool().validateItems() != nil {
 			bucket.itemPool().validateItems()
-			lget := lastgets
-			_ = lget
+			// lget := lastgets
+			// _ = lget
 			cnt := madeBucket
 			_ = cnt
 		}
@@ -573,7 +573,7 @@ func (h *Map) Set(key, value interface{}) bool {
 		k, conflict := KeyToHash(key)
 		var nPool *samepleItemPool
 
-		lastgets = nil
+		//lastgets = nil
 
 		item, nPool, fn := bucket.itemPool().getWithFn(bits.Reverse64(k), &bucket.muPool)
 		if fn != nil {

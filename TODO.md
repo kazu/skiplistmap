@@ -9,7 +9,13 @@
   - [x] global sharedSearchOpt . define atomic.Value
   - [x] SampleItem.SetValue
   - [x] //go:nocheckptr elist_head.Ptr()
-  - [ ] sp.items = sp.items[:i+1] 
+  - [ ] sp.items = sp.items[:i+1]
+  - [ ] 
+  - [ ] embedded mode
+    - [x] _findBucket -> b.downLevels[idx].level  bucketFromPoolEmbedded -> b.downLevels = b.downLevels[:idx
+    - [ ] appendLast-> sp.items = sp.items[:olen+1] -> use updateItem() ?
+    - [ ] map.Set() -> s.PtrMapHead().reverse = bits.Reverse64(k)
+    - [ ] getWithBucket -> e.PtrMapHead().reverse != bits.Reverse64(k) || e.PtrMapHead().conflict != conflict  m.TestSet -> item.PtrMapHead().reverse = bits.Reverse64(k)
 - [ ] Implement Purge()
   - [ ] basic impleent
   - [ ] waiting/locking to traverse on pursing

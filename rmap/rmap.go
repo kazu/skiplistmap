@@ -98,10 +98,7 @@ func (m *RMap) Set2(k, conflict uint64, kstr string, v interface{}) bool {
 	}
 
 	if !ok {
-		e := &smap.SampleItem{
-			K: kstr,
-			V: v,
-		}
+		e := smap.NewSampleItem(kstr, v)
 		e.Init()
 		m.dirty.StoreItem(e)
 
@@ -279,7 +276,7 @@ func (r *readMap) store2(k, conflict uint64, kstr string, v interface{}) (smap.M
 		return nil, ok
 	}
 	ohead := ov.Load().(*smap.SampleItem)
-	item := &smap.SampleItem{K: kstr, V: v}
+	item := smap.NewSampleItem(kstr, v)
 	item.PtrListHead().Init()
 	item.Setup()
 

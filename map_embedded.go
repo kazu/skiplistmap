@@ -357,10 +357,26 @@ func (sp *samepleItemPool) appendLast(mu *sync.Mutex) (newItem MapItem, nPool *s
 		fn = lazyUnlock
 	}
 
-	olen := len(sp.items)
-	sp.items = sp.items[:olen+1]
-	new := &sp.items[olen]
-	new.Init()
+	var new *SampleItem
+	defer func() {
+		for {
+			if atomic.CompareAndSwapUint32(&sp.iMode, poolUpdating, poolNone) {
+				break
+			}
+			if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolNone) {
+				break
+			}
+		}
+	}()
+	for {
+		if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolUpdating) {
+			l := len(sp.items)
+			sp.items = sp.items[:l+1]
+			new = &sp.items[l]
+			break
+		}
+	}
+
 	return new, nil, fn
 
 }

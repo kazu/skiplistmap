@@ -27,6 +27,7 @@ type bucket struct {
 	downLevels        []bucket
 	cntOfActiveLevels int32
 	state             uint32
+	stateDowns        uint32 // only use embedded mode.
 
 	_itemPool     *samepleItemPool
 	_parent       *bucket
@@ -363,7 +364,12 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy b
 			b = &h.buckets[idx]
 			continue
 		}
-		bucketDowns := b.downLevels
+		var bucketDowns []bucket
+		if h.isEmbededItemInBucket {
+			bucketDowns = b.updateDowns(nil)
+		} else {
+			bucketDowns = b.downLevels
+		}
 		idx := int((reverse >> (4 * (16 - l))) & 0xf)
 		if len(bucketDowns) <= idx || bucketDowns[idx].level == 0 {
 

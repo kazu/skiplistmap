@@ -19,7 +19,7 @@
     - [ ] samepleItemPool.insertToPool() -> copy(newItems[i+1:], sp.items[i:])  SampleItem.SetValue() -> s.V.Store()
     - [ ] insertToPool-> updateItems() , map._set() -> item.PtrMapHead().conflict = conflict
     - [x] state4get -> len, cap   updateItems()    
-
+    - [x] map._findBucket -> bucketDowns := b.downLevels , map.bucketFromPoolEmbedded() -> b.downLevels = b.downLevels[:idx+1]
 - [ ] Implement Purge()
   - [ ] basic impleent
   - [ ] waiting/locking to traverse on pursing

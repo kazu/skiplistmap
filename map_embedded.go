@@ -199,7 +199,7 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 			lCur.LevelHead.InsertBefore(&b.downLevels[0].LevelHead)
 		}
 		if len(b.downLevels) <= idx {
-			b.downLevels = b.downLevels[:idx+1]
+			b.updateDowns(b.downLevels[:idx+1])
 		}
 
 		if b.downLevels[idx].level == 0 {
@@ -670,6 +670,43 @@ func (sp *samepleItemPool) _split(idx int, connect bool) (nPool *samepleItemPool
 
 	if connect && sp.PtrListHead().Next() != nil && sp.PtrListHead().Next() != sp.PtrListHead() {
 		_, err = sp.PtrListHead().Next().InsertBefore(nPool.PtrListHead())
+	}
+	return
+
+}
+
+func (b *bucket) updateDowns(news []bucket) (prev []bucket) {
+
+	defer func() {
+		for {
+
+			if news != nil && atomic.CompareAndSwapUint32(&b.stateDowns, poolUpdating, poolNone) {
+				break
+			}
+			if news == nil && atomic.CompareAndSwapUint32(&b.stateDowns, poolReading, poolNone) {
+				break
+			}
+			if atomic.CompareAndSwapUint32(&b.stateDowns, poolNone, poolNone) {
+				break
+			}
+		}
+	}()
+
+	for {
+		if news == nil {
+			if atomic.CompareAndSwapUint32(&b.stateDowns, poolNone, poolReading) {
+				prev = b.downLevels
+				break
+			}
+
+		} else {
+			if atomic.CompareAndSwapUint32(&b.stateDowns, poolNone, poolUpdating) {
+				prev = b.downLevels
+				b.downLevels = news
+				break
+			}
+		}
+
 	}
 	return
 

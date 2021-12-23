@@ -251,7 +251,8 @@ func (h *Map) initBeforeSet() {
 		empty.reverse, empty.conflict = btable.reverse, 0
 		empty.PtrMapHead().state |= mapIsDummy
 
-		inserBeforeWithCheck(btablefirst.head(), &empty.ListHead)
+		//inserBeforeWithCheck(btablefirst.head(), &empty.ListHead)
+		btablefirst.head().InsertBefore(&empty.ListHead)
 
 		// add bucket
 		btablefirst.Next().InsertBefore(&btable.ListHead)
@@ -287,8 +288,8 @@ func (h *Map) _validateallbucket() {
 	for bucket := bucketFromListHead(h.headBucket.Next()); bucket != bucket.nextAsB(); bucket = bucket.nextAsB() {
 		if bucket.itemPool().validateItems() != nil {
 			bucket.itemPool().validateItems()
-			lget := lastgets
-			_ = lget
+			// lget := lastgets
+			// _ = lget
 			cnt := madeBucket
 			_ = cnt
 		}
@@ -303,8 +304,14 @@ func (h *Map) TestSet(k, conflict uint64, btable *bucket, item MapItem) bool {
 
 func (h *Map) _set(k, conflict uint64, btable *bucket, item MapItem) bool {
 
-	item.PtrMapHead().reverse = bits.Reverse64(k)
-	item.PtrMapHead().conflict = conflict
+	if !h.isEmbededItemInBucket {
+		if !atomic.CompareAndSwapUint64(&item.PtrMapHead().reverse, 0, bits.Reverse64(k)) {
+			Log(LogDebug, "already set reverse")
+		}
+		if !atomic.CompareAndSwapUint64(&item.PtrMapHead().conflict, 0, conflict) {
+			Log(LogDebug, "already set conflict")
+		}
+	}
 
 	h.initBeforeSet()
 
@@ -463,9 +470,13 @@ func (h *Map) getWithBucket(k, conflict uint64) (MapItem, *bucket, bool) {
 		}
 		return nil, bucket, false
 	}
-	if e.PtrMapHead().reverse != bits.Reverse64(k) || e.PtrMapHead().conflict != conflict {
+	if ereverse := atomic.LoadUint64(&e.PtrMapHead().reverse); ereverse != bits.Reverse64(k) {
 		return nil, bucket, false
 	}
+	if econflict := atomic.LoadUint64(&e.PtrMapHead().conflict); econflict != conflict {
+		return nil, bucket, false
+	}
+
 	return e.(MapItem), bucket, true
 
 }
@@ -545,15 +556,28 @@ func (h *Map) loadItem(k uint64, conflict uint64, key interface{}) (MapItem, *bu
 	return h.getWithBucket(KeyToHash(key))
 }
 
-var madeBucket int = 0
+var madeBucket int32 = 0
 
 // Set ... set the value for a key
 func (h *Map) Set(key, value interface{}) bool {
-	madeBucket = 0
+	atomic.StoreInt32(&madeBucket, 0)
 
-	item, bucket, found := h.loadItem(0, 0, key)
-	if found {
-		return h._update(item, value)
+	var item MapItem
+	var bucket *bucket
+	var found bool
+
+	for {
+		item, bucket, found = h.loadItem(0, 0, key)
+		if !found {
+			break
+		}
+		if !h.isEmbededItemInBucket {
+			return h._update(item, value)
+		}
+		if bucket.muPool.TryLock() {
+			defer bucket.muPool.Unlock()
+			return h._update(item, value)
+		}
 	}
 
 	var s *SampleItem
@@ -572,7 +596,7 @@ func (h *Map) Set(key, value interface{}) bool {
 		k, conflict := KeyToHash(key)
 		var nPool *samepleItemPool
 
-		lastgets = nil
+		//lastgets = nil
 
 		item, nPool, fn := bucket.itemPool().getWithFn(bits.Reverse64(k), &bucket.muPool)
 		if fn != nil {
@@ -584,8 +608,14 @@ func (h *Map) Set(key, value interface{}) bool {
 			bucket.setItemPool(nPool)
 		}
 
-		s.PtrMapHead().reverse = bits.Reverse64(k)
-		s.PtrMapHead().conflict = conflict
+		// s.PtrMapHead().reverse = bits.Reverse64(k)
+		// s.PtrMapHead().conflict = conflict
+		if !atomic.CompareAndSwapUint64(&s.PtrMapHead().reverse, 0, bits.Reverse64(k)) {
+			Log(LogDebug, "already set reverse")
+		}
+		if !atomic.CompareAndSwapUint64(&item.PtrMapHead().conflict, 0, conflict) {
+			Log(LogDebug, "already set conflict")
+		}
 	} else if h.pooler != nil {
 		k, _ := KeyToHash(key)
 		var wg sync.WaitGroup
@@ -626,7 +656,8 @@ func (h *Map) Set(key, value interface{}) bool {
 		s = &SampleItem{}
 	}
 
-	s.K, s.V = key.(string), value
+	s.K = key.(string)
+	s.SetValue(value)
 
 	if _, ok := h.ItemFn().(*SampleItem); !ok {
 		ItemFn(func() MapItem {
@@ -679,11 +710,12 @@ func (h *Map) each(start *elist_head.ListHead, fn func(key, value interface{})) 
 // must renename to find
 func (h *Map) find(start *elist_head.ListHead, cond func(HMapEntry) bool, opts ...searchArg) (result HMapEntry, cnt int) {
 
-	conf := sharedSearchOpt
+	conf := sharedSearchOpt(nil)
 	previous := conf.Options(opts...)
 	defer func() {
 		if previous != nil {
 			conf.Options(previous)
+			sharedSearchOpt(conf)
 		}
 	}()
 	cnt = 0
@@ -694,7 +726,7 @@ func (h *Map) find(start *elist_head.ListHead, cond func(HMapEntry) bool, opts .
 	for cur := start; cur != cur.Next(); cur = cur.Next() {
 		e = entryHMapFromListHead(cur)
 
-		if conf.ignoreBucketEntry && e.PtrMapHead().IsIgnored() {
+		if conf.ignoreBucketEntry() && e.PtrMapHead().IsIgnored() {
 			continue
 		}
 		if cond(e) {
@@ -705,79 +737,6 @@ func (h *Map) find(start *elist_head.ListHead, cond func(HMapEntry) bool, opts .
 	}
 	return nil, cnt
 
-}
-
-func (h *Map) makeBucket2(bucket *bucket) (err error) {
-	madeBucket++
-
-	nextBucket := bucket.prevAsB()
-
-	nextReverse := nextBucket.reverse
-
-	newReverse := nextReverse/2 + bucket.reverse/2
-	if newReverse&1 > 0 {
-		newReverse++
-	}
-	b := h.bucketFromPoolEmbedded(newReverse)
-	if b == nil {
-		return ErrBucketAllocatedFail
-	}
-
-	if b.reverse == 0 && b.level > 1 {
-		err = NewError(EBucketInvalid, "bucket.reverse = 0. but level 1= 1", nil)
-		Log(LogWarn, err.Error())
-		return
-	}
-	b.Init()
-	b.LevelHead.Init()
-	b.initItemPool()
-
-	idx, err := bucket.itemPool().findIdx(newReverse)
-	if err != nil || idx == 0 {
-		return err
-	}
-
-	olen := len(bucket.itemPool().items)
-	nPool, err2 := bucket.itemPool()._split(idx, false)
-	_ = err2
-	b.setItemPool(nPool)
-	atomic.StoreInt32(&bucket._len, int32(idx))
-	atomic.StoreInt32(&b._len, int32(olen-idx))
-
-	h.addBucket(b)
-
-	nextLevel := h.findNextLevelBucket(b.reverse, b.level)
-
-	if b.LevelHead.DirectNext() == &b.LevelHead {
-		Log(LogWarn, "bucket.LevelHead is pointed to self")
-	}
-
-	if nextLevel != nil {
-
-		nextLevelBucket := bucketFromLevelHead(nextLevel)
-		if nextLevelBucket.reverse < b.reverse {
-			nextLevel.InsertBefore(&b.LevelHead)
-		} else if nextLevelBucket.reverse != b.reverse {
-
-			nextnextBucket := bucketFromLevelHead(nextLevel.Next())
-			_ = nextnextBucket
-			nextLevel.DirectNext().InsertBefore(&b.LevelHead)
-		}
-
-	} else {
-		Log(LogWarn, "not found level bucket.")
-	}
-	if b.LevelHead.Next() == &b.LevelHead {
-		Log(LogWarn, "bucket.LevelHead is pointed to self")
-	}
-
-	if int(b.len()) > h.maxPerBucket {
-		h.makeBucket2(b)
-	} else if int(bucket.len()) > h.maxPerBucket {
-		h.makeBucket2(bucket)
-	}
-
-	return nil
 }
 
 func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
@@ -974,9 +933,11 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 		}
 
 		if h.SearchKey(bits.Reverse64(e.PtrMapHead().reverse), ignoreBucketEntry(false)) == nil {
-			sharedSearchOpt.Lock()
-			sharedSearchOpt.e = ErrItemInvalidAdd
-			sharedSearchOpt.Unlock()
+			o := sharedSearchOpt(nil)
+			o.Lock()
+			o.e = ErrItemInvalidAdd
+			o.Unlock()
+			sharedSearchOpt(o)
 		}
 
 	}()
@@ -1332,22 +1293,42 @@ func prevAsE(e HMapEntry) HMapEntry {
 	return nil
 }
 
+var _sharedSearchOpt atomic.Value
+
+func init() {
+	o := &searchOpt{}
+	o._ignoreBucketEntry.Store(true)
+
+	_sharedSearchOpt.Store(o)
+}
+
 type searchOpt struct {
-	h                 *Map
-	e                 error
-	ignoreBucketEntry bool
+	h                  *Map
+	e                  error
+	_ignoreBucketEntry atomic.Value
 	sync.Mutex
 }
 
-var sharedSearchOpt *searchOpt = &searchOpt{ignoreBucketEntry: true}
+func sharedSearchOpt(setter *searchOpt) *searchOpt {
+
+	if setter != nil {
+		_sharedSearchOpt.Store(setter)
+		return setter
+	}
+	return _sharedSearchOpt.Load().(*searchOpt)
+}
+
+func (o *searchOpt) ignoreBucketEntry() bool {
+	return o._ignoreBucketEntry.Load().(bool)
+}
 
 type searchArg func(*searchOpt) searchArg
 
 func ignoreBucketEntry(t bool) searchArg {
 
 	return func(opt *searchOpt) searchArg {
-		prev := opt.ignoreBucketEntry
-		opt.ignoreBucketEntry = t
+		prev := opt._ignoreBucketEntry.Load().(bool)
+		opt._ignoreBucketEntry.Store(t)
 		return ignoreBucketEntry(prev)
 	}
 }
@@ -1363,14 +1344,15 @@ func (o *searchOpt) Options(opts ...searchArg) (previous searchArg) {
 }
 func (h *Map) SearchKey(k uint64, opts ...searchArg) HMapEntry {
 
-	conf := sharedSearchOpt
+	conf := sharedSearchOpt(nil)
 	previous := conf.Options(opts...)
 	defer func() {
 		if previous != nil {
 			conf.Options(previous)
+			sharedSearchOpt(conf)
 		}
 	}()
-	return h.searchKey(k, conf.ignoreBucketEntry)
+	return h.searchKey(k, conf.ignoreBucketEntry())
 
 }
 
@@ -1379,13 +1361,6 @@ func (h *Map) searchKey(k uint64, ignoreBucketEnry bool) HMapEntry {
 		return h.searchKeyFromEmbeddedPool(k, ignoreBucketEnry)
 	}
 	return h.searchBybucket(h.searchBucket4Key4(k, ignoreBucketEnry))
-}
-
-func (h *Map) searchKeyFromEmbeddedPool(k uint64, ignoreBucketEnry bool) HMapEntry {
-	rev := bits.Reverse64(k)
-	//return h.searchByEmbeddedbucket(h.findBucket(rev), rev, ignoreBucketEnry)
-	return h.bsearchBybucket(h.findBucket(rev), rev, ignoreBucketEnry)
-
 }
 
 func (h *Map) topLevelBucket(reverse uint64) *bucket {
@@ -1449,30 +1424,6 @@ func nearBucketFromCache(levels [16]*bucket, lbNext *bucket, reverseNoMask uint6
 		noNil = false
 	}
 	return
-}
-
-func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
-
-	pool := bucket.toBase().itemPool()
-	// FIXME: why fail to get
-	if pool == nil {
-		pool = bucket.toBase().itemPool()
-	}
-
-	idx := sort.Search(len(pool.items), func(i int) bool {
-		return pool.items[i].reverse >= reverseNoMask
-	})
-	if idx < len(pool.items) && pool.items[idx].reverse == reverseNoMask {
-		return &pool.items[idx]
-	}
-
-	a := bucket.toBase().prevAsB()
-	_ = a
-	if a.reverse < reverseNoMask {
-		h.findBucket(reverseNoMask)
-	}
-
-	return nil
 }
 
 func (h *Map) searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {

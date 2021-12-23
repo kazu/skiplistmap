@@ -55,6 +55,7 @@ func (mh *MapHead) Offset() uintptr {
 	return mapheadOffset
 }
 
+//go:nocheckptr
 func mapheadFromLListHead(l *elist_head.ListHead) *MapHead {
 	return (*MapHead)(ElementOf(unsafe.Pointer(l), mapheadOffset))
 }

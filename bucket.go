@@ -3,13 +3,14 @@ package skiplistmap
 import (
 	"errors"
 	"math/bits"
-	"sync"
 	"sync/atomic"
 	"unsafe"
 
 	"github.com/kazu/elist_head"
 	"github.com/kazu/loncha"
 	list_head "github.com/kazu/loncha/lista_encabezado"
+	"github.com/kazu/skiplistmap/atomic_util"
+	"github.com/lk4d4/trylock"
 )
 
 const (
@@ -35,7 +36,7 @@ type bucket struct {
 	headPool      list_head.ListHead
 	tailPool      list_head.ListHead
 
-	muPool sync.Mutex
+	muPool trylock.Mutex // FIXME: change sync.Mutex in go 1.18
 
 	// FIXME: debug only. should delete
 	//initStart time.Time
@@ -103,6 +104,7 @@ func bucketFromListHead(head *list_head.ListHead) *bucket {
 	return (*bucket)(ElementOf(unsafe.Pointer(head), bucketOffset))
 }
 
+//go:nocheckptr
 func bucketFromLevelHead(head *list_head.ListHead) *bucket {
 	// if head == nil {
 	// 	return nil
@@ -362,44 +364,57 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy b
 			b = &h.buckets[idx]
 			continue
 		}
+		var bucketDowns *bucketSlice
+		bucketDowns = b.ptrDownLevels()
+		if bucketDowns == nil || atomic_util.LoadInt(&bucketDowns.cap) == 0 {
+			break
+		}
+
+		for {
+			if atomic_util.LoadInt(&bucketDowns.len) > 0 {
+				break
+			}
+		}
+
 		idx := int((reverse >> (4 * (16 - l))) & 0xf)
-		if len(b.downLevels) <= idx || b.downLevels[idx].level == 0 {
+		if atomic_util.LoadInt(&bucketDowns.len) <= idx ||
+			bucketDowns.at(idx).level == 0 {
 
 			//if len(b.downLevels) <= idx || b.downLevels[idx].level == 0 || b.downLevels[idx].reverse == 0 {
 			nidx := idx
-			if nidx > len(b.downLevels)-1 {
-				nidx = len(b.downLevels) - 1
+			if nidx > bucketDowns.len-1 {
+				nidx = bucketDowns.len - 1
 			}
 			for i := nidx; i > -1; i-- {
-				if b.downLevels[i].level == 0 {
+				if bucketDowns.at(i).level == 0 {
 					continue
 				}
 				// FIXME: should not lookup direct
-				if ignoreNoPool && b.downLevels[i]._itemPool == nil {
+				if ignoreNoPool && bucketDowns.at(i)._itemPool == nil {
 					continue
 				}
-				if ignoreNoInitDummy && b.downLevels[i].state != bucketStateActive {
+				if ignoreNoInitDummy && bucketDowns.at(i).state != bucketStateActive {
 					continue
 				}
 
-				b = b.downLevels[i].largestDown(ignoreNoPool, ignoreNoInitDummy)
+				b = bucketDowns.at(i).largestDown(ignoreNoPool, ignoreNoInitDummy)
 				return b
 
 			}
 			break
 		}
 		// FIXME: should not lookup direct
-		if ignoreNoPool && b.downLevels[idx]._itemPool == nil {
+		if ignoreNoPool && bucketDowns.at(idx)._itemPool == nil {
 			break
 		}
-		if ignoreNoInitDummy && b.downLevels[idx].state != bucketStateActive {
+		if ignoreNoInitDummy && bucketDowns.at(idx).state != bucketStateActive {
 			break
 		}
 		if !h.isEmbededItemInBucket {
-			results = append(results, &b.downLevels[idx])
+			results = append(results, bucketDowns.at(idx))
 		}
 
-		b = &b.downLevels[idx]
+		b = bucketDowns.at(idx)
 	}
 	if b.level == 0 {
 		return nil
@@ -419,14 +434,6 @@ func (b *bucket) parent(m *Map) (p *bucket) {
 		p = &p.downLevels[idx]
 	}
 	return
-}
-
-func (b *bucket) toBase() *bucket {
-
-	if b._parent == nil {
-		return b
-	}
-	return b._parent.toBase()
 }
 
 type commonOpt struct {
@@ -450,71 +457,6 @@ func (o *commonOpt) Option(opts ...cOptFn) (prevs []cOptFn) {
 	}
 
 	return
-}
-func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
-
-	level := int32(0)
-	for cur := bits.Reverse64(reverse); cur != 0; cur >>= 4 {
-		level++
-	}
-
-	for l := int32(1); l <= level; l++ {
-		if l == 1 {
-			idx := (reverse >> (4 * 15))
-			b = &h.buckets[idx]
-			continue
-		}
-		idx := int((reverse >> (4 * (16 - l))) & 0xf)
-		if cap(b.downLevels) == 0 {
-			b.downLevels = make([]bucket, 1, 16)
-			b.downLevels[0].level = b.level + 1
-			b.downLevels[0].reverse = b.reverse
-			b.downLevels[0].Init()
-			b.downLevels[0].LevelHead.Init()
-			b.downLevels[0]._parent = b
-
-			b.downLevels[0].setItemPoolFn = func(p *samepleItemPool) {
-				b.setItemPool(p)
-			}
-
-			lCur := h.levelBucket(l)
-			if lCur.LevelHead.Empty() {
-				lCur = bucketFromLevelHead(lCur.LevelHead.DirectPrev().DirectNext())
-			}
-			for ; lCur != lCur.NextOnLevel(); lCur = lCur.NextOnLevel() {
-				if lCur.LevelHead.Empty() {
-					break
-				}
-				if lCur.reverse < b.reverse {
-					break
-				}
-			}
-			lCur.LevelHead.InsertBefore(&b.downLevels[0].LevelHead)
-		}
-		if len(b.downLevels) <= idx {
-			b.downLevels = b.downLevels[:idx+1]
-		}
-
-		if b.downLevels[idx].level == 0 {
-			if l != level {
-				Log(LogWarn, "not collected already inited")
-			}
-			b.downLevels[idx].level = b.level + 1
-			b.downLevels[idx].reverse = b.reverse | (uint64(idx) << (4 * (16 - l)))
-			b = &b.downLevels[idx]
-			if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {
-				Log(LogWarn, "already inited")
-			}
-			break
-		}
-		b = &b.downLevels[idx]
-	}
-	if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {
-		h.DumpBucket(logio)
-		Log(LogWarn, "already inited")
-	}
-	return
-
 }
 
 const recoverBucketWithOutInit bool = false
@@ -846,4 +788,42 @@ func (b *bucket) _head() *elist_head.ListHead {
 
 func (b *bucket) isRequireOnOk() bool {
 	return b.state != bucketStateActive && !b.ListHead.IsSingle() && !b.LevelHead.IsSingle() && !b.dummy.IsSingle() && !b.dummy.Empty()
+}
+
+type bucketSlice struct {
+	data unsafe.Pointer
+	len  int
+	cap  int
+}
+
+const bucketDownlevelsOffset = unsafe.Offsetof(emptyBucket.downLevels)
+const bucketSize = unsafe.Sizeof(*emptyBucket)
+
+func (b *bucket) ptrDownLevels() *bucketSlice {
+
+	return (*bucketSlice)(unsafe.Add(unsafe.Pointer(b), bucketDownlevelsOffset))
+
+}
+
+func (list *bucketSlice) at(i int) (result *bucket) {
+
+	return list._at(i, true)
+	// if atomic_util.LoadInt(&list.len) <= i {
+	// 	return nil
+	// }
+
+	// data := atomic.LoadPointer(&list.data)
+	// return (*bucket)(unsafe.Add(data, i*int(bucketSize)))
+}
+
+func (list *bucketSlice) _at(i int, checklen bool) (result *bucket) {
+
+	if checklen && atomic_util.LoadInt(&list.len) <= i {
+		return nil
+	} else if atomic_util.LoadInt(&list.cap) <= i {
+		return nil
+	}
+
+	data := atomic.LoadPointer(&list.data)
+	return (*bucket)(unsafe.Add(data, i*int(bucketSize)))
 }

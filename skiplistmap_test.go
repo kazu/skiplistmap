@@ -21,7 +21,7 @@ func Test_HmapEntry(t *testing.T) {
 	}{
 		{
 			name:   "SampleItem",
-			wanted: &skiplistmap.SampleItem{K: "hoge", V: "hoge value"},
+			wanted: skiplistmap.NewSampleItem("hoge", "hoge value"),
 			got: func(lhead *elist_head.ListHead) skiplistmap.MapItem {
 				return (skiplistmap.EmptySampleHMapEntry).HmapEntryFromListHead(lhead).(skiplistmap.MapItem)
 			},
@@ -76,7 +76,7 @@ func Test_ConccurentWriteEmbeddedBucket(t *testing.T) {
 
 				s := item.(*skiplistmap.SampleItem)
 				s.K = "???"
-				s.V = nil
+				s.SetValue(i)
 				m.TestSet(bits.Reverse64(key+i), i, bucket, s)
 				if fn != nil {
 					bucket.RunLazyUnlocker(fn)

@@ -3,7 +3,6 @@ package skiplistmap
 import (
 	"errors"
 	"math/bits"
-	"sync"
 	"sync/atomic"
 	"unsafe"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/kazu/loncha"
 	list_head "github.com/kazu/loncha/lista_encabezado"
 	"github.com/kazu/skiplistmap/atomic_util"
+	"github.com/lk4d4/trylock"
 )
 
 const (
@@ -36,7 +36,7 @@ type bucket struct {
 	headPool      list_head.ListHead
 	tailPool      list_head.ListHead
 
-	muPool sync.Mutex
+	muPool trylock.Mutex // FIXME: change sync.Mutex in go 1.18
 
 	// FIXME: debug only. should delete
 	//initStart time.Time
@@ -377,7 +377,8 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy b
 		}
 
 		idx := int((reverse >> (4 * (16 - l))) & 0xf)
-		if bucketDowns.len <= idx || bucketDowns.at(idx).level == 0 {
+		if atomic_util.LoadInt(&bucketDowns.len) <= idx ||
+			bucketDowns.at(idx).level == 0 {
 
 			//if len(b.downLevels) <= idx || b.downLevels[idx].level == 0 || b.downLevels[idx].reverse == 0 {
 			nidx := idx

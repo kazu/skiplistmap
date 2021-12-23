@@ -562,9 +562,22 @@ var madeBucket int32 = 0
 func (h *Map) Set(key, value interface{}) bool {
 	atomic.StoreInt32(&madeBucket, 0)
 
-	item, bucket, found := h.loadItem(0, 0, key)
-	if found {
-		return h._update(item, value)
+	var item MapItem
+	var bucket *bucket
+	var found bool
+
+	for {
+		item, bucket, found = h.loadItem(0, 0, key)
+		if !found {
+			break
+		}
+		if !h.isEmbededItemInBucket {
+			return h._update(item, value)
+		}
+		if bucket.muPool.TryLock() {
+			defer bucket.muPool.Unlock()
+			return h._update(item, value)
+		}
 	}
 
 	var s *SampleItem

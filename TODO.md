@@ -10,20 +10,20 @@
   - [x] SampleItem.SetValue
   - [x] //go:nocheckptr elist_head.Ptr()
   - [ ] sp.items = sp.items[:i+1]
-  - [ ] 
-  - [ ] embedded mode
-    - [x] _findBucket -> b.downLevels[idx].level  bucketFromPoolEmbedded -> b.downLevels = b.downLevels[:idx
-    - [x] appendLast-> sp.items = sp.items[:olen+1] -> use updateItem() ?
-    - [ ] map.Set() -> s.PtrMapHead().reverse = bits.Reverse64(k)
+  - [x] embedded mode
+    - [x] _findBucket -> b.downLevels[idx].level and bucketFromPoolEmbedded -> b.downLevels = b.downLevels[:idx
+    - [x] appendLast-> sp.items = sp.items[:olen+1] -> use updateItem() 
+    - [s] map.Set() -> s.PtrMapHead().reverse = bits.Reverse64(k)
     - [x] getWithBucket -> e.PtrMapHead().reverse != bits.Reverse64(k) || e.PtrMapHead().conflict != conflict  m.TestSet -> item.PtrMapHead().reverse = bits.Reverse64(k)
-    - [ ] samepleItemPool.insertToPool() -> copy(newItems[i+1:], sp.items[i:])  SampleItem.SetValue() -> s.V.Store()
-    - [ ] insertToPool-> updateItems() , map._set() -> item.PtrMapHead().conflict = conflict
+    - [x] samepleItemPool.insertToPool() -> copy(newItems[i+1:], sp.items[i:])  SampleItem.SetValue() -> s.V.Store()
+    - [x] insertToPool-> updateItems() , map._set() -> item.PtrMapHead().conflict = conflict
     - [x] state4get -> len, cap   updateItems()    
     - [x] map._findBucket -> bucketDowns := b.downLevels , map.bucketFromPoolEmbedded() -> b.downLevels = b.downLevels[:idx+1]
     - [x] samepleItemPool._split sp.items = sp.items[:idx:idx], samepleItemPool.At(). 
         use samepleItemPool.updateWithLock() 
     - [x] map._findBucket() -> if bucketDowns.len <= idx || bucketDowns.at(idx).level == 0 { , h.bucketFromPoolEmbedded() -> b.downLevels = make([]bucket, 1, 16)
         change intialize bucketFromPoolEmbedded() 
+    - [x] map.makeBucket2() -> h.bucketFromPoolEmbedded(newReverse) , map._findBucket() -> if bucketDowns.len <= idx || bucketDowns.at(idx).level == 0 {
 
 - [ ] Implement Purge()
   - [ ] basic impleent

@@ -381,7 +381,7 @@ func (sp *samepleItemPool) state4get(reverse uint64, tail int, len int, cap int)
 
 	//last := &sp.items[tail]
 	last := sp.at(tail)
-	if last.reverse < reverse {
+	if atomic.LoadUint64(&last.reverse) < reverse {
 		return getLargest
 	}
 	return requireInsert
@@ -390,15 +390,15 @@ func (sp *samepleItemPool) state4get(reverse uint64, tail int, len int, cap int)
 
 var lastgets []byte = nil
 
-func lazyUnlock(mu *sync.Mutex) {
+func lazyUnlock(mu sync.Locker) {
 	if mu != nil {
 		mu.Unlock()
 	}
 }
 
-type unlocker func(mu *sync.Mutex)
+type unlocker func(mu sync.Locker)
 
-func (sp *samepleItemPool) appendLast(mu *sync.Mutex) (newItem MapItem, nPool *samepleItemPool, fn unlocker) {
+func (sp *samepleItemPool) appendLast(mu sync.Locker) (newItem MapItem, nPool *samepleItemPool, fn unlocker) {
 
 	if mu != nil {
 		mu.Lock()
@@ -433,7 +433,7 @@ func (sp *samepleItemPool) appendLast(mu *sync.Mutex) (newItem MapItem, nPool *s
 
 }
 
-func (sp *samepleItemPool) insertToPool(reverse uint64, mu *sync.Mutex) (newItem MapItem, nPool *samepleItemPool, fn unlocker) {
+func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem MapItem, nPool *samepleItemPool, fn unlocker) {
 	if mu != nil {
 		mu.Lock()
 		fn = lazyUnlock
@@ -554,7 +554,7 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu *sync.Mutex) (newItem
 
 }
 
-func (sp *samepleItemPool) getWithFn(reverse uint64, mu *sync.Mutex) (new MapItem, nPool *samepleItemPool, fn unlocker) {
+func (sp *samepleItemPool) getWithFn(reverse uint64, mu sync.Locker) (new MapItem, nPool *samepleItemPool, fn unlocker) {
 
 	lastActiveIdx := -1
 
@@ -610,7 +610,7 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu *sync.Mutex) (new MapIte
 
 }
 
-func (sp *samepleItemPool) expand(mu *sync.Mutex) (unlocker, error) {
+func (sp *samepleItemPool) expand(mu sync.Locker) (unlocker, error) {
 	var fn unlocker
 	if mu != nil {
 		mu.Lock()

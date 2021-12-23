@@ -20,7 +20,7 @@ const (
 )
 
 type bucket struct {
-	level   int32
+	_level  int32
 	_len    int32
 	reverse uint64
 	dummy   entryHMap
@@ -179,11 +179,11 @@ func (b *bucket) checklevel() error {
 	for cur := b.LevelHead.DirectNext(); !cur.Empty(); cur = cur.DirectNext() {
 		b := bucketFromLevelHead(cur)
 		if level == -1 {
-			level = bucketFromLevelHead(cur).level
+			level = bucketFromLevelHead(cur).level()
 			reverse = b.reverse
 			continue
 		}
-		if level != bucketFromLevelHead(cur).level {
+		if level != bucketFromLevelHead(cur).level() {
 			return errors.New("invalid level")
 		}
 		if reverse < b.reverse {
@@ -195,11 +195,11 @@ func (b *bucket) checklevel() error {
 	for cur := b.LevelHead.DirectPrev(); !cur.Empty(); cur = cur.DirectPrev() {
 		b := bucketFromLevelHead(cur)
 		if level == -1 {
-			level = bucketFromLevelHead(cur).level
+			level = bucketFromLevelHead(cur).level()
 			reverse = b.reverse
 			continue
 		}
-		if level != bucketFromLevelHead(cur).level {
+		if level != bucketFromLevelHead(cur).level() {
 			return errors.New("invalid level")
 		}
 		if reverse > b.reverse {
@@ -378,15 +378,15 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy b
 
 		idx := int((reverse >> (4 * (16 - l))) & 0xf)
 		if atomic_util.LoadInt(&bucketDowns.len) <= idx ||
-			bucketDowns.at(idx).level == 0 {
+			bucketDowns.at(idx).level() == 0 {
 
 			//if len(b.downLevels) <= idx || b.downLevels[idx].level == 0 || b.downLevels[idx].reverse == 0 {
 			nidx := idx
-			if nidx > bucketDowns.len-1 {
-				nidx = bucketDowns.len - 1
+			if downlen := atomic_util.LoadInt(&bucketDowns.len); nidx > downlen-1 {
+				nidx = downlen - 1
 			}
 			for i := nidx; i > -1; i-- {
-				if bucketDowns.at(i).level == 0 {
+				if bucketDowns.at(i).level() == 0 {
 					continue
 				}
 				// FIXME: should not lookup direct
@@ -416,7 +416,7 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy b
 
 		b = bucketDowns.at(idx)
 	}
-	if b.level == 0 {
+	if b.level() == 0 {
 		return nil
 	}
 	return
@@ -424,7 +424,7 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy b
 
 func (b *bucket) parent(m *Map) (p *bucket) {
 
-	for level := int32(1); level < b.level; level++ {
+	for level := int32(1); level < b.level(); level++ {
 		if level == 1 {
 			idx := (b.reverse >> (4 * 15))
 			p = &m.buckets[idx]
@@ -488,7 +488,7 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 
 			downLevels := make([]bucket, 1, 16)
 
-			downLevels[0].level = b.level + 1
+			downLevels[0].setLevel(b.level() + 1)
 			downLevels[0].reverse = b.reverse
 			downLevels[0].Init()
 			downLevels[0].LevelHead.Init()
@@ -533,7 +533,7 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 
 			nDownLevel := &b.downLevels[cidx : cidx+1 : cidx+1][0]
 			nDownLevel.reverse = b.reverse | (uint64(cidx) << (4 * (16 - l)))
-			nDownLevel.level = b.level + 1
+			nDownLevel.setLevel(b.level() + 1)
 			nDownLevel.state = bucketStateInit
 
 			oBucket := b
@@ -582,7 +582,7 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 			if l != level {
 				Log(LogWarn, "not collected already inited")
 			}
-			b.downLevels[idx].level = b.level + 1
+			b.downLevels[idx].setLevel(b.level() + 1)
 			b.downLevels[idx].reverse = b.reverse | (uint64(idx) << (4 * (16 - l)))
 			if onOk != nil {
 				Log(LogWarn, "found old fn ")
@@ -664,7 +664,7 @@ func (h *Map) setupBcukets(buckets []*bucket) {
 		}
 
 		if !b.LevelHead.IsSingle() {
-			nextLevel := h.findNextLevelBucket(b.reverse, b.level)
+			nextLevel := h.findNextLevelBucket(b.reverse, b.level())
 
 			if b.LevelHead.DirectNext() == &b.LevelHead {
 				Log(LogWarn, "bucket.LevelHead is pointed to self")
@@ -690,7 +690,7 @@ func (b *bucket) largestDown(ignoreNoPool, ignoreNoInitDummy bool) *bucket {
 
 	for i := len(b.downLevels) - 1; i > -1; i-- {
 
-		if b.downLevels[i].level == 0 || b.downLevels[i].reverse == 0 {
+		if b.downLevels[i].level() == 0 || b.downLevels[i].reverse == 0 {
 			continue
 		}
 		//FIXME: should not lookup direct
@@ -788,6 +788,18 @@ func (b *bucket) _head() *elist_head.ListHead {
 
 func (b *bucket) isRequireOnOk() bool {
 	return b.state != bucketStateActive && !b.ListHead.IsSingle() && !b.LevelHead.IsSingle() && !b.dummy.IsSingle() && !b.dummy.Empty()
+}
+
+func (b *bucket) setLevel(l int32) (prev int32) {
+
+	prev = atomic.LoadInt32(&b._level)
+	atomic.StoreInt32(&b._level, l)
+	return
+}
+
+func (b *bucket) level() (prev int32) {
+
+	return atomic.LoadInt32(&b._level)
 }
 
 type bucketSlice struct {

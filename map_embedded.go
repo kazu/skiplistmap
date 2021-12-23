@@ -94,7 +94,7 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 		return ErrBucketAllocatedFail
 	}
 
-	if b.reverse == 0 && b.level > 1 {
+	if b.reverse == 0 && b.level() > 1 {
 		err = NewError(EBucketInvalid, "bucket.reverse = 0. but level 1= 1", nil)
 		Log(LogWarn, err.Error())
 		return
@@ -117,7 +117,7 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 
 	h.addBucket(b)
 
-	nextLevel := h.findNextLevelBucket(b.reverse, b.level)
+	nextLevel := h.findNextLevelBucket(b.reverse, b.level())
 
 	if b.LevelHead.DirectNext() == &b.LevelHead {
 		Log(LogWarn, "bucket.LevelHead is pointed to self")
@@ -183,7 +183,7 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 				goto SKIP_FIRST_DOWN_INIT
 			}
 			firstDown := downs._at(0, false)
-			firstDown.level = b.level + 1
+			firstDown.setLevel(b.level() + 1)
 			firstDown.reverse = b.reverse
 			firstDown.Init()
 			firstDown.LevelHead.Init()
@@ -222,11 +222,11 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 			Log(LogWarn, "downs.len is updated. retry")
 		}
 
-		if downs.at(idx).level == 0 {
+		if downs.at(idx).level() == 0 {
 			if l != level {
 				Log(LogWarn, "not collected already inited")
 			}
-			downs.at(idx).level = b.level + 1
+			downs.at(idx).setLevel(b.level() + 1)
 			downs.at(idx).reverse = b.reverse | (uint64(idx) << (4 * (16 - l)))
 			b = downs.at(idx)
 			if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {
@@ -739,40 +739,3 @@ func (sp *samepleItemPool) _split(idx int, connect bool) (nPool *samepleItemPool
 	return
 
 }
-
-// func (b *bucket) updateDowns(news []bucket) (prev []bucket) {
-
-// 	defer func() {
-// 		for {
-
-// 			if news != nil && atomic.CompareAndSwapUint32(&b.stateDowns, poolUpdating, poolNone) {
-// 				break
-// 			}
-// 			if news == nil && atomic.CompareAndSwapUint32(&b.stateDowns, poolReading, poolNone) {
-// 				break
-// 			}
-// 			if atomic.CompareAndSwapUint32(&b.stateDowns, poolNone, poolNone) {
-// 				break
-// 			}
-// 		}
-// 	}()
-
-// 	for {
-// 		if news == nil {
-// 			if atomic.CompareAndSwapUint32(&b.stateDowns, poolNone, poolReading) {
-// 				prev = b.downLevels
-// 				break
-// 			}
-
-// 		} else {
-// 			if atomic.CompareAndSwapUint32(&b.stateDowns, poolNone, poolUpdating) {
-// 				prev = b.downLevels
-// 				b.downLevels = news
-// 				break
-// 			}
-// 		}
-
-// 	}
-// 	return
-
-// }

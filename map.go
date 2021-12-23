@@ -200,7 +200,7 @@ func (h *Map) initBeforeSet() {
 		return
 	}
 	btable := newBucket()
-	btable.level, btable._len = 16, 0
+	btable._level, btable._len = 16, 0
 	btable.reverse = ^uint64(0)
 	btable.Init()
 	btable.LevelHead.Init()
@@ -215,9 +215,9 @@ func (h *Map) initBeforeSet() {
 	// add bucket
 	h.tailBucket.InsertBefore(&btable.ListHead)
 
-	levelBucket := h.levelBucket(btable.level)
+	levelBucket := h.levelBucket(btable._level)
 	levelBucket.LevelHead.DirectPrev().DirectNext().InsertBefore(&btable.LevelHead)
-	h.setLevel(btable.level, levelBucket)
+	h.setLevel(btable._level, levelBucket)
 	btable.state = bucketStateActive
 	btablefirst := btable
 
@@ -231,7 +231,7 @@ func (h *Map) initBeforeSet() {
 	for i := range topReverses {
 		reverse := topReverses[i]
 		btable = &h.buckets[i]
-		btable.level, btable._len, btable.reverse = 1, 0, reverse
+		btable._level, btable._len, btable.reverse = 1, 0, reverse
 		btable.state = bucketStateInit
 		btable.Init()
 		btable.LevelHead.Init()
@@ -264,7 +264,7 @@ func (h *Map) initBeforeSet() {
 		if i > 0 {
 			h.buckets[i-1].LevelHead.InsertBefore(&btable.LevelHead)
 		} else {
-			levelBucket = h.levelBucket(btable.level)
+			levelBucket = h.levelBucket(btable._level)
 			levelBucket.LevelHead.DirectPrev().DirectNext().InsertBefore(&btable.LevelHead)
 		}
 		btable.state = bucketStateActive
@@ -400,7 +400,7 @@ SKIP_FETCH_BUCKET:
 		//btable._validateItemsNear()
 	}
 	atomic.AddInt64(&h.len, 1)
-	if btable.level > 0 {
+	if btable.level() > 0 {
 		atomic.AddInt32(&btable._len, 1)
 	}
 	if !h.isEmbededItemInBucket && btable != nil && int(btable.len()) > h.maxPerBucket {
@@ -810,7 +810,7 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 		b.reverse, b._len = newReverse, 0
 	}
 
-	if b.reverse == 0 && b.level > 1 {
+	if b.reverse == 0 && b.level() > 1 {
 		err = NewError(EBucketInvalid, "bucket.reverse = 0. but level 1= 1", nil)
 		Log(LogWarn, err.Error())
 		return
@@ -836,7 +836,7 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 		panic("bucket head empty")
 	}
 
-	nextLevel := h.findNextLevelBucket(b.reverse, b.level)
+	nextLevel := h.findNextLevelBucket(b.reverse, b.level())
 
 	if b.LevelHead.DirectNext() == &b.LevelHead {
 		Log(LogWarn, "bucket.LevelHead is pointed to self")
@@ -1034,7 +1034,7 @@ func (h *Map) DumpBucket(w io.Writer) {
 	for cur := h.headBucket.Prev().Next(); !cur.Empty(); cur = cur.Next() {
 		btable := bucketFromListHead(cur)
 		fmt.Fprintf(&b, "  bucket{reverse: 0x%16x, len: %d, start: %p, level{%d, cur: %p, prev: %p next: %p} down: %d}\n",
-			btable.reverse, btable.len(), btable.head, btable.level, &btable.LevelHead, btable.LevelHead.DirectPrev(), btable.LevelHead.DirectNext(), len(btable.downLevels))
+			btable.reverse, btable.len(), btable.head, btable.level(), &btable.LevelHead, btable.LevelHead.DirectPrev(), btable.LevelHead.DirectNext(), len(btable.downLevels))
 	}
 	if w == nil {
 		os.Stdout.WriteString(b.String())
@@ -1060,7 +1060,7 @@ func (h *Map) DumpBucketPerLevel(w io.Writer) {
 			cBucket = bucketFromLevelHead(cur)
 			cur = cBucket.LevelHead.DirectNext()
 			fmt.Fprintf(&b, "  bucket{reverse: 0x%16x, len: %d, start: %p, level{%d, cur: %p, prev: %p next: %p} down: %d}\n",
-				cBucket.reverse, cBucket.len(), cBucket.head, cBucket.level, &cBucket.LevelHead, cBucket.LevelHead.DirectPrev(), cBucket.LevelHead.DirectNext(), len(cBucket.downLevels))
+				cBucket.reverse, cBucket.len(), cBucket.head, cBucket.level(), &cBucket.LevelHead, cBucket.LevelHead.DirectPrev(), cBucket.LevelHead.DirectNext(), len(cBucket.downLevels))
 
 		}
 	}
@@ -1218,7 +1218,7 @@ func (h *Map) initLevels() {
 
 	for i := range h.levels {
 		b := newBucket()
-		b.level = int32(i) + 1
+		b.setLevel(int32(i) + 1)
 		b.LevelHead.InitAsEmpty()
 		h.levels[i].Store(b)
 	}
@@ -1413,7 +1413,7 @@ func nearBucketFromCache(levels [16]*bucket, lbNext *bucket, reverseNoMask uint6
 			noNil = false
 			break
 		}
-		if int32(i)+1 == result.level {
+		if int32(i)+1 == result.level() {
 			continue
 		}
 		if nearUint64(b.reverse, result.reverse, reverseNoMask) == b.reverse {

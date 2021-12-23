@@ -117,7 +117,7 @@ func bucketFromLevelHead(head *list_head.ListHead) *bucket {
 func (b *bucket) len() int32 {
 
 	if b._itemPool == nil && b.itemPoolFn == nil {
-		return b._len
+		return atomic.LoadInt32(&b._len)
 	}
 	return int32(len(b.itemPool().items))
 
@@ -543,12 +543,23 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 				Log(LogWarn, "found old fn ")
 			}
 			nDownLevel.onOkFn = func() {
-				if len(oBucket.downLevels) <= oIdx {
-					oBucket.downLevels = oBucket.downLevels[:oIdx+1]
-				} else {
-					Log(LogDebug, "backet already expand ")
+				oDownLevels := oBucket.ptrDownLevels()
+				olen, ocap := oDownLevels.Len(), oDownLevels.Cap()
+				if olen > oIdx || ocap <= oIdx { // MENTION: should check ocap <= oIdx
+					goto ALREADY
+				}
+				for {
+					if oDownLevels.Len() > oIdx {
+						goto EXPAND
+					}
+					olen, ocap = oDownLevels.Len(), oDownLevels.Cap()
+					atomic_util.CompareAndSwapInt(&oDownLevels.len, olen, oIdx+1)
 				}
 
+			ALREADY:
+				Log(LogDebug, "backet already expand ")
+
+			EXPAND:
 				if !atomic.CompareAndSwapUint32(&oBucket.downLevels[oIdx].state, bucketStateInit, bucketStateActive) {
 					Log(LogDebug, "fail bucket state change to finish ")
 				}
@@ -838,4 +849,14 @@ func (list *bucketSlice) _at(i int, checklen bool) (result *bucket) {
 
 	data := atomic.LoadPointer(&list.data)
 	return (*bucket)(unsafe.Add(data, i*int(bucketSize)))
+}
+
+func (list *bucketSlice) Len() int {
+
+	return atomic_util.LoadInt(&list.len)
+}
+
+func (list *bucketSlice) Cap() int {
+
+	return atomic_util.LoadInt(&list.cap)
 }

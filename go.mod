@@ -5,8 +5,8 @@ go 1.17
 require (
 	github.com/cespare/xxhash v1.1.0
 	github.com/cornelk/hashmap v1.0.1
-	github.com/kazu/elist_head v0.2.7
-	github.com/kazu/loncha v0.4.10
+	github.com/kazu/elist_head v0.2.8
+	github.com/kazu/loncha v0.4.11
 	github.com/lk4d4/trylock v0.0.0-20191027065348-ff7e133a5c54
 	github.com/lrita/cmap v0.0.0-20200818170753-e987cd3dfa73
 	github.com/stretchr/testify v1.7.0

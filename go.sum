@@ -12,10 +12,10 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/dchest/siphash v1.1.0 h1:1Rs9eTUlZLPBEvV+2sTaM8O0NWn0ppbgqS7p11aWawI=
 github.com/dchest/siphash v1.1.0/go.mod h1:q+IRvb2gOSrUnYoPqHiyHXS0FOBBOdl6tONBlVnOnt4=
-github.com/kazu/elist_head v0.2.7 h1:lIYVhHte/yqDX2Sf2ArCtim+zXRu07/ak0oRDPAg7MI=
-github.com/kazu/elist_head v0.2.7/go.mod h1:cqLmEvmR0Q/TKzMnwrjigARfIUfrpNjjNoH39NSFoIc=
-github.com/kazu/loncha v0.4.10 h1:aZw9kf8ve+pBOcowjDhauIsVVpFSjDflh14461Iu3oY=
-github.com/kazu/loncha v0.4.10/go.mod h1:25zkNEnAanUtYnSmApyGoJOQ96tByBur+ZI8oiSF4y8=
+github.com/kazu/elist_head v0.2.8 h1:F64dxJdud5X8tC1E7y3CU7QvuUfxaL2I2bd49dhLdys=
+github.com/kazu/elist_head v0.2.8/go.mod h1:cqLmEvmR0Q/TKzMnwrjigARfIUfrpNjjNoH39NSFoIc=
+github.com/kazu/loncha v0.4.11 h1:IcBkwTFPgi+T5vr6KsQM3qTEkD2quWiMj8d4gQfrT04=
+github.com/kazu/loncha v0.4.11/go.mod h1:25zkNEnAanUtYnSmApyGoJOQ96tByBur+ZI8oiSF4y8=
 github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORNo=
 github.com/kr/pretty v0.3.0 h1:WgNl7dwNpEZ6jJ9k1snq4pZsg7DOEN8hP9Xw0Tsjwk0=
 github.com/kr/pretty v0.3.0/go.mod h1:640gp4NfQd8pI5XOwp5fnNeVWj67G7CFk/SaSQn7NBk=

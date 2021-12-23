@@ -76,7 +76,7 @@ func Test_ConccurentWriteEmbeddedBucket(t *testing.T) {
 
 				s := item.(*skiplistmap.SampleItem)
 				s.K = "???"
-				s.SetValue(nil)
+				s.SetValue(i)
 				m.TestSet(bits.Reverse64(key+i), i, bucket, s)
 				if fn != nil {
 					bucket.RunLazyUnlocker(fn)

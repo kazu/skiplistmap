@@ -57,6 +57,9 @@ func (s *SampleItem) Value() interface{} {
 }
 
 func (s *SampleItem) SetValue(v interface{}) bool {
+	if v == nil {
+		return false
+	}
 	s.V.Store(v)
 	return true
 }

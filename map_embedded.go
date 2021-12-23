@@ -14,6 +14,7 @@ import (
 
 	"github.com/kazu/elist_head"
 	list_head "github.com/kazu/loncha/lista_encabezado"
+	"github.com/kazu/skiplistmap/atomic_util"
 )
 
 //go:nocheckptr
@@ -198,8 +199,15 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 			}
 			lCur.LevelHead.InsertBefore(&b.downLevels[0].LevelHead)
 		}
-		if len(b.downLevels) <= idx {
-			b.updateDowns(b.downLevels[:idx+1])
+		downs := b.ptrDownLevels()
+		for {
+			len := atomic_util.LoadInt(&downs.len)
+			if len <= idx && atomic_util.CompareAndSwapInt(&downs.len, len, idx+1) {
+				break
+			} else if len > idx {
+				break
+			}
+			Log(LogWarn, "downs.len is updated. retry")
 		}
 
 		if b.downLevels[idx].level == 0 {
@@ -245,6 +253,26 @@ func (sp *samepleItemPool) getWithLock(fn func(s *samepleItemPool)) {
 
 	for {
 		if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolReading) {
+			break
+		}
+	}
+	fn(sp)
+}
+
+func (sp *samepleItemPool) updateWithLock(fn func(s *samepleItemPool)) {
+	defer func() {
+		for {
+			if atomic.CompareAndSwapUint32(&sp.iMode, poolUpdating, poolNone) {
+				break
+			}
+			if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolNone) {
+				break
+			}
+		}
+	}()
+
+	for {
+		if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolUpdating) {
 			break
 		}
 	}
@@ -662,8 +690,12 @@ func (sp *samepleItemPool) _split(idx int, connect bool) (nPool *samepleItemPool
 	if !atomic.CompareAndSwapInt64(&nlen, int64(len(sp.items)), nlen+1) {
 		return sp._split(idx, connect)
 	}
-	nPool.items = sp.items[idx:]
-	sp.items = sp.items[:idx:idx]
+	//nPool.items = sp.items[idx:]
+	sp.updateWithLock(func(s *samepleItemPool) {
+		nPool.items = s.items[idx:]
+		s.items = sp.items[:idx:idx]
+	})
+
 	nPool.Init()
 	//sp.validateItems()
 	//nPool.validateItems()
@@ -675,39 +707,39 @@ func (sp *samepleItemPool) _split(idx int, connect bool) (nPool *samepleItemPool
 
 }
 
-func (b *bucket) updateDowns(news []bucket) (prev []bucket) {
+// func (b *bucket) updateDowns(news []bucket) (prev []bucket) {
 
-	defer func() {
-		for {
+// 	defer func() {
+// 		for {
 
-			if news != nil && atomic.CompareAndSwapUint32(&b.stateDowns, poolUpdating, poolNone) {
-				break
-			}
-			if news == nil && atomic.CompareAndSwapUint32(&b.stateDowns, poolReading, poolNone) {
-				break
-			}
-			if atomic.CompareAndSwapUint32(&b.stateDowns, poolNone, poolNone) {
-				break
-			}
-		}
-	}()
+// 			if news != nil && atomic.CompareAndSwapUint32(&b.stateDowns, poolUpdating, poolNone) {
+// 				break
+// 			}
+// 			if news == nil && atomic.CompareAndSwapUint32(&b.stateDowns, poolReading, poolNone) {
+// 				break
+// 			}
+// 			if atomic.CompareAndSwapUint32(&b.stateDowns, poolNone, poolNone) {
+// 				break
+// 			}
+// 		}
+// 	}()
 
-	for {
-		if news == nil {
-			if atomic.CompareAndSwapUint32(&b.stateDowns, poolNone, poolReading) {
-				prev = b.downLevels
-				break
-			}
+// 	for {
+// 		if news == nil {
+// 			if atomic.CompareAndSwapUint32(&b.stateDowns, poolNone, poolReading) {
+// 				prev = b.downLevels
+// 				break
+// 			}
 
-		} else {
-			if atomic.CompareAndSwapUint32(&b.stateDowns, poolNone, poolUpdating) {
-				prev = b.downLevels
-				b.downLevels = news
-				break
-			}
-		}
+// 		} else {
+// 			if atomic.CompareAndSwapUint32(&b.stateDowns, poolNone, poolUpdating) {
+// 				prev = b.downLevels
+// 				b.downLevels = news
+// 				break
+// 			}
+// 		}
 
-	}
-	return
+// 	}
+// 	return
 
-}
+// }

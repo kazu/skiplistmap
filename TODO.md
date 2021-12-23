@@ -20,6 +20,11 @@
     - [ ] insertToPool-> updateItems() , map._set() -> item.PtrMapHead().conflict = conflict
     - [x] state4get -> len, cap   updateItems()    
     - [x] map._findBucket -> bucketDowns := b.downLevels , map.bucketFromPoolEmbedded() -> b.downLevels = b.downLevels[:idx+1]
+    - [ ] samepleItemPool._split sp.items = sp.items[:idx:idx], samepleItemPool.At(). 
+        use samepleItemPool.updateWithLock() 
+    - [x] map._findBucket() -> if bucketDowns.len <= idx || bucketDowns.at(idx).level == 0 { , h.bucketFromPoolEmbedded() -> b.downLevels = make([]bucket, 1, 16)
+        change intialize bucketFromPoolEmbedded() 
+
 - [ ] Implement Purge()
   - [ ] basic impleent
   - [ ] waiting/locking to traverse on pursing

@@ -52,14 +52,14 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 		pool = bucket.toBase().itemPool()
 	}
 
-	l, sPtr := pool.lenWithStart()
+	ptrItems := pool.ptrItems()
+	l := ptrItems.Len()
 
 	idx := sort.Search(l, func(i int) bool {
-		return pool.reverseByptr(i, sPtr) >= reverseNoMask
-		//return pool.items[i].reverse >= reverseNoMask
+		return atomic.LoadUint64(&ptrItems._at(i, true).reverse) >= reverseNoMask
 	})
-	if idx < l && pool.reverseByptr(idx, sPtr) == reverseNoMask {
-		return pool.at(idx)
+	if idx < l && atomic.LoadUint64(&ptrItems._at(idx, true).reverse) == reverseNoMask {
+		return ptrItems._at(idx, true)
 	}
 
 	a := bucket.toBase().prevAsB()
@@ -738,4 +738,46 @@ func (sp *samepleItemPool) _split(idx int, connect bool) (nPool *samepleItemPool
 	}
 	return
 
+}
+
+type itemSlice struct {
+	data unsafe.Pointer
+	len  int
+	cap  int
+}
+
+const sampleItemItemsOffset = unsafe.Offsetof(EmptysamepleItemPool.items)
+const itemSize = unsafe.Sizeof(SampleItem{})
+
+func (sp *samepleItemPool) ptrItems() *itemSlice {
+
+	return (*itemSlice)(unsafe.Add(unsafe.Pointer(sp), sampleItemItemsOffset))
+
+}
+
+func (list *itemSlice) at(i int) (result *SampleItem) {
+
+	return list._at(i, true)
+}
+
+func (list *itemSlice) _at(i int, checklen bool) (result *SampleItem) {
+
+	if checklen && atomic_util.LoadInt(&list.len) <= i {
+		return nil
+	} else if atomic_util.LoadInt(&list.cap) <= i {
+		return nil
+	}
+
+	data := atomic.LoadPointer(&list.data)
+	return (*SampleItem)(unsafe.Add(data, i*int(itemSize)))
+}
+
+func (list *itemSlice) Len() int {
+
+	return atomic_util.LoadInt(&list.len)
+}
+
+func (list *itemSlice) Cap() int {
+
+	return atomic_util.LoadInt(&list.cap)
 }

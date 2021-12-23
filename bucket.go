@@ -831,12 +831,6 @@ func (b *bucket) ptrDownLevels() *bucketSlice {
 func (list *bucketSlice) at(i int) (result *bucket) {
 
 	return list._at(i, true)
-	// if atomic_util.LoadInt(&list.len) <= i {
-	// 	return nil
-	// }
-
-	// data := atomic.LoadPointer(&list.data)
-	// return (*bucket)(unsafe.Add(data, i*int(bucketSize)))
 }
 
 func (list *bucketSlice) _at(i int, checklen bool) (result *bucket) {

@@ -210,27 +210,41 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock *sync.Mutex
 		}
 	}
 	// not limit pool
-	if cap(sp.items) > len(sp.items) {
-		var mu *sync.Mutex
-		i := len(sp.items)
+	success := false
+	sp.updateWithLock(func(s *samepleItemPool) {
 
-		if i+1 == cap(sp.items) {
-			mu = &sp.mu
+		if cap(s.items) <= len(s.items) {
+			success = false
+			return
+		}
+		var mu *sync.Mutex
+		i := len(s.items)
+		if i+1 == cap(s.items) {
+			mu = &s.mu
 			mu.Lock()
-			if i+1 != cap(sp.items) {
+			if i+1 != cap(s.items) {
 				mu.Unlock()
-				return sp.Get()
+				new, isExpanded, lock = s.Get()
+				success = true
+				return
 			}
 		}
 
-		sp.items = sp.items[:i+1]
-		new := &sp.items[i]
-		new.Init()
+		sp.items = s.items[:i+1]
+		new2 := &s.items[i]
+		new2.Init()
 		if mu != nil {
-			return new, false, mu
+			success = true
+			new, isExpanded, lock = new2, false, mu
+			return
 		}
+		success = true
+		new, isExpanded, lock = new2, false, nil
+		return
+	})
 
-		return new, false, nil
+	if success {
+		return
 	}
 
 	// found next pool

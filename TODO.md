@@ -3,13 +3,13 @@
   - [x] using elist_head as key/value item
 - [ ] support user defined key order.
 - [x] refactoring
-- [ ] fix race condition
+- [x] fix race condition
   - [x] add/update  in embedded itempool 
-  - [ ] add/update  in outside itempool
+  - [x] add/update  in outside itempool
   - [x] global sharedSearchOpt . define atomic.Value
   - [x] SampleItem.SetValue
   - [x] //go:nocheckptr elist_head.Ptr()
-  - [ ] sp.items = sp.items[:i+1]
+  - [x] sp.items = sp.items[:i+1]
   - [x] embedded mode
     - [x] _findBucket -> b.downLevels[idx].level and bucketFromPoolEmbedded -> b.downLevels = b.downLevels[:idx
     - [x] appendLast-> sp.items = sp.items[:olen+1] -> use updateItem() 
@@ -24,6 +24,8 @@
     - [x] map._findBucket() -> if bucketDowns.len <= idx || bucketDowns.at(idx).level == 0 { , h.bucketFromPoolEmbedded() -> b.downLevels = make([]bucket, 1, 16)
         change intialize bucketFromPoolEmbedded() 
     - [x] map.makeBucket2() -> h.bucketFromPoolEmbedded(newReverse) , map._findBucket() -> if bucketDowns.len <= idx || bucketDowns.at(idx).level == 0 {
+  - [x] non embedded mode
+    - [x] bucketFromPool() -> oBucket.downLevels = oBucket.downLevels[:oIdx+1] and list.at()
 
 - [ ] Implement Purge()
   - [ ] basic impleent

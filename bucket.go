@@ -10,6 +10,7 @@ import (
 	"github.com/kazu/elist_head"
 	"github.com/kazu/loncha"
 	list_head "github.com/kazu/loncha/lista_encabezado"
+	"github.com/kazu/skiplistmap/atomic_util"
 )
 
 const (
@@ -27,7 +28,6 @@ type bucket struct {
 	downLevels        []bucket
 	cntOfActiveLevels int32
 	state             uint32
-	stateDowns        uint32 // only use embedded mode.
 
 	_itemPool     *samepleItemPool
 	_parent       *bucket
@@ -364,50 +364,56 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy b
 			b = &h.buckets[idx]
 			continue
 		}
-		var bucketDowns []bucket
-		if h.isEmbededItemInBucket {
-			bucketDowns = b.updateDowns(nil)
-		} else {
-			bucketDowns = b.downLevels
+		var bucketDowns *bucketSlice
+		bucketDowns = b.ptrDownLevels()
+		if bucketDowns == nil || atomic_util.LoadInt(&bucketDowns.cap) == 0 {
+			break
 		}
+
+		for {
+			if atomic_util.LoadInt(&bucketDowns.len) > 0 {
+				break
+			}
+		}
+
 		idx := int((reverse >> (4 * (16 - l))) & 0xf)
-		if len(bucketDowns) <= idx || bucketDowns[idx].level == 0 {
+		if bucketDowns.len <= idx || bucketDowns.at(idx).level == 0 {
 
 			//if len(b.downLevels) <= idx || b.downLevels[idx].level == 0 || b.downLevels[idx].reverse == 0 {
 			nidx := idx
-			if nidx > len(bucketDowns)-1 {
-				nidx = len(bucketDowns) - 1
+			if nidx > bucketDowns.len-1 {
+				nidx = bucketDowns.len - 1
 			}
 			for i := nidx; i > -1; i-- {
-				if bucketDowns[i].level == 0 {
+				if bucketDowns.at(i).level == 0 {
 					continue
 				}
 				// FIXME: should not lookup direct
-				if ignoreNoPool && bucketDowns[i]._itemPool == nil {
+				if ignoreNoPool && bucketDowns.at(i)._itemPool == nil {
 					continue
 				}
-				if ignoreNoInitDummy && bucketDowns[i].state != bucketStateActive {
+				if ignoreNoInitDummy && bucketDowns.at(i).state != bucketStateActive {
 					continue
 				}
 
-				b = bucketDowns[i].largestDown(ignoreNoPool, ignoreNoInitDummy)
+				b = bucketDowns.at(i).largestDown(ignoreNoPool, ignoreNoInitDummy)
 				return b
 
 			}
 			break
 		}
 		// FIXME: should not lookup direct
-		if ignoreNoPool && bucketDowns[idx]._itemPool == nil {
+		if ignoreNoPool && bucketDowns.at(idx)._itemPool == nil {
 			break
 		}
-		if ignoreNoInitDummy && bucketDowns[idx].state != bucketStateActive {
+		if ignoreNoInitDummy && bucketDowns.at(idx).state != bucketStateActive {
 			break
 		}
 		if !h.isEmbededItemInBucket {
-			results = append(results, &bucketDowns[idx])
+			results = append(results, bucketDowns.at(idx))
 		}
 
-		b = &bucketDowns[idx]
+		b = bucketDowns.at(idx)
 	}
 	if b.level == 0 {
 		return nil
@@ -781,4 +787,42 @@ func (b *bucket) _head() *elist_head.ListHead {
 
 func (b *bucket) isRequireOnOk() bool {
 	return b.state != bucketStateActive && !b.ListHead.IsSingle() && !b.LevelHead.IsSingle() && !b.dummy.IsSingle() && !b.dummy.Empty()
+}
+
+type bucketSlice struct {
+	data unsafe.Pointer
+	len  int
+	cap  int
+}
+
+const bucketDownlevelsOffset = unsafe.Offsetof(emptyBucket.downLevels)
+const bucketSize = unsafe.Sizeof(*emptyBucket)
+
+func (b *bucket) ptrDownLevels() *bucketSlice {
+
+	return (*bucketSlice)(unsafe.Add(unsafe.Pointer(b), bucketDownlevelsOffset))
+
+}
+
+func (list *bucketSlice) at(i int) (result *bucket) {
+
+	return list._at(i, true)
+	// if atomic_util.LoadInt(&list.len) <= i {
+	// 	return nil
+	// }
+
+	// data := atomic.LoadPointer(&list.data)
+	// return (*bucket)(unsafe.Add(data, i*int(bucketSize)))
+}
+
+func (list *bucketSlice) _at(i int, checklen bool) (result *bucket) {
+
+	if checklen && atomic_util.LoadInt(&list.len) <= i {
+		return nil
+	} else if atomic_util.LoadInt(&list.cap) <= i {
+		return nil
+	}
+
+	data := atomic.LoadPointer(&list.data)
+	return (*bucket)(unsafe.Add(data, i*int(bucketSize)))
 }

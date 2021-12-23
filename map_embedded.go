@@ -173,15 +173,23 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 			continue
 		}
 		idx := int((reverse >> (4 * (16 - l))) & 0xf)
-		if cap(b.downLevels) == 0 {
-			b.downLevels = make([]bucket, 1, 16)
-			b.downLevels[0].level = b.level + 1
-			b.downLevels[0].reverse = b.reverse
-			b.downLevels[0].Init()
-			b.downLevels[0].LevelHead.Init()
-			b.downLevels[0]._parent = b
+		var downs *bucketSlice
+		downs = b.ptrDownLevels()
+		if downs == nil || atomic_util.CompareAndSwapInt(&downs.cap, 0, 1) {
+			//if cap(b.downLevels) == 0 {
+			b.downLevels = make([]bucket, 0, 16)
+			downs = b.ptrDownLevels()
+			if atomic_util.LoadInt(&downs.len) == 1 {
+				goto SKIP_FIRST_DOWN_INIT
+			}
+			firstDown := downs._at(0, false)
+			firstDown.level = b.level + 1
+			firstDown.reverse = b.reverse
+			firstDown.Init()
+			firstDown.LevelHead.Init()
+			firstDown._parent = b
 
-			b.downLevels[0].setItemPoolFn = func(p *samepleItemPool) {
+			firstDown.setItemPoolFn = func(p *samepleItemPool) {
 				b.setItemPool(p)
 			}
 
@@ -197,9 +205,13 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 					break
 				}
 			}
-			lCur.LevelHead.InsertBefore(&b.downLevels[0].LevelHead)
+			lCur.LevelHead.InsertBefore(&firstDown.LevelHead)
+			if !atomic_util.CompareAndSwapInt(&downs.len, 0, 1) {
+				panic("this must not be reached")
+			}
 		}
-		downs := b.ptrDownLevels()
+	SKIP_FIRST_DOWN_INIT:
+		downs = b.ptrDownLevels()
 		for {
 			len := atomic_util.LoadInt(&downs.len)
 			if len <= idx && atomic_util.CompareAndSwapInt(&downs.len, len, idx+1) {
@@ -210,19 +222,19 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 			Log(LogWarn, "downs.len is updated. retry")
 		}
 
-		if b.downLevels[idx].level == 0 {
+		if downs.at(idx).level == 0 {
 			if l != level {
 				Log(LogWarn, "not collected already inited")
 			}
-			b.downLevels[idx].level = b.level + 1
-			b.downLevels[idx].reverse = b.reverse | (uint64(idx) << (4 * (16 - l)))
-			b = &b.downLevels[idx]
+			downs.at(idx).level = b.level + 1
+			downs.at(idx).reverse = b.reverse | (uint64(idx) << (4 * (16 - l)))
+			b = downs.at(idx)
 			if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {
 				Log(LogWarn, "already inited")
 			}
 			break
 		}
-		b = &b.downLevels[idx]
+		b = downs.at(idx)
 	}
 	if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {
 		h.DumpBucket(logio)
@@ -407,6 +419,10 @@ func (sp *samepleItemPool) appendLast(mu *sync.Mutex) (newItem MapItem, nPool *s
 	for {
 		if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolUpdating) {
 			l := len(sp.items)
+			c := cap(sp.items)
+			if l >= c {
+				return nil, nil, fn
+			}
 			sp.items = sp.items[:l+1]
 			new = &sp.items[l]
 			break
@@ -563,7 +579,24 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu *sync.Mutex) (new MapIte
 	//lastgets = append(lastgets, sp.state4get(reverse, lastActiveIdx))
 	switch sp.state4get(reverse, lastActiveIdx, olen, ocap) {
 	case getEmpty, getLargest:
-		return sp.appendLast(mu)
+		nmu := mu
+		new, nPool, fn = sp.appendLast(nmu)
+		if new != nil {
+			return
+		}
+		for {
+			if fn != nil {
+				nmu = nil
+			}
+			if nPool == nil {
+				nPool = sp
+			}
+			new, nPool, fn = nPool.getWithFn(reverse, nmu)
+			if new != nil {
+				return
+			}
+
+		}
 	case getNoCap:
 		fn, err := sp.expand(mu)
 		if err != nil {

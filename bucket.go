@@ -157,7 +157,15 @@ func (b *bucket) setItemPool(pool *samepleItemPool) {
 	if b.tailPool.Prev() == b.headPool.Prev() {
 		pool.Init()
 		b.tailPool.InsertBefore(pool.PtrListHead())
-		b._itemPool = pool
+		for {
+			if atomic.CompareAndSwapPointer(
+				(*unsafe.Pointer)(unsafe.Pointer(&b._itemPool)),
+				unsafe.Pointer(b._itemPool),
+				unsafe.Pointer(pool)) {
+				break
+			}
+			Log(LogWarn, "retry bucket._itemPool = pool")
+		}
 		return
 	}
 

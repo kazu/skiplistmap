@@ -10,6 +10,7 @@ import (
 
 	"github.com/kazu/elist_head"
 	list_head "github.com/kazu/loncha/lista_encabezado"
+	"github.com/kazu/skiplistmap/atomic_util"
 )
 
 type poolCmd uint8
@@ -110,7 +111,6 @@ const (
 
 type samepleItemPool struct {
 	mu       sync.Mutex
-	iMode    uint32 // only embedded mode
 	freeHead elist_head.ListHead
 	freeTail elist_head.ListHead
 	items    []SampleItem
@@ -210,42 +210,36 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock *sync.Mutex
 		}
 	}
 	// not limit pool
-	success := false
-	sp.updateWithLock(func(s *samepleItemPool) {
-
-		if cap(s.items) <= len(s.items) {
-			success = false
+	pItems := sp.ptrItems()
+	var mu *sync.Mutex
+	var i int
+	var new2 *SampleItem
+	if pItems.Cap() <= pItems.Len() {
+		goto EXPAND
+	}
+	i = pItems.Len()
+	if i+1 == pItems.Cap() {
+		mu = &sp.mu
+		mu.Lock()
+		if i+1 != pItems.Cap() {
+			mu.Unlock()
+			new, isExpanded, lock = sp.Get()
 			return
 		}
-		var mu *sync.Mutex
-		i := len(s.items)
-		if i+1 == cap(s.items) {
-			mu = &s.mu
-			mu.Lock()
-			if i+1 != cap(s.items) {
-				mu.Unlock()
-				new, isExpanded, lock = s.Get()
-				success = true
-				return
-			}
-		}
-
-		sp.items = s.items[:i+1]
-		new2 := &s.items[i]
-		new2.Init()
-		if mu != nil {
-			success = true
-			new, isExpanded, lock = new2, false, mu
-			return
-		}
-		success = true
-		new, isExpanded, lock = new2, false, nil
-		return
-	})
-
-	if success {
+	}
+	if !atomic_util.CompareAndSwapInt(&pItems.len, i, i+1) {
+		panic("fail expand")
+	}
+	new2 = (*pItems).at(i)
+	new2.Init()
+	if mu != nil {
+		new, isExpanded, lock = new2, false, mu
 		return
 	}
+	new, isExpanded, lock = new2, false, nil
+	return
+
+EXPAND:
 
 	// found next pool
 	if nsp := sp.DirectNext(); nsp.DirectNext() != nsp {

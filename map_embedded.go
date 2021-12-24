@@ -17,33 +17,6 @@ import (
 	"github.com/kazu/skiplistmap/atomic_util"
 )
 
-//go:nocheckptr
-func (sp *samepleItemPool) reverseByptr(idx int, sPtr unsafe.Pointer) (r uint64) {
-	start := sPtr
-	if start == nil {
-		start = unsafe.Pointer(sp.at(0))
-	}
-
-	const toReverse = unsafe.Offsetof(EmptySampleHMapEntry.reverse)
-
-	ptr := unsafe.Add(start, idx*int(SampleItemSize)+int(toReverse))
-	r = atomic.LoadUint64((*uint64)(ptr))
-	return
-}
-
-//go:nocheckptr
-func (sp *samepleItemPool) IsIgnoredByptr(idx int, sPtr unsafe.Pointer) bool {
-	start := sPtr
-	if start == nil {
-		start = unsafe.Pointer(sp.at(0))
-	}
-	const toMapHead = unsafe.Offsetof(EmptySampleHMapEntry.MapHead)
-
-	ptr := unsafe.Add(start, idx*int(SampleItemSize)+int(toMapHead))
-	val := (*MapHead)(ptr)
-	return val.IsIgnored()
-}
-
 func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
 
 	pool := bucket.toBase().itemPool()
@@ -51,15 +24,21 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 	if pool == nil {
 		pool = bucket.toBase().itemPool()
 	}
-
-	ptrItems := pool.ptrItems()
-	l := ptrItems.Len()
+	// MENTION: should remove 0 slice ?
+	//items := pool.itemSlice(false)
+	items := pool.ptrItems()
+	l := items.Len()
 
 	idx := sort.Search(l, func(i int) bool {
-		return atomic.LoadUint64(&ptrItems._at(i, true).reverse) >= reverseNoMask
+		item := items.at(i)
+		if item == nil {
+			return true
+		}
+		return atomic.LoadUint64(&item.reverse) >= reverseNoMask
+		//return items.reverseAt(i) >= reverseNoMask
 	})
-	if idx < l && atomic.LoadUint64(&ptrItems._at(idx, true).reverse) == reverseNoMask {
-		return ptrItems._at(idx, true)
+	if idx < l && items.reverseAt(idx) == reverseNoMask {
+		return items._at(idx, true)
 	}
 
 	a := bucket.toBase().prevAsB()
@@ -251,123 +230,13 @@ const (
 	requireInsert      = 4
 )
 
-func (sp *samepleItemPool) getWithLock(fn func(s *samepleItemPool)) {
-	defer func() {
-		for {
-			if atomic.CompareAndSwapUint32(&sp.iMode, poolReading, poolNone) {
-				break
-			}
-			if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolNone) {
-				break
-			}
-		}
-	}()
-
-	for {
-		if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolReading) {
-			break
-		}
-	}
-	fn(sp)
-}
-
-func (sp *samepleItemPool) updateWithLock(fn func(s *samepleItemPool)) {
-	defer func() {
-		for {
-			if atomic.CompareAndSwapUint32(&sp.iMode, poolUpdating, poolNone) {
-				break
-			}
-			if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolNone) {
-				break
-			}
-		}
-	}()
-
-	for {
-		if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolUpdating) {
-			break
-		}
-	}
-	fn(sp)
-}
-
-func (sp *samepleItemPool) lenWithStart() (int, unsafe.Pointer) {
-
-	l, _, ptr := sp.lencapWithStart()
-	return l, ptr
-}
-
-func (sp *samepleItemPool) lencapWithStart() (int, int, unsafe.Pointer) {
-
-	defer func() {
-		for {
-			if atomic.CompareAndSwapUint32(&sp.iMode, poolReading, poolNone) {
-				break
-			}
-			if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolNone) {
-				break
-			}
-		}
-	}()
-
-	for {
-		if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolReading) {
-			break
-		}
-	}
-	l := len(sp.items)
-	c := cap(sp.items)
-
-	var ptr unsafe.Pointer
-	if l > 0 {
-		ptr = unsafe.Pointer(&sp.items[0])
-	}
-	return l, c, ptr
-}
-
-func (sp *samepleItemPool) at(i int) (r *SampleItem) {
-	sp.getWithLock(func(s *samepleItemPool) {
-		r = &s.items[i]
-	})
-	return
-}
-
 func (sp *samepleItemPool) len() (l int) {
-	sp.getWithLock(func(s *samepleItemPool) {
-		l = len(s.items)
-	})
-	return
+	return sp.ptrItems().Len()
+
 }
 
 func (sp *samepleItemPool) cap() (l int) {
-	sp.getWithLock(func(s *samepleItemPool) {
-		l = cap(s.items)
-	})
-	return
-}
-
-// updateItems ... concurrent update sp.items. dont use items[idx]
-func (sp *samepleItemPool) updateItems(items []SampleItem) (prev []SampleItem) {
-
-	defer func() {
-		for {
-			if atomic.CompareAndSwapUint32(&sp.iMode, poolUpdating, poolNone) {
-				break
-			}
-			if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolNone) {
-				break
-			}
-		}
-	}()
-
-	for {
-		if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolUpdating) {
-			prev = sp.items
-			sp.items = items
-			break
-		}
-	}
-	return
+	return sp.ptrItems().Cap()
 }
 
 func (sp *samepleItemPool) state4get(reverse uint64, tail int, len int, cap int) byte {
@@ -379,8 +248,8 @@ func (sp *samepleItemPool) state4get(reverse uint64, tail int, len int, cap int)
 		return getNoCap
 	}
 
-	//last := &sp.items[tail]
-	last := sp.at(tail)
+	items := sp.itemSlice(false)
+	last := items._at(tail, false)
 	if atomic.LoadUint64(&last.reverse) < reverse {
 		return getLargest
 	}
@@ -406,31 +275,17 @@ func (sp *samepleItemPool) appendLast(mu sync.Locker) (newItem MapItem, nPool *s
 	}
 
 	var new *SampleItem
-	defer func() {
-		for {
-			if atomic.CompareAndSwapUint32(&sp.iMode, poolUpdating, poolNone) {
-				break
-			}
-			if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolNone) {
-				break
-			}
-		}
-	}()
-	for {
-		if atomic.CompareAndSwapUint32(&sp.iMode, poolNone, poolUpdating) {
-			l := len(sp.items)
-			c := cap(sp.items)
-			if l >= c {
-				return nil, nil, fn
-			}
-			sp.items = sp.items[:l+1]
-			new = &sp.items[l]
-			break
-		}
+	items := sp.ptrItems()
+	l := items.Len()
+	if l >= items.Cap() {
+		return nil, nil, fn
 	}
-
-	return new, nil, fn
-
+	if atomic_util.CompareAndSwapInt(&items.len, l, l+1) {
+		new = items.at(l)
+		return new, nil, fn
+	}
+	Log(LogWarn, "retry to fail to expand")
+	return nil, nil, fn
 }
 
 func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem MapItem, nPool *samepleItemPool, fn unlocker) {
@@ -443,7 +298,6 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem
 	ocap := cap(sp.items)
 
 	// require insert
-	//FIXME: should bsearch
 	if IsDebug() {
 		var b strings.Builder
 		for i := range sp.items {
@@ -516,11 +370,14 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem
 			Log(LogFatal, "fail to replace newItems")
 		}
 
-		oldItems := sp.updateItems(newItems)
+		oldItems := sp.ptrItems().dup()
+		spItems := sp.ptrItems()
+		newItemSlice := toItemSlice(newItems)
+		spItems.CopyFrom(&newItemSlice, 0, newItemSlice.Len())
 
 		// for debug
-		oldItemFirst := oldItems[0].Prev().Next().PtrMapHead()
-		oldItemNext := oldItems[olen-1].Next().PtrMapHead()
+		oldItemFirst := oldItems.at(0).Prev().Next().PtrMapHead()
+		oldItemNext := oldItems.at(olen - 1).Next().PtrMapHead()
 		_ = oldItemFirst
 		_ = oldItemNext
 		ItemNext := sp.items[olen].Next().PtrMapHead()
@@ -554,14 +411,22 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem
 
 }
 
+//go:norace
 func (sp *samepleItemPool) getWithFn(reverse uint64, mu sync.Locker) (new MapItem, nPool *samepleItemPool, fn unlocker) {
 
 	lastActiveIdx := -1
 
-	olen, ocap, sPtr := sp.lencapWithStart()
+	items := *sp.ptrItems()
+	olen := items.Len()
+	ocap := items.Cap()
 
 	for i := olen - 1; i >= 0; i-- {
-		if sp.IsIgnoredByptr(i, sPtr) {
+		pItem := items.at(i)
+		if pItem == nil {
+			continue
+		}
+		item := *pItem
+		if item.IsIgnored() {
 			continue
 		}
 		lastActiveIdx = i
@@ -643,7 +508,7 @@ func (sp *samepleItemPool) expand(mu sync.Locker) (unlocker, error) {
 	}
 
 	newItems := make([]SampleItem, olen, nCap)
-	copy(newItems, sp.items[0:olen])
+	toPtrItemSlice(&newItems).CopyDataFrom(0, sp.ptrItems(), 0, olen)
 
 	newListHead := &elist_head.ListHead{}
 	newListTail := &elist_head.ListHead{}
@@ -658,11 +523,15 @@ func (sp *samepleItemPool) expand(mu sync.Locker) (unlocker, error) {
 	if err != nil {
 		Log(LogFatal, "fail to replace newItems")
 	}
-	oldItems := sp.updateItems(newItems)
+
+	oldItems := sp.ptrItems().dup()
+	spItems := sp.ptrItems()
+	spItems.init()
+	spItems.CopyFrom(toPtrItemSlice(&newItems), 0, toPtrItemSlice(&newItems).Len())
 
 	// for debug
-	oldItemFirst := oldItems[0].Prev().Next().PtrMapHead()
-	oldItemNext := oldItems[olen-1].Next().PtrMapHead()
+	oldItemFirst := oldItems.at(0).Prev().Next().PtrMapHead()
+	oldItemNext := oldItems.at(olen - 1).Next().PtrMapHead()
 	_ = oldItemFirst
 	_ = oldItemNext
 	ItemNext := sp.items[olen-1].Next().PtrMapHead()
@@ -723,12 +592,18 @@ func (sp *samepleItemPool) _split(idx int, connect bool) (nPool *samepleItemPool
 	if !atomic.CompareAndSwapInt64(&nlen, int64(len(sp.items)), nlen+1) {
 		return sp._split(idx, connect)
 	}
-	//nPool.items = sp.items[idx:]
-	sp.updateWithLock(func(s *samepleItemPool) {
-		nPool.items = s.items[idx:]
-		s.items = sp.items[:idx:idx]
-	})
 
+	for {
+		nItems := nPool.ptrItems()
+		spItems := sp.ptrItems()
+
+		nItems.CopyFrom(spItems, idx, spItems.Len()-idx)
+		if atomic_util.CompareAndSwapInt(&spItems.len, spItems.len, idx) &&
+			atomic_util.CompareAndSwapInt(&spItems.cap, spItems.cap, idx) {
+			break
+		}
+		nItems.init()
+	}
 	nPool.Init()
 	//sp.validateItems()
 	//nPool.validateItems()
@@ -740,19 +615,50 @@ func (sp *samepleItemPool) _split(idx int, connect bool) (nPool *samepleItemPool
 
 }
 
-type itemSlice struct {
+type sliceHeader struct {
 	data unsafe.Pointer
 	len  int
 	cap  int
+}
+type itemSlice struct {
+	sliceHeader
 }
 
 const sampleItemItemsOffset = unsafe.Offsetof(EmptysamepleItemPool.items)
 const itemSize = unsafe.Sizeof(SampleItem{})
 
-func (sp *samepleItemPool) ptrItems() *itemSlice {
+func toPtrItemSlice(items *[]SampleItem) (list *itemSlice) {
+	return (*itemSlice)(unsafe.Pointer(items))
+}
 
+func toItemSlice(items []SampleItem) (list itemSlice) {
+	slice := (*itemSlice)(unsafe.Pointer(&items))
+	list.data = atomic.LoadPointer(&slice.data)
+	list.len = atomic_util.LoadInt(&slice.len)
+	list.cap = atomic_util.LoadInt(&slice.cap)
+	return
+}
+
+func (sp *samepleItemPool) ptrItems() (result *itemSlice) {
 	return (*itemSlice)(unsafe.Add(unsafe.Pointer(sp), sampleItemItemsOffset))
+}
 
+func (sp *samepleItemPool) itemSlice(isNoneZero bool) (result itemSlice) {
+	for {
+		//result = *sp.ptrItems()
+		ptr := sp.ptrItems()
+		result.data = atomic.LoadPointer(&ptr.data)
+		result.len = atomic_util.LoadInt(&ptr.len)
+		result.cap = atomic_util.LoadInt(&ptr.cap)
+
+		if result.data != nil {
+			break
+		}
+		if !isNoneZero && result.Len()+result.Cap() == 0 {
+			break
+		}
+	}
+	return
 }
 
 func (list *itemSlice) at(i int) (result *SampleItem) {
@@ -780,4 +686,84 @@ func (list *itemSlice) Len() int {
 func (list *itemSlice) Cap() int {
 
 	return atomic_util.LoadInt(&list.cap)
+}
+func (list *itemSlice) init() {
+	atomic.StorePointer(&list.data, nil)
+	atomic_util.StoreInt(&list.len, 0)
+	atomic_util.StoreInt(&list.cap, 0)
+
+}
+
+//go:norace
+func (list *itemSlice) CopyFrom(slist *itemSlice, head, len int) {
+	scap := atomic_util.LoadInt(&slist.cap)
+
+	old := *list
+	_ = old
+
+	if !atomic_util.CompareAndSwapInt(&list.len, list.len, len) {
+		goto FAIL
+	}
+	if !atomic_util.CompareAndSwapInt(&list.cap, list.cap, scap-head) {
+		goto FAIL
+	}
+	if !atomic.CompareAndSwapPointer(&list.data, list.data, unsafe.Pointer(slist._at(head, false))) {
+		goto FAIL
+	}
+
+	return
+
+FAIL:
+	panic("fail copy")
+}
+
+func itemSliceTobytes(list *itemSlice, idx, len int) (bytes []byte) {
+
+	return ptrTobytes(unsafe.Pointer(list._at(idx, false)),
+		list.Len()*int(itemSize),
+		(list.Cap()-idx)*int(itemSize))
+
+}
+
+func ptrTobytes(ptr unsafe.Pointer, len, cap int) (bytes []byte) {
+
+	list := (*sliceHeader)(unsafe.Pointer(&bytes))
+
+	if !atomic_util.CompareAndSwapInt(&list.len, 0, len) {
+		goto FAIL
+	}
+	if !atomic_util.CompareAndSwapInt(&list.cap, 0, cap) {
+		goto FAIL
+	}
+	if !atomic.CompareAndSwapPointer(&list.data, nil, ptr) {
+		goto FAIL
+	}
+
+	return
+
+FAIL:
+	panic("fail copy")
+
+}
+
+func (list *itemSlice) CopyDataFrom(head int, slist *itemSlice, shead, slen int) {
+
+	sbytes := itemSliceTobytes(slist, shead, slen)
+	bytes := itemSliceTobytes(list, head, slen)
+	copy(bytes, sbytes)
+}
+
+func (list *itemSlice) dup() (new *itemSlice) {
+	new = &itemSlice{}
+	new.init()
+	new.CopyFrom(list, 0, list.Len())
+	return
+}
+
+func (list *itemSlice) reverseAt(idx int) (r uint64) {
+
+	const toReverse = unsafe.Offsetof(EmptySampleHMapEntry.reverse)
+	ptr := unsafe.Add(list.data, idx*int(SampleItemSize)+int(toReverse))
+	r = atomic.LoadUint64((*uint64)(ptr))
+	return r
 }

@@ -597,8 +597,8 @@ func (h *Map) Set(key, value interface{}) bool {
 		var nPool *samepleItemPool
 
 		//lastgets = nil
-
-		item, nPool, fn := bucket.itemPool().getWithFn(bits.Reverse64(k), &bucket.muPool)
+		oPool := bucket.itemPool()
+		item, nPool, fn := oPool.getWithFn(bits.Reverse64(k), &bucket.muPool)
 		if fn != nil {
 			defer fn(&bucket.muPool)
 		}

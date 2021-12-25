@@ -95,10 +95,10 @@ func Test_HMap(t *testing.T) {
 		name string
 		m    *WrapHMap
 	}{
-		// {
-		// 	"embedded pool",
-		// 	newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UseEmbeddedPool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch3))),
-		// },
+		{
+			"embedded pool",
+			newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UseEmbeddedPool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch3))),
+		},
 		// {
 		// 	"pool without goroutine",
 		// 	newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UsePool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch3))),

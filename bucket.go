@@ -366,9 +366,10 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy b
 	for l := 1; l < 16; l++ {
 		if l == 1 {
 			idx := (reverse >> (4 * 15))
-			if !h.isEmbededItemInBucket {
-				results = append(results, &h.buckets[idx])
-			}
+			// MENTION: if result pool is require, enable
+			// if !h.isEmbededItemInBucket {
+			// 	results = append(results, &h.buckets[idx])
+			// }
 			b = &h.buckets[idx]
 			continue
 		}
@@ -388,7 +389,6 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy b
 		if atomic_util.LoadInt(&bucketDowns.len) <= idx ||
 			bucketDowns.at(idx).level() == 0 {
 
-			//if len(b.downLevels) <= idx || b.downLevels[idx].level == 0 || b.downLevels[idx].reverse == 0 {
 			nidx := idx
 			if downlen := atomic_util.LoadInt(&bucketDowns.len); nidx > downlen-1 {
 				nidx = downlen - 1
@@ -418,9 +418,10 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy b
 		if ignoreNoInitDummy && bucketDowns.at(idx).state != bucketStateActive {
 			break
 		}
-		if !h.isEmbededItemInBucket {
-			results = append(results, bucketDowns.at(idx))
-		}
+		// MENTION: if result pool is require, enable
+		// if !h.isEmbededItemInBucket {
+		// 	results = append(results, bucketDowns.at(idx))
+		// }
 
 		b = bucketDowns.at(idx)
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/kazu/elist_head"
 	list_head "github.com/kazu/loncha/lista_encabezado"
 	"github.com/kazu/skiplistmap/atomic_util"
+	"github.com/lk4d4/trylock"
 )
 
 type poolCmd uint8
@@ -25,7 +26,7 @@ const cntOfPoolMgr = 8
 
 var UseGoroutineInPool bool = false
 
-type successFn func(MapItem, *sync.Mutex)
+type successFn func(MapItem, sync.Locker)
 
 type poolReq struct {
 	cmd       poolCmd
@@ -110,7 +111,7 @@ const (
 )
 
 type samepleItemPool struct {
-	mu       sync.Mutex
+	mu       trylock.Mutex
 	freeHead elist_head.ListHead
 	freeTail elist_head.ListHead
 	items    []SampleItem
@@ -195,7 +196,7 @@ func (sp *samepleItemPool) validateItems() error {
 
 }
 
-func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock *sync.Mutex) {
+func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker) {
 	if sp.freeHead.DirectNext() == &sp.freeHead {
 		sp.init()
 	}
@@ -211,7 +212,7 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock *sync.Mutex
 	}
 	// not limit pool
 	pItems := sp.ptrItems()
-	var mu *sync.Mutex
+	var mu *trylock.Mutex
 	var i int
 	var new2 *SampleItem
 	if pItems.Cap() <= pItems.Len() {
@@ -228,7 +229,12 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock *sync.Mutex
 		}
 	}
 	if !atomic_util.CompareAndSwapInt(&pItems.len, i, i+1) {
-		panic("fail expand")
+		Log(LogWarn, "fail to increment pItem.len=%d pItem.cap=%d i=%d", pItems.len, pItems.cap, i)
+		if sp.mu.TryLock() {
+			sp.mu.Unlock()
+		}
+		new, isExpanded, lock = sp.Get()
+		return
 	}
 	new2 = (*pItems).at(i)
 	new2.Init()

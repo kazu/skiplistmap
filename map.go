@@ -622,7 +622,7 @@ func (h *Map) Set(key, value interface{}) bool {
 		var fn func()
 		fn = nil
 		wg.Add(1)
-		h.pooler.Get(bits.Reverse64(k), func(item MapItem, mu *sync.Mutex) {
+		h.pooler.Get(bits.Reverse64(k), func(item MapItem, mu sync.Locker) {
 			s = item.(*SampleItem)
 			if mu != nil {
 				fn = func() {

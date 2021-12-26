@@ -130,14 +130,6 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 	return nil
 }
 
-func (b *bucket) toBase() *bucket {
-
-	if b._parent == nil {
-		return b
-	}
-	return b._parent.toBase()
-}
-
 func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 
 	level := int32(0)
@@ -221,6 +213,14 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 	}
 	return
 
+}
+
+func (b *bucket) toBase() *bucket {
+
+	if b._parent == nil {
+		return b
+	}
+	return b._parent.toBase()
 }
 
 const (

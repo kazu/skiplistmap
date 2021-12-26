@@ -20,6 +20,7 @@ import (
 	"github.com/kazu/loncha"
 	list_head "github.com/kazu/loncha/lista_encabezado"
 	"github.com/kazu/skiplistmap/atomic_util"
+	"github.com/lk4d4/trylock"
 )
 
 //const cntOfHampBucket = 32
@@ -528,7 +529,7 @@ func (h *Map) GetByHash(hash, conflict uint64) (value interface{}, ok bool) {
 
 // LoadItem ... return key/value item with embedded-linked-list. if not found, ok is false
 func (h *Map) LoadItem(key interface{}) (item MapItem, success bool) {
-	item, _, success = h.loadItem(0, 0, key)
+	item, _, success = h._loadItem(0, 0, key)
 	return
 }
 
@@ -538,7 +539,23 @@ func (h *Map) LoadItemByHash(k uint64, conflict uint64) (item MapItem, success b
 	return
 }
 
-func (h *Map) loadItem(k uint64, conflict uint64, key interface{}) (MapItem, *bucket, bool) {
+func (h *Map) loadItem(k uint64, conflict uint64, key interface{}) (item MapItem, bucket *bucket, lock *trylock.Mutex, found bool) {
+
+	for {
+		item, bucket, found = h._loadItem(0, 0, key)
+		if !found {
+			break
+		}
+		if bucket.muPool.TryLock() {
+			//defer bucket.muPool.Unlock()
+			lock = &bucket.muPool
+			break
+		}
+	}
+	return
+}
+
+func (h *Map) _loadItem(k uint64, conflict uint64, key interface{}) (MapItem, *bucket, bool) {
 	//return h._get(k, conflict)
 	if key == nil {
 		return h.getWithBucket(k, conflict)
@@ -558,7 +575,7 @@ func (h *Map) Set(key, value interface{}) bool {
 	var found bool
 
 	for {
-		item, bucket, found = h.loadItem(0, 0, key)
+		item, bucket, found = h._loadItem(0, 0, key)
 		if !found {
 			break
 		}
@@ -579,7 +596,7 @@ func (h *Map) Set(key, value interface{}) bool {
 	}
 	if !h.isEmbededItemInBucket && bucket.head().Empty() {
 		bucket.head()
-		h.loadItem(0, 0, key)
+		h._loadItem(0, 0, key)
 		Log(LogDebug, "empty is invalid")
 	}
 
@@ -670,7 +687,7 @@ func (h *Map) Set(key, value interface{}) bool {
 func (h *Map) StoreItem(item MapItem) bool {
 	k, conflict := item.KeyHash()
 
-	oitem, bucket, found := h.loadItem(k, conflict, nil)
+	oitem, bucket, found := h._loadItem(k, conflict, nil)
 	if found {
 		return h._update(oitem, item.Value())
 	}
@@ -1510,12 +1527,44 @@ func (h *Map) _searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketE
 
 //Delete ... set nil to the key of MapItem. cannot Get entry
 func (h *Map) Delete(key interface{}) {
+	if h.isEmbededItemInBucket {
+		h.deleteInEmbedded(key)
+		return
+	}
 
 	item, ok := h.LoadItem(key)
 	if !ok {
 		return
 	}
 	item.Delete()
+
+}
+
+func (h *Map) deleteInEmbedded(key interface{}) bool {
+	var item MapItem
+	var bucket *bucket
+	var found bool
+	var lock *trylock.Mutex
+	_, _, _, _ = item, bucket, lock, found
+
+	item, bucket, lock, found = h.loadItem(0, 0, key)
+	if lock != nil {
+		defer lock.Unlock()
+	}
+	if !found {
+		return false
+	}
+
+	// remove item
+	// 1. item status to remove
+	// 2. purge from linked-list
+	// 3. insert free list ( keep pointer order ?)
+
+	pool := bucket.itemPool()
+	_ = pool
+	item.Delete()
+
+	return false
 }
 
 // RangeItem ... calls f sequentially for each key and value present in the map.

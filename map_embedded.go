@@ -15,6 +15,7 @@ import (
 	"github.com/kazu/elist_head"
 	list_head "github.com/kazu/loncha/lista_encabezado"
 	"github.com/kazu/skiplistmap/atomic_util"
+	"github.com/lk4d4/trylock"
 )
 
 func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
@@ -228,6 +229,7 @@ const (
 	getLargest         = 2
 	getNoCap           = 3
 	requireInsert      = 4
+	foundFree          = 5
 )
 
 func (sp *samepleItemPool) len() (l int) {
@@ -244,6 +246,11 @@ func (sp *samepleItemPool) state4get(reverse uint64, tail int, len int, cap int)
 	if len == 0 {
 		return getEmpty
 	}
+
+	if _, found := sp.bsearchFromFreeList(reverse, tail); found {
+		return foundFree
+	}
+
 	if cap == len {
 		return getNoCap
 	}
@@ -253,8 +260,29 @@ func (sp *samepleItemPool) state4get(reverse uint64, tail int, len int, cap int)
 	if atomic.LoadUint64(&last.reverse) < reverse {
 		return getLargest
 	}
+
 	return requireInsert
 
+}
+
+func (sp *samepleItemPool) bsearchFromFreeList(reverse uint64, tail int) (int, bool) {
+
+	items := sp.ptrItems()
+
+	idx := sort.Search(tail, func(i int) bool {
+		item := items._at(i, true, false)
+		return atomic.LoadUint64(&item.reverse) >= reverse
+	})
+	if idx <= 0 || idx > tail {
+		return -1, false
+	}
+	mItem := items._at(idx, true, false)
+
+	if mItem.IsDeleted() && !mItem.Empty() {
+		//mItem.Init()
+		return idx, true
+	}
+	return -1, false
 }
 
 var lastgets []byte = nil
@@ -469,9 +497,47 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu sync.Locker) (new MapIte
 		}
 		new, nPool, _ = sp.getWithFn(reverse, nil)
 		return new, nPool, fn
+	case foundFree:
+		if mu != nil && !mu.(*trylock.Mutex).TryLock() {
+			mu.Lock()
+			mu.Unlock()
+		}
+
+		idx, found := sp.bsearchFromFreeList(reverse, lastActiveIdx)
+		if !found {
+			goto RETRY
+		}
+		items := sp.itemSlice(false)
+		new = items._at(idx, true, false)
+		if new == nil {
+			goto RETRY
+		}
+		oState := atomic.LoadUint32((*uint32)(&(new.PtrMapHead().state)))
+		oReverse := atomic.LoadUint64(&new.PtrMapHead().reverse)
+
+		if oState&uint32(mapIsDeleted) == 0 {
+			goto RETRY
+		}
+		if !atomic.CompareAndSwapUint64(&new.PtrMapHead().reverse, oReverse, 0) {
+			goto RETRY
+		}
+		atomic.StoreUint64(&new.PtrMapHead().conflict, 0)
+
+		if !atomic.CompareAndSwapUint32((*uint32)(&(new.PtrMapHead().state)), oState, 0) {
+			atomic.StoreUint64(&new.PtrMapHead().reverse, oReverse)
+			goto RETRY
+		}
+		new.PtrListHead().MarkForDelete()
+		if mu != nil {
+			fn = lazyUnlock
+		}
+		return new, nil, fn
 	}
 
 	return sp.insertToPool(reverse, mu)
+
+RETRY:
+	return sp.getWithFn(reverse, mu)
 
 }
 
@@ -615,9 +681,18 @@ func (sp *samepleItemPool) _split(idx int, connect bool) (nPool *samepleItemPool
 
 }
 
+func (sp *samepleItemPool) initFreeList() {
+
+	elist_head.InitAsEmpty(&sp.freeHead, &sp.freeTail)
+}
+
 func (sp *samepleItemPool) PushWithOrder(item *SampleItem) error {
 
 	p := uintptr(unsafe.Pointer(item.PtrListHead()))
+
+	if sp.freeHead.Empty() {
+		sp.initFreeList()
+	}
 
 	if sp.freeHead.DirectNext() == &sp.freeTail {
 		goto ADD_LAST
@@ -780,7 +855,6 @@ func ptrTobytes(ptr unsafe.Pointer, len, cap int) (bytes []byte) {
 
 FAIL:
 	panic("fail copy")
-
 }
 
 func (list *itemSlice) CopyDataFrom(head int, slist *itemSlice, shead, slen int) {

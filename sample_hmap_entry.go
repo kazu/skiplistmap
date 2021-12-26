@@ -81,7 +81,7 @@ func (s *SampleItem) PtrMapHead() *MapHead {
 }
 
 func (s *SampleItem) Delete() {
-	s.state |= mapIsDummy
+	s.state |= mapIsDeleted
 }
 
 func (s *SampleItem) KeyHash() (uint64, uint64) {

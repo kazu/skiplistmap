@@ -1526,17 +1526,17 @@ func (h *Map) _searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketE
 }
 
 //Delete ... set nil to the key of MapItem. cannot Get entry
-func (h *Map) Delete(key interface{}) {
+func (h *Map) Delete(key interface{}) bool {
 	if h.isEmbededItemInBucket {
-		h.deleteInEmbedded(key)
-		return
+		return h.deleteInEmbedded(key)
 	}
 
 	item, ok := h.LoadItem(key)
 	if !ok {
-		return
+		return false
 	}
 	item.Delete()
+	return true
 
 }
 

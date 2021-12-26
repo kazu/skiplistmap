@@ -524,17 +524,6 @@ func (h *Map) GetByHash(hash, conflict uint64) (value interface{}, ok bool) {
 	return item.Value(), ok
 }
 
-// GetWithFn ... Get with succes function.
-func (h *Map) GetWithFn(key interface{}, onSuccess func(interface{})) bool {
-
-	item, ok := h._get(KeyToHash(key))
-	if !ok {
-		return false
-	}
-	onSuccess(item.Value())
-	return ok
-}
-
 // LoadItem ... return key/value item with embedded-linked-list. if not found, ok is false
 func (h *Map) LoadItem(key interface{}) (item MapItem, success bool) {
 	item, _, success = h.loadItem(0, 0, key)

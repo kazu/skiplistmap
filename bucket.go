@@ -1,7 +1,6 @@
 package skiplistmap
 
 import (
-	"errors"
 	"math/bits"
 	"sync/atomic"
 	"unsafe"
@@ -178,45 +177,6 @@ func (b *bucket) setItemPool(pool *samepleItemPool) {
 	b._itemPool = pool
 	b.setupPool()
 	return
-}
-
-func (b *bucket) checklevel() error {
-
-	level := int32(-1)
-	var reverse uint64
-	for cur := b.LevelHead.DirectNext(); !cur.Empty(); cur = cur.DirectNext() {
-		b := bucketFromLevelHead(cur)
-		if level == -1 {
-			level = bucketFromLevelHead(cur).level()
-			reverse = b.reverse
-			continue
-		}
-		if level != bucketFromLevelHead(cur).level() {
-			return errors.New("invalid level")
-		}
-		if reverse < b.reverse {
-			return errors.New("invalid reverse")
-		}
-		reverse = b.reverse
-	}
-	level = -1
-	for cur := b.LevelHead.DirectPrev(); !cur.Empty(); cur = cur.DirectPrev() {
-		b := bucketFromLevelHead(cur)
-		if level == -1 {
-			level = bucketFromLevelHead(cur).level()
-			reverse = b.reverse
-			continue
-		}
-		if level != bucketFromLevelHead(cur).level() {
-			return errors.New("invalid level")
-		}
-		if reverse > b.reverse {
-			return errors.New("invalid reverse")
-		}
-		reverse = b.reverse
-	}
-	return nil
-
 }
 
 func (b *bucket) nextAsB() *bucket {
@@ -427,20 +387,6 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy b
 	}
 	if b.level() == 0 {
 		return nil
-	}
-	return
-}
-
-func (b *bucket) parent(m *Map) (p *bucket) {
-
-	for level := int32(1); level < b.level(); level++ {
-		if level == 1 {
-			idx := (b.reverse >> (4 * 15))
-			p = &m.buckets[idx]
-			continue
-		}
-		idx := int((b.reverse >> (4 * (16 - level))) & 0xf)
-		p = &p.downLevels[idx]
 	}
 	return
 }

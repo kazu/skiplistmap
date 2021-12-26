@@ -1561,10 +1561,21 @@ func (h *Map) deleteInEmbedded(key interface{}) bool {
 	// 3. insert free list ( keep pointer order ?)
 
 	pool := bucket.itemPool()
-	_ = pool
+	if pool == nil {
+		return false
+	}
 	item.Delete()
 
-	return false
+	pOpts := elist_head.SharedTrav(list_head.WaitNoM())
+	item.PtrListHead().MarkForDelete()
+	elist_head.SharedTrav(pOpts...)
+	item.PtrListHead().Init()
+
+	err := pool.PushWithOrder(item.(*SampleItem))
+	if err != nil {
+		return false
+	}
+	return true
 }
 
 // RangeItem ... calls f sequentially for each key and value present in the map.

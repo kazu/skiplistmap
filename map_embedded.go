@@ -30,7 +30,7 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 	l := items.Len()
 
 	idx := sort.Search(l, func(i int) bool {
-		item := items.at(i)
+		item := items._at(i, true, true)
 		if item == nil {
 			return true
 		}
@@ -38,7 +38,7 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 		//return items.reverseAt(i) >= reverseNoMask
 	})
 	if idx < l && items.reverseAt(idx) == reverseNoMask {
-		return items._at(idx, true)
+		return items._at(idx, true, true)
 	}
 
 	a := bucket.toBase().prevAsB()
@@ -249,7 +249,7 @@ func (sp *samepleItemPool) state4get(reverse uint64, tail int, len int, cap int)
 	}
 
 	items := sp.itemSlice(false)
-	last := items._at(tail, false)
+	last := items._at(tail, false, true)
 	if atomic.LoadUint64(&last.reverse) < reverse {
 		return getLargest
 	}
@@ -615,6 +615,27 @@ func (sp *samepleItemPool) _split(idx int, connect bool) (nPool *samepleItemPool
 
 }
 
+func (sp *samepleItemPool) PushWithOrder(item *SampleItem) error {
+
+	p := uintptr(unsafe.Pointer(item.PtrListHead()))
+
+	if sp.freeHead.DirectNext() == &sp.freeTail {
+		goto ADD_LAST
+	}
+
+	for cur := sp.freeHead.Next(); cur != &sp.freeTail; cur = cur.Next() {
+		if uintptr(unsafe.Pointer(cur)) < p {
+			continue
+		}
+		_, err := cur.InsertBefore(item.PtrListHead())
+		return err
+	}
+
+ADD_LAST:
+	_, err := sp.freeTail.InsertBefore(item.PtrListHead())
+	return err
+}
+
 type sliceHeader struct {
 	data unsafe.Pointer
 	len  int
@@ -663,10 +684,10 @@ func (sp *samepleItemPool) itemSlice(isNoneZero bool) (result itemSlice) {
 
 func (list *itemSlice) at(i int) (result *SampleItem) {
 
-	return list._at(i, true)
+	return list._at(i, true, false)
 }
 
-func (list *itemSlice) _at(i int, checklen bool) (result *SampleItem) {
+func (list *itemSlice) _at(i int, checklen bool, skipOnDelete bool) (result *SampleItem) {
 
 	if checklen && atomic_util.LoadInt(&list.len) <= i {
 		return nil
@@ -675,7 +696,23 @@ func (list *itemSlice) _at(i int, checklen bool) (result *SampleItem) {
 	}
 
 	data := atomic.LoadPointer(&list.data)
-	return (*SampleItem)(unsafe.Add(data, i*int(itemSize)))
+	pCur := unsafe.Add(data, i*int(itemSize))
+	if !skipOnDelete {
+		return (*SampleItem)(pCur)
+	}
+
+	for {
+		result = (*SampleItem)(pCur)
+		if !result.IsDeleted() {
+			break
+		}
+		if pCur == data {
+			break
+		}
+		pCur = unsafe.Add(pCur, -int(itemSize))
+	}
+
+	return result
 }
 
 func (list *itemSlice) Len() int {
@@ -707,7 +744,7 @@ func (list *itemSlice) CopyFrom(slist *itemSlice, head, len int) {
 	if !atomic_util.CompareAndSwapInt(&list.cap, list.cap, scap-head) {
 		goto FAIL
 	}
-	if !atomic.CompareAndSwapPointer(&list.data, list.data, unsafe.Pointer(slist._at(head, false))) {
+	if !atomic.CompareAndSwapPointer(&list.data, list.data, unsafe.Pointer(slist._at(head, false, false))) {
 		goto FAIL
 	}
 
@@ -719,7 +756,7 @@ FAIL:
 
 func itemSliceTobytes(list *itemSlice, idx, len int) (bytes []byte) {
 
-	return ptrTobytes(unsafe.Pointer(list._at(idx, false)),
+	return ptrTobytes(unsafe.Pointer(list._at(idx, false, false)),
 		list.Len()*int(itemSize),
 		(list.Cap()-idx)*int(itemSize))
 

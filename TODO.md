@@ -38,3 +38,5 @@
   - RunLazyUnlocker()
   - map.AddLen() -> addLen()
   - map.GetWithFn()
+
+  - [ ] Implement Reset()

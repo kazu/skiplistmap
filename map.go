@@ -1601,7 +1601,7 @@ func (h *Map) purgeInEmbedded(key interface{}) bool {
 	len := pItems.Len()
 	if item.PtrListHead() == &pItems._at(len-1, true, false).ListHead &&
 		atomic_util.CompareAndSwapInt(&pItems.len, len, len-1) {
-
+		pool.shrinkLen()
 		return true
 	}
 

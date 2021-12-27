@@ -709,6 +709,24 @@ ADD_LAST:
 	return err
 }
 
+func (sp *samepleItemPool) shrinkLen() {
+
+	pItemSlice := sp.ptrItems()
+	l := pItemSlice.Len()
+	for i := l - 1; i > -1; i-- {
+		item := pItemSlice._at(i, true, false)
+		if item == nil || !item.IsDeleted() {
+			break
+		}
+		if !atomic_util.CompareAndSwapInt(&pItemSlice.len, l, i-1) {
+			break
+		}
+		if !item.Empty() {
+			item.MarkForDelete()
+		}
+	}
+}
+
 type sliceHeader struct {
 	data unsafe.Pointer
 	len  int

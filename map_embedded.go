@@ -271,16 +271,16 @@ func (sp *samepleItemPool) bsearchFromFreeList(reverse uint64, tail int) (int, b
 
 	idx := sort.Search(tail, func(i int) bool {
 		item := items._at(i, true, false)
-		return atomic.LoadUint64(&item.reverse) >= reverse
+		return atomic.LoadUint64(&item.reverse) > reverse
 	})
-	if idx <= 0 || idx > tail {
+	if idx <= 1 || idx > tail {
 		return -1, false
 	}
-	mItem := items._at(idx, true, false)
+	mItem := items._at(idx-1, true, false)
 
 	if mItem.IsDeleted() && !mItem.Empty() {
 		//mItem.Init()
-		return idx, true
+		return idx - 1, true
 	}
 	return -1, false
 }

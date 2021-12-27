@@ -61,6 +61,11 @@ func (w *WrapHMap) Set(k string, v *list_head.ListHead) bool {
 	return w.base.Set(k, v)
 }
 
+func (w *WrapHMap) Delete(k string) bool {
+
+	return w.base.Delete(k)
+}
+
 func (w *WrapHMap) Get(k string) (v *list_head.ListHead, ok bool) {
 	result, ok := w.base.LoadItemByHash(skiplistmap.MemHashString(k), xxhash.Sum64String(k))
 	if !ok || result == nil {

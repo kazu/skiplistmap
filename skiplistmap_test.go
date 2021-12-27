@@ -89,6 +89,33 @@ func Test_ConccurentWriteEmbeddedBucket(t *testing.T) {
 
 }
 
+func Test_PoolCap(t *testing.T) {
+
+	tests := []struct {
+		len  int
+		want int
+	}{
+		{1, 2},
+		{2, 4},
+		{3, 4},
+		{4, 8},
+		{5, 8},
+		{8, 16},
+		{16, 32},
+		{32, 64},
+		{64, 128},
+		{128, 256},
+		{256, 320},
+		{320, 384},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%d", tt.len), func(t *testing.T) {
+			assert.Equal(t, tt.want, skiplistmap.PoolCap(tt.len))
+		})
+	}
+}
+
 func Test_HMap(t *testing.T) {
 
 	tests := []struct {
@@ -126,12 +153,19 @@ func Test_HMap(t *testing.T) {
 			skiplistmap.ResetStats()
 
 			_, success := m.Get("hoge1")
+			assert.True(t, success)
 
+			success = m.Delete("hoge3")
 			assert.True(t, success)
 
 			_, success = m.Get("1234")
-
 			assert.False(t, success)
+
+			_, success = m.Get("hoge3")
+			assert.False(t, success)
+
+			success = m.Set("hoge3", v)
+			assert.True(t, success)
 
 			for i := 0; i < 100000; i++ {
 				_, ok := m.Get(fmt.Sprintf("fuge%d", i))

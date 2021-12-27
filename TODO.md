@@ -28,8 +28,13 @@
     - [x] bucketFromPool() -> oBucket.downLevels = oBucket.downLevels[:oIdx+1] and list.at()
 
 - [ ] Implement Purge()
-  - [ ] basic impleent
-  - [ ] waiting/locking to traverse on pursing
+  - [x] basic impleent
+  - [x] waiting/locking to traverse on pursing
   - [ ] purge bucket
 - [x] impelemnt syncMap()
   - [x] new sync.Map implementaion to re-write dirty as skiplistmap.Map 
+
+- [x] remove not-used function
+  - RunLazyUnlocker()
+  - map.AddLen() -> addLen()
+  - map.GetWithFn()

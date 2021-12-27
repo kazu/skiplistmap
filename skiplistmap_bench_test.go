@@ -63,7 +63,7 @@ func (w *WrapHMap) Set(k string, v *list_head.ListHead) bool {
 
 func (w *WrapHMap) Delete(k string) bool {
 
-	return w.base.Delete(k)
+	return w.base.Purge(k)
 }
 
 func (w *WrapHMap) Get(k string) (v *list_head.ListHead, ok bool) {

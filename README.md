@@ -31,7 +31,7 @@ go get "github.com/kazu/skiplistmap"
 ## basic usage
 
 
-```
+```go
 package main 
 
 import (

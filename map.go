@@ -1548,9 +1548,6 @@ func (h *Map) _searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketE
 
 //Delete ... set nil to the key of MapItem. cannot Get entry
 func (h *Map) Delete(key interface{}) bool {
-	if h.isEmbededItemInBucket {
-		return h.deleteInEmbedded(key)
-	}
 
 	item, ok := h.LoadItem(key)
 	if !ok {
@@ -1561,7 +1558,15 @@ func (h *Map) Delete(key interface{}) bool {
 
 }
 
-func (h *Map) deleteInEmbedded(key interface{}) bool {
+//Purge ... key/value entry from map.
+func (h *Map) Purge(key interface{}) bool {
+	if h.isEmbededItemInBucket {
+		return h.purgeInEmbedded(key)
+	}
+	return h.Delete(key)
+}
+
+func (h *Map) purgeInEmbedded(key interface{}) bool {
 	var item MapItem
 	var bucket *bucket
 	var found bool

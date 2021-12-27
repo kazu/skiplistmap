@@ -62,6 +62,24 @@ type Map struct {
 	isEmbededItemInBucket bool
 }
 
+var conf mapConf = mapConf{
+	minCapItems:  2,
+	thresholdCap: 256,
+}
+
+type mapConf struct {
+	minCapItems  int
+	thresholdCap int
+}
+
+func minCapItem() int {
+	return atomic_util.LoadInt(&conf.minCapItems)
+}
+
+func thresholdCapItem() int {
+	return atomic_util.LoadInt(&conf.thresholdCap)
+}
+
 type LevelHead list_head.ListHead
 
 // 	eBuf       []entryBuffer
@@ -141,7 +159,10 @@ func New(opts ...OptHMap) *Map {
 
 func NewHMap(opts ...OptHMap) *Map {
 	list_head.MODE_CONCURRENT = true
-	hmap := &Map{len: 0, maxPerBucket: 32}
+	hmap := &Map{
+		len:          0,
+		maxPerBucket: 32,
+	}
 
 	topBucket := newBucket()
 	topBucket.InitAsEmpty()
@@ -1570,6 +1591,14 @@ func (h *Map) deleteInEmbedded(key interface{}) bool {
 	item.PtrListHead().MarkForDelete()
 	elist_head.SharedTrav(pOpts...)
 	item.PtrListHead().Init()
+
+	pItems := pool.ptrItems()
+	len := pItems.Len()
+	if item.PtrListHead() == &pItems._at(len-1, true, false).ListHead &&
+		atomic_util.CompareAndSwapInt(&pItems.len, len, len-1) {
+
+		return true
+	}
 
 	err := pool.PushWithOrder(item.(*SampleItem))
 	if err != nil {

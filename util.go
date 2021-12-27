@@ -45,6 +45,25 @@ func ElementOf(head unsafe.Pointer, offset uintptr) unsafe.Pointer {
 	return unsafe.Pointer(uintptr(head) - offset)
 }
 
+func PoolCap(len int) int {
+	min := minCapItem()
+	threshold := thresholdCapItem()
+
+	if len < min {
+		return min
+	}
+
+	if len >= threshold {
+		return threshold / 4 * (1 + len/(threshold/4))
+	}
+	for i := 0; i < 60; i++ {
+		if (len >> i) == 0 {
+			return intPow(2, i)
+		}
+	}
+	return 512
+}
+
 func calcCap(len int) int {
 
 	if len > 1024 {

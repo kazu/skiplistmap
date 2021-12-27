@@ -147,6 +147,8 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 		idx := int((reverse >> (4 * (16 - l))) & 0xf)
 		var downs *bucketSlice
 		downs = b.ptrDownLevels()
+
+		// init downLevels[0]
 		if downs == nil || atomic_util.CompareAndSwapInt(&downs.cap, 0, 1) {
 			//if cap(b.downLevels) == 0 {
 			b.downLevels = make([]bucket, 0, 16)
@@ -194,6 +196,7 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 			Log(LogWarn, "downs.len is updated. retry")
 		}
 
+		// init downLevels[idx]
 		if downs.at(idx).level() == 0 {
 			if l != level {
 				Log(LogWarn, "not collected already inited")
@@ -566,12 +569,7 @@ func (sp *samepleItemPool) expand(mu sync.Locker) (unlocker, error) {
 	prevItem := sp.items[0].ListHead.Prev()
 	nextItem := sp.items[olen-1].ListHead.Next()
 
-	nCap := 0
-	if len(sp.items) < 128 {
-		nCap = 256
-	} else {
-		nCap = calcCap(len(sp.items))
-	}
+	nCap := PoolCap(len(sp.items))
 
 	newItems := make([]SampleItem, olen, nCap)
 	toPtrItemSlice(&newItems).CopyDataFrom(0, sp.ptrItems(), 0, olen)
@@ -877,4 +875,9 @@ func (list *itemSlice) reverseAt(idx int) (r uint64) {
 	ptr := unsafe.Add(list.data, idx*int(SampleItemSize)+int(toReverse))
 	r = atomic.LoadUint64((*uint64)(ptr))
 	return r
+}
+
+func (list *itemSlice) reduceCap() int {
+
+	return 0
 }

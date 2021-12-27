@@ -9,7 +9,7 @@ import (
 	"github.com/kazu/elist_head"
 )
 
-type mapState byte
+type mapState uint32
 
 const (
 	mapIsDummy mapState = 1 << iota

@@ -15,6 +15,7 @@ import (
 	"github.com/kazu/elist_head"
 	list_head "github.com/kazu/loncha/lista_encabezado"
 	"github.com/kazu/skiplistmap/atomic_util"
+	"github.com/lk4d4/trylock"
 )
 
 func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
@@ -30,7 +31,7 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 	l := items.Len()
 
 	idx := sort.Search(l, func(i int) bool {
-		item := items.at(i)
+		item := items._at(i, true, true)
 		if item == nil {
 			return true
 		}
@@ -38,7 +39,7 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 		//return items.reverseAt(i) >= reverseNoMask
 	})
 	if idx < l && items.reverseAt(idx) == reverseNoMask {
-		return items._at(idx, true)
+		return items._at(idx, true, true)
 	}
 
 	a := bucket.toBase().prevAsB()
@@ -146,6 +147,8 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 		idx := int((reverse >> (4 * (16 - l))) & 0xf)
 		var downs *bucketSlice
 		downs = b.ptrDownLevels()
+
+		// init downLevels[0]
 		if downs == nil || atomic_util.CompareAndSwapInt(&downs.cap, 0, 1) {
 			//if cap(b.downLevels) == 0 {
 			b.downLevels = make([]bucket, 0, 16)
@@ -193,6 +196,7 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 			Log(LogWarn, "downs.len is updated. retry")
 		}
 
+		// init downLevels[idx]
 		if downs.at(idx).level() == 0 {
 			if l != level {
 				Log(LogWarn, "not collected already inited")
@@ -228,6 +232,7 @@ const (
 	getLargest         = 2
 	getNoCap           = 3
 	requireInsert      = 4
+	foundFree          = 5
 )
 
 func (sp *samepleItemPool) len() (l int) {
@@ -244,17 +249,43 @@ func (sp *samepleItemPool) state4get(reverse uint64, tail int, len int, cap int)
 	if len == 0 {
 		return getEmpty
 	}
+
+	if _, found := sp.bsearchFromFreeList(reverse, tail); found {
+		return foundFree
+	}
+
 	if cap == len {
 		return getNoCap
 	}
 
 	items := sp.itemSlice(false)
-	last := items._at(tail, false)
+	last := items._at(tail, false, true)
 	if atomic.LoadUint64(&last.reverse) < reverse {
 		return getLargest
 	}
+
 	return requireInsert
 
+}
+
+func (sp *samepleItemPool) bsearchFromFreeList(reverse uint64, tail int) (int, bool) {
+
+	items := sp.ptrItems()
+
+	idx := sort.Search(tail, func(i int) bool {
+		item := items._at(i, true, false)
+		return atomic.LoadUint64(&item.reverse) > reverse
+	})
+	if idx <= 1 || idx > tail {
+		return -1, false
+	}
+	mItem := items._at(idx-1, true, false)
+
+	if mItem.IsDeleted() && !mItem.Empty() {
+		//mItem.Init()
+		return idx - 1, true
+	}
+	return -1, false
 }
 
 var lastgets []byte = nil
@@ -469,9 +500,47 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu sync.Locker) (new MapIte
 		}
 		new, nPool, _ = sp.getWithFn(reverse, nil)
 		return new, nPool, fn
+	case foundFree:
+		if mu != nil && !mu.(*trylock.Mutex).TryLock() {
+			mu.Lock()
+			mu.Unlock()
+		}
+
+		idx, found := sp.bsearchFromFreeList(reverse, lastActiveIdx)
+		if !found {
+			goto RETRY
+		}
+		items := sp.itemSlice(false)
+		new = items._at(idx, true, false)
+		if new == nil {
+			goto RETRY
+		}
+		oState := atomic.LoadUint32((*uint32)(&(new.PtrMapHead().state)))
+		oReverse := atomic.LoadUint64(&new.PtrMapHead().reverse)
+
+		if oState&uint32(mapIsDeleted) == 0 {
+			goto RETRY
+		}
+		if !atomic.CompareAndSwapUint64(&new.PtrMapHead().reverse, oReverse, 0) {
+			goto RETRY
+		}
+		atomic.StoreUint64(&new.PtrMapHead().conflict, 0)
+
+		if !atomic.CompareAndSwapUint32((*uint32)(&(new.PtrMapHead().state)), oState, 0) {
+			atomic.StoreUint64(&new.PtrMapHead().reverse, oReverse)
+			goto RETRY
+		}
+		new.PtrListHead().MarkForDelete()
+		if mu != nil {
+			fn = lazyUnlock
+		}
+		return new, nil, fn
 	}
 
 	return sp.insertToPool(reverse, mu)
+
+RETRY:
+	return sp.getWithFn(reverse, mu)
 
 }
 
@@ -500,12 +569,7 @@ func (sp *samepleItemPool) expand(mu sync.Locker) (unlocker, error) {
 	prevItem := sp.items[0].ListHead.Prev()
 	nextItem := sp.items[olen-1].ListHead.Next()
 
-	nCap := 0
-	if len(sp.items) < 128 {
-		nCap = 256
-	} else {
-		nCap = calcCap(len(sp.items))
-	}
+	nCap := PoolCap(len(sp.items))
 
 	newItems := make([]SampleItem, olen, nCap)
 	toPtrItemSlice(&newItems).CopyDataFrom(0, sp.ptrItems(), 0, olen)
@@ -615,6 +679,36 @@ func (sp *samepleItemPool) _split(idx int, connect bool) (nPool *samepleItemPool
 
 }
 
+func (sp *samepleItemPool) initFreeList() {
+
+	elist_head.InitAsEmpty(&sp.freeHead, &sp.freeTail)
+}
+
+func (sp *samepleItemPool) PushWithOrder(item *SampleItem) error {
+
+	p := uintptr(unsafe.Pointer(item.PtrListHead()))
+
+	if sp.freeHead.Empty() {
+		sp.initFreeList()
+	}
+
+	if sp.freeHead.DirectNext() == &sp.freeTail {
+		goto ADD_LAST
+	}
+
+	for cur := sp.freeHead.Next(); cur != &sp.freeTail; cur = cur.Next() {
+		if uintptr(unsafe.Pointer(cur)) < p {
+			continue
+		}
+		_, err := cur.InsertBefore(item.PtrListHead())
+		return err
+	}
+
+ADD_LAST:
+	_, err := sp.freeTail.InsertBefore(item.PtrListHead())
+	return err
+}
+
 type sliceHeader struct {
 	data unsafe.Pointer
 	len  int
@@ -663,10 +757,10 @@ func (sp *samepleItemPool) itemSlice(isNoneZero bool) (result itemSlice) {
 
 func (list *itemSlice) at(i int) (result *SampleItem) {
 
-	return list._at(i, true)
+	return list._at(i, true, false)
 }
 
-func (list *itemSlice) _at(i int, checklen bool) (result *SampleItem) {
+func (list *itemSlice) _at(i int, checklen bool, skipOnDelete bool) (result *SampleItem) {
 
 	if checklen && atomic_util.LoadInt(&list.len) <= i {
 		return nil
@@ -675,7 +769,23 @@ func (list *itemSlice) _at(i int, checklen bool) (result *SampleItem) {
 	}
 
 	data := atomic.LoadPointer(&list.data)
-	return (*SampleItem)(unsafe.Add(data, i*int(itemSize)))
+	pCur := unsafe.Add(data, i*int(itemSize))
+	if !skipOnDelete {
+		return (*SampleItem)(pCur)
+	}
+
+	for {
+		result = (*SampleItem)(pCur)
+		if !result.IsDeleted() {
+			break
+		}
+		if pCur == data {
+			break
+		}
+		pCur = unsafe.Add(pCur, -int(itemSize))
+	}
+
+	return result
 }
 
 func (list *itemSlice) Len() int {
@@ -707,7 +817,7 @@ func (list *itemSlice) CopyFrom(slist *itemSlice, head, len int) {
 	if !atomic_util.CompareAndSwapInt(&list.cap, list.cap, scap-head) {
 		goto FAIL
 	}
-	if !atomic.CompareAndSwapPointer(&list.data, list.data, unsafe.Pointer(slist._at(head, false))) {
+	if !atomic.CompareAndSwapPointer(&list.data, list.data, unsafe.Pointer(slist._at(head, false, false))) {
 		goto FAIL
 	}
 
@@ -719,7 +829,7 @@ FAIL:
 
 func itemSliceTobytes(list *itemSlice, idx, len int) (bytes []byte) {
 
-	return ptrTobytes(unsafe.Pointer(list._at(idx, false)),
+	return ptrTobytes(unsafe.Pointer(list._at(idx, false, false)),
 		list.Len()*int(itemSize),
 		(list.Cap()-idx)*int(itemSize))
 
@@ -743,7 +853,6 @@ func ptrTobytes(ptr unsafe.Pointer, len, cap int) (bytes []byte) {
 
 FAIL:
 	panic("fail copy")
-
 }
 
 func (list *itemSlice) CopyDataFrom(head int, slist *itemSlice, shead, slen int) {
@@ -766,4 +875,9 @@ func (list *itemSlice) reverseAt(idx int) (r uint64) {
 	ptr := unsafe.Add(list.data, idx*int(SampleItemSize)+int(toReverse))
 	r = atomic.LoadUint64((*uint64)(ptr))
 	return r
+}
+
+func (list *itemSlice) reduceCap() int {
+
+	return 0
 }

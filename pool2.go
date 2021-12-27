@@ -313,12 +313,7 @@ NO_DELETE:
 
 	elist_head.InitAsEmpty(&nPool.freeHead, &nPool.freeTail)
 
-	nCap := 0
-	if len(sp.items) < 128 {
-		nCap = 256
-	} else {
-		nCap = calcCap(len(sp.items))
-	}
+	nCap := PoolCap(len(sp.items))
 
 	nPool.items = make([]SampleItem, 0, nCap)
 	nPool.items = append(nPool.items, sp.items...)

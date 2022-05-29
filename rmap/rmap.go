@@ -145,7 +145,7 @@ func (m *RMap[K, V]) missLocked() {
 	m.misses = 0
 }
 
-func (m *RMap[K, V]) Get(key string) (v V, ok bool) {
+func (m *RMap[K, V]) Get(key K) (v V, ok bool) {
 
 	return m.Get2(smap.KeyToHash(key))
 }

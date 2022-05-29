@@ -10,7 +10,7 @@ import (
 
 func Test_Get_Set(t *testing.T) {
 
-	rmap := rmap.New()
+	rmap := rmap.New[string, int]()
 
 	for i := 0; i < 1000; i++ {
 		rmap.Set(fmt.Sprintf("hoge%d", i), i)

@@ -8,7 +8,7 @@ import (
 
 	"github.com/kazu/elist_head"
 	list_head "github.com/kazu/loncha/lista_encabezado"
-	"github.com/kazu/skiplistmap"
+	slmap "github.com/kazu/skiplistmap"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -16,21 +16,21 @@ func Test_HmapEntry(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		wanted skiplistmap.MapItem
-		got    func(*elist_head.ListHead) skiplistmap.MapItem
+		wanted slmap.MapItem[string, string]
+		got    func(*elist_head.ListHead) slmap.MapItem[string, string]
 	}{
 		{
 			name:   "SampleItem",
-			wanted: skiplistmap.NewSampleItem("hoge", "hoge value"),
-			got: func(lhead *elist_head.ListHead) skiplistmap.MapItem {
-				return (skiplistmap.EmptySampleHMapEntry).HmapEntryFromListHead(lhead).(skiplistmap.MapItem)
+			wanted: slmap.NewSampleItem("hoge", "hoge value"),
+			got: func(lhead *elist_head.ListHead) slmap.MapItem[string, string] {
+				return (slmap.EmptySampleHMapEntry[string, string]()).HmapEntryFromListHead(lhead).(slmap.MapItem[string, string])
 			},
 		},
 		{
 			name:   "entryHMap",
-			wanted: skiplistmap.NewEntryMap("hogeentry", "hogevalue"),
-			got: func(lhead *elist_head.ListHead) skiplistmap.MapItem {
-				return (skiplistmap.EmptyEntryHMap).HmapEntryFromListHead(lhead).(skiplistmap.MapItem)
+			wanted: slmap.NewEntryMap("hogeentry", "hogevalue"),
+			got: func(lhead *elist_head.ListHead) slmap.MapItem[string, string] {
+				return slmap.EmptyEntryHMap[string, string]().HmapEntryFromListHead(lhead).(slmap.MapItem[string, string])
 			},
 		},
 	}
@@ -46,9 +46,11 @@ func Test_HmapEntry(t *testing.T) {
 
 func Test_ConccurentWriteEmbeddedBucket(t *testing.T) {
 
-	m := skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32),
-		skiplistmap.UseEmbeddedPool(true),
-		skiplistmap.BucketMode(skiplistmap.CombineSearch3))
+	m := slmap.NewHMap[string, uint64](
+		slmap.OptC[string, uint64](
+			slmap.BucketMode(slmap.CombineSearch3),
+			slmap.MaxPefBucket(32)),
+		slmap.UseEmbeddedPool[string, uint64](true))
 
 	tests := []struct {
 		r uint64
@@ -74,7 +76,7 @@ func Test_ConccurentWriteEmbeddedBucket(t *testing.T) {
 					bucket.SetItemPool(pool)
 				}
 
-				s := item.(*skiplistmap.SampleItem)
+				s := item.(*slmap.SampleItem[string, uint64])
 				s.K = "???"
 				s.SetValue(i)
 				m.TestSet(bits.Reverse64(key+i), i, bucket, s)
@@ -111,7 +113,7 @@ func Test_PoolCap(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("%d", tt.len), func(t *testing.T) {
-			assert.Equal(t, tt.want, skiplistmap.PoolCap(tt.len))
+			assert.Equal(t, tt.want, slmap.PoolCap(tt.len))
 		})
 	}
 }
@@ -120,19 +122,19 @@ func Test_HMap(t *testing.T) {
 
 	tests := []struct {
 		name string
-		m    *WrapHMap
+		m    *WrapHMap[string, *list_head.ListHead]
 	}{
 		{
 			"embedded pool",
-			newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UseEmbeddedPool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch3))),
+			newWrapHMap(slmap.NewHMap[string, *list_head.ListHead](slmap.OptC[string, *list_head.ListHead](slmap.MaxPefBucket(32), slmap.BucketMode(slmap.CombineSearch3)), slmap.UseEmbeddedPool[string, *list_head.ListHead](true))),
 		},
 		// {
 		// 	"pool without goroutine",
-		// 	newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UsePool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch3))),
+		// 	newWrapHMap(slmap.NewHMap(slmap.MaxPefBucket(32), slmap.UsePool(true), slmap.BucketMode(slmap.CombineSearch3))),
 		// },
 		{
 			"combine4",
-			newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UsePool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch4))),
+			newWrapHMap(slmap.NewHMap[string, *list_head.ListHead](slmap.OptC[string, *list_head.ListHead](slmap.MaxPefBucket(32), slmap.BucketMode(slmap.CombineSearch4)), slmap.UsePool[string, *list_head.ListHead](true))),
 		},
 	}
 
@@ -150,7 +152,7 @@ func Test_HMap(t *testing.T) {
 			for i := 0; i < 100000; i++ {
 				m.Set(fmt.Sprintf("fuge%d", i), v)
 			}
-			skiplistmap.ResetStats()
+			slmap.ResetStats()
 
 			_, success := m.Get("hoge1")
 			assert.True(t, success)
@@ -171,9 +173,9 @@ func Test_HMap(t *testing.T) {
 				_, ok := m.Get(fmt.Sprintf("fuge%d", i))
 				assert.Truef(t, ok, "not found key=%s", fmt.Sprintf("fuge%d", i))
 				if !ok {
-					skiplistmap.BucketMode(skiplistmap.NestedSearchForBucket)(m.base)
+					slmap.BucketMode(slmap.NestedSearchForBucket)(m.base.OptC())
 					_, ok = m.Get(fmt.Sprintf("fuge%d", i))
-					skiplistmap.BucketMode(skiplistmap.CombineSearch)(m.base)
+					slmap.BucketMode(slmap.CombineSearch)(m.base.OptC())
 					_, ok = m.Get(fmt.Sprintf("fuge%d", i))
 				}
 			}
@@ -186,13 +188,13 @@ func Test_HMap(t *testing.T) {
 	}
 }
 
-func DumpHmap(h *skiplistmap.Map) {
+func DumpHmap(h *slmap.Map[string, *list_head.ListHead]) {
 
 	fmt.Printf("---DumpBucketPerLevel---\n")
 	h.DumpBucketPerLevel(nil)
 	fmt.Printf("---DumpBucket---\n")
 	h.DumpBucket(nil)
 	h.DumpEntry(nil)
-	fmt.Printf("fail 0x%x\n", skiplistmap.Failreverse)
+	fmt.Printf("fail 0x%x\n", slmap.Failreverse)
 
 }

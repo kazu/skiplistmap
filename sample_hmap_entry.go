@@ -10,86 +10,101 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/cespare/xxhash"
 	"github.com/kazu/elist_head"
 )
 
-type SampleItem struct {
-	K string
+type SampleItem[Key, Value any] struct {
+	K Key
 	V atomic.Value
 	MapHead
 }
 
-var sampleItem MapItem = &SampleItem{}
+//var sampleItem MapItem = &SampleItem{}
 
-//var EmptySampleHMapEntry SampleItem = SampleItem{}
-var EmptySampleHMapEntry *SampleItem = (*SampleItem)(unsafe.Pointer(uintptr(0)))
-
-const SampleItemOffsetOf = unsafe.Offsetof(EmptySampleHMapEntry.ListHead)
-const SampleItemSize = unsafe.Sizeof(*EmptySampleHMapEntry)
-
-func SampleItemFromListHead(head *elist_head.ListHead) *SampleItem {
-	return (*SampleItem)(ElementOf(unsafe.Pointer(head), SampleItemOffsetOf))
+func sampleItem[Key, Value any]() MapItem[Key, Value] {
+	return &SampleItem[Key, Value]{}
 }
 
-func (s *SampleItem) Offset() uintptr {
-	return SampleItemOffsetOf
+func EmptySampleHMapEntry[K, V any]() *SampleItem[K, V] {
+
+	return (*SampleItem[K, V])(unsafe.Pointer(uintptr(0)))
 }
 
-func (s *SampleItem) PtrMapeHead() *MapHead {
+func SampleItemOffsetOf[K, V any]() uintptr {
+
+	return unsafe.Offsetof(EmptySampleHMapEntry[K, V]().ListHead)
+
+}
+
+//const SampleItemSize = unsafe.Sizeof(*EmptySampleHMapEntry)
+
+func SampleItemSize[K, V any]() uintptr {
+	return unsafe.Sizeof(*EmptySampleHMapEntry[K, V]())
+}
+
+func SampleItemFromListHead[K, V any](head *elist_head.ListHead) *SampleItem[K, V] {
+	return (*SampleItem[K, V])(ElementOf(unsafe.Pointer(head), SampleItemOffsetOf[K, V]()))
+}
+
+func (s *SampleItem[K, V]) Offset() uintptr {
+	return SampleItemOffsetOf[K, V]()
+}
+
+func (s *SampleItem[K, V]) PtrMapeHead() *MapHead {
 	return &(s.MapHead)
 }
 
-func (s *SampleItem) hmapEntryFromListHead(lhead *elist_head.ListHead) *SampleItem {
-	return SampleItemFromListHead(lhead)
+func (s *SampleItem[K, V]) hmapEntryFromListHead(lhead *elist_head.ListHead) *SampleItem[K, V] {
+	return SampleItemFromListHead[K, V](lhead)
 }
 
-func (s *SampleItem) HmapEntryFromListHead(lhead *elist_head.ListHead) HMapEntry {
+func (s *SampleItem[K, V]) HmapEntryFromListHead(lhead *elist_head.ListHead) HMapEntry {
 	return s.hmapEntryFromListHead(lhead)
 }
 
-func (s *SampleItem) Key() interface{} {
+func (s *SampleItem[K, V]) Key() K {
 	return s.K
 }
 
-func (s *SampleItem) Value() interface{} {
-	return s.V.Load()
+func (s *SampleItem[K, V]) Value() V {
+	return s.V.Load().(V)
 }
 
-func (s *SampleItem) SetValue(v interface{}) bool {
-	if v == nil {
-		return false
-	}
+func (s *SampleItem[K, V]) SetValue(v V) bool {
+	// if v == nil {
+	// 	return false
+	// }
 	s.V.Store(v)
 	return true
 }
 
-func (s *SampleItem) Setup() {
+func (s *SampleItem[K, V]) Setup() {
 	s.reverse, s.conflict = KeyToHash(s.Key())
 
 }
 
-func (s *SampleItem) Next() HMapEntry {
+func (s *SampleItem[K, V]) Next() HMapEntry {
 	return s.hmapEntryFromListHead(s.PtrListHead().DirectNext())
 }
-func (s *SampleItem) Prev() HMapEntry {
+func (s *SampleItem[K, V]) Prev() HMapEntry {
 	return s.hmapEntryFromListHead(s.PtrListHead().DirectPrev())
 }
 
-func (s *SampleItem) PtrMapHead() *MapHead {
+func (s *SampleItem[K, V]) PtrMapHead() *MapHead {
 	return &s.MapHead
 }
 
-func (s *SampleItem) Delete() {
+func (s *SampleItem[K, V]) Delete() {
 	s.state |= mapIsDeleted
 }
 
-func (s *SampleItem) KeyHash() (uint64, uint64) {
-	return MemHashString(s.K), xxhash.Sum64String(s.K)
+func (s *SampleItem[K, V]) KeyHash() (uint64, uint64) {
+	//return MemHashString(s.K), xxhash.Sum64String(s.K)
+	return KeyToHash(s.K)
 }
 
-func NewSampleItem(key string, value interface{}) (item *SampleItem) {
-	item = &SampleItem{K: key}
+func NewSampleItem[Key, Value any](key Key, value Value) (item *SampleItem[Key, Value]) {
+	item = &SampleItem[Key, Value]{K: key}
 	item.SetValue(value)
 	return
 }

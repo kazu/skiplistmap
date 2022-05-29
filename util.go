@@ -101,8 +101,8 @@ func maxInts(ints ...int) (max int) {
 	return
 }
 
-func NilMapEntry() HMapEntry {
-	return (*entryHMap)(nil)
+func NilMapEntry[K, V any]() HMapEntry {
+	return (*entryHMap[K, V])(nil)
 }
 
 func inserBeforeWithCheck(right *elist_head.ListHead, center *elist_head.ListHead) (*elist_head.ListHead, error) {

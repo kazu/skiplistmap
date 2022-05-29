@@ -1,3 +1,6 @@
+//go:build go1.18
+// +build go1.18
+
 package skiplistmap
 
 import (
@@ -10,26 +13,20 @@ import (
 	"github.com/lk4d4/trylock"
 )
 
-const (
-	bucketStateNone   uint32 = 0
-	bucketStateInit   uint32 = 1
-	bucketStateActive uint32 = 2
-)
-
-type bucket struct {
+type bucket[K any, V any] struct {
 	_level  int32
 	_len    int32
 	reverse uint64
-	dummy   entryHMap
+	dummy   entryHMap[K, V]
 
-	downLevels        []bucket
+	downLevels        []bucket[K, V]
 	cntOfActiveLevels int32
 	state             uint32
 
-	_itemPool     *samepleItemPool
-	_parent       *bucket
-	itemPoolFn    func() *samepleItemPool
-	setItemPoolFn func(*samepleItemPool)
+	_itemPool     *samepleItemPool[K, V]
+	_parent       *bucket[K, V]
+	itemPoolFn    func() *samepleItemPool[K, V]
+	setItemPoolFn func(*samepleItemPool[K, V])
 	headPool      list_head.ListHead
 	tailPool      list_head.ListHead
 
@@ -44,13 +41,17 @@ type bucket struct {
 	list_head.ListHead
 }
 
-const bucketOffset = unsafe.Offsetof(emptyBucket.ListHead)
-const bucketOffsetLevel = unsafe.Offsetof(emptyBucket.LevelHead)
+func bucketOffset[K any, V any]() uintptr {
+	return unsafe.Offsetof(emptyBucket[K, V]().ListHead)
+}
+func bucketOffsetLevel[K any, V any]() uintptr {
+	return unsafe.Offsetof((&bucket[K, V]{}).LevelHead)
+}
 
-func newBucket() (new *bucket) {
+func newBucket[K any, V any]() (new *bucket[K, V]) {
 
-	new = &bucket{
-		_itemPool: &samepleItemPool{},
+	new = &bucket[K, V]{
+		_itemPool: &samepleItemPool[K, V]{},
 	}
 	new._itemPool.Init()
 	new._initItemPool(true)
@@ -58,18 +59,18 @@ func newBucket() (new *bucket) {
 	return new
 }
 
-func (e *bucket) initItemPool() {
+func (e *bucket[K, V]) initItemPool() {
 	e._initItemPool(false)
 }
 
-func (e *bucket) _initItemPool(force bool) {
+func (e *bucket[K, V]) _initItemPool(force bool) {
 
 	if force || e._itemPool == nil {
 		list_head.InitAsEmpty(&e.headPool, &e.tailPool)
 	}
 }
 
-func (e *bucket) setupPool() {
+func (e *bucket[K, V]) setupPool() {
 
 	if e._itemPool != nil && e._itemPool.Prev() != &e.headPool {
 		e.tailPool.InsertBefore(e._itemPool.PtrListHead())
@@ -77,41 +78,41 @@ func (e *bucket) setupPool() {
 
 }
 
-func (e *bucket) Offset() uintptr {
-	return bucketOffset
+func (e *bucket[K, V]) Offset() uintptr {
+	return bucketOffset[K, V]()
 }
 
-func (e *bucket) OffsetLevel() uintptr {
-	return bucketOffsetLevel
+func (e *bucket[K, V]) OffsetLevel() uintptr {
+	return bucketOffsetLevel[K, V]()
 }
 
-func (e *bucket) PtrListHead() *list_head.ListHead {
+func (e *bucket[K, V]) PtrListHead() *list_head.ListHead {
 	return &e.ListHead
 }
 
-func (e *bucket) PtrLevelHead() *list_head.ListHead {
+func (e *bucket[K, V]) PtrLevelHead() *list_head.ListHead {
 	return &e.LevelHead
 }
 
-func (e *bucket) FromListHead(head *list_head.ListHead) list_head.List {
-	return bucketFromListHead(head)
+func (e *bucket[K, V]) FromListHead(head *list_head.ListHead) list_head.List {
+	return bucketFromListHead[K, V](head)
 }
 
-func bucketFromListHead(head *list_head.ListHead) *bucket {
-	return (*bucket)(ElementOf(unsafe.Pointer(head), bucketOffset))
+func bucketFromListHead[K any, V any](head *list_head.ListHead) *bucket[K, V] {
+	return (*bucket[K, V])(ElementOf(unsafe.Pointer(head), bucketOffset[K, V]()))
 }
 
 //go:nocheckptr
-func bucketFromLevelHead(head *list_head.ListHead) *bucket {
+func bucketFromLevelHead[K any, V any](head *list_head.ListHead) *bucket[K, V] {
 	// if head == nil {
 	// 	return nil
 	// }
 	// return (*bucket)(unsafe.Pointer(uintptr(unsafe.Pointer(head)) - emptyBucket.OffsetLevel()))
 
-	return (*bucket)(ElementOf(unsafe.Pointer(head), bucketOffsetLevel))
+	return (*bucket[K, V])(ElementOf(unsafe.Pointer(head), bucketOffsetLevel[K, V]()))
 }
 
-func (b *bucket) len() int32 {
+func (b *bucket[K, V]) len() int32 {
 
 	if b._itemPool == nil && b.itemPoolFn == nil {
 		return atomic.LoadInt32(&b._len)
@@ -120,10 +121,10 @@ func (b *bucket) len() int32 {
 
 }
 
-func (b *bucket) itemPool() *samepleItemPool {
+func (b *bucket[K, V]) itemPool() *samepleItemPool[K, V] {
 
 	if b._itemPool != nil && b.tailPool.Prev() != b.headPool.Prev() {
-		return samepleItemPoolFromListHead(b.tailPool.Prev())
+		return samepleItemPoolFromListHead[K, V](b.tailPool.Prev())
 	}
 	if b._parent != nil {
 		return b._parent.itemPool()
@@ -136,11 +137,11 @@ func (b *bucket) itemPool() *samepleItemPool {
 	return b.itemPool()
 }
 
-func (b *bucket) SetItemPool(pool *samepleItemPool) {
+func (b *bucket[K, V]) SetItemPool(pool *samepleItemPool[K, V]) {
 	b.setItemPool(pool)
 }
 
-func (b *bucket) setItemPool(pool *samepleItemPool) {
+func (b *bucket[K, V]) setItemPool(pool *samepleItemPool[K, V]) {
 
 	if b._parent != nil {
 		b._parent.setItemPool(pool)
@@ -177,7 +178,7 @@ func (b *bucket) setItemPool(pool *samepleItemPool) {
 	return
 }
 
-func (b *bucket) nextAsB() *bucket {
+func (b *bucket[K, V]) nextAsB() *bucket[K, V] {
 	//if b.ListHead.DirectNext().Empty() {
 	next := b.ListHead.Next()
 	if next == next.DirectNext() {
@@ -185,16 +186,16 @@ func (b *bucket) nextAsB() *bucket {
 		return b
 	}
 	//return bucketFromListHead(b.ListHead.DirectNext())
-	return bucketFromListHead(next)
+	return bucketFromListHead[K, V](next)
 
 }
 
-func (b *bucket) prevAsB() *bucket {
+func (b *bucket[K, V]) prevAsB() *bucket[K, V] {
 
 	return b._prevAsB(true)
 }
 
-func (b *bucket) _prevAsB(isSame bool) (prevB *bucket) {
+func (b *bucket[K, V]) _prevAsB(isSame bool) (prevB *bucket[K, V]) {
 
 	//if b.ListHead.DirectPrev().Empty() {
 	prev := b.ListHead.Prev()
@@ -204,7 +205,7 @@ func (b *bucket) _prevAsB(isSame bool) (prevB *bucket) {
 	}
 
 	//return bucketFromListHead(b.ListHead.DirectPrev())
-	prevB = bucketFromListHead(prev)
+	prevB = bucketFromListHead[K, V](prev)
 	if isSame || prevB.reverse != b.reverse {
 		return
 	}
@@ -212,19 +213,19 @@ func (b *bucket) _prevAsB(isSame bool) (prevB *bucket) {
 
 }
 
-func (b *bucket) NextOnLevel() *bucket {
+func (b *bucket[K, V]) NextOnLevel() *bucket[K, V] {
 
 	n := b.LevelHead.Next()
 	nn := n.Next()
 	if n == nn {
 		return b
 	}
-	return bucketFromLevelHead(n)
+	return bucketFromLevelHead[K, V](n)
 	// return bucketFromLevelHead(b.LevelHead.Next())
 
 }
 
-func (b *bucket) PrevOnLevel() *bucket {
+func (b *bucket[K, V]) PrevOnLevel() *bucket[K, V] {
 
 	p := b.LevelHead.Prev()
 	pp := p.Prev()
@@ -232,11 +233,11 @@ func (b *bucket) PrevOnLevel() *bucket {
 		return b
 	}
 
-	return bucketFromLevelHead(p)
+	return bucketFromLevelHead[K, V](p)
 
 }
 
-func (b *bucket) NextEntry() *entryHMap {
+func (b *bucket[K, V]) NextEntry() *entryHMap[K, V] {
 
 	if b.head() == nil {
 		return nil
@@ -247,14 +248,14 @@ func (b *bucket) NextEntry() *entryHMap {
 	}
 
 	if !head.Empty() {
-		return entryHMapFromListHead(head)
+		return entryHMapFromListHead[K, V](head)
 	}
 
 	return nil
 
 }
 
-func (b *bucket) PrevEntry() *entryHMap {
+func (b *bucket[K, V]) PrevEntry() *entryHMap[K, V] {
 
 	if b.head() == nil {
 		return nil
@@ -265,14 +266,14 @@ func (b *bucket) PrevEntry() *entryHMap {
 	}
 
 	if !head.Empty() {
-		return entryHMapFromListHead(head)
+		return entryHMapFromListHead[K, V](head)
 	}
 
 	return nil
 
 }
 
-func (b *bucket) entry(h *Map) (e HMapEntry) {
+func (b *bucket[K, V]) entry(h *Map[K, V]) (e HMapEntry) {
 
 	if b.head() == nil {
 		return nil
@@ -289,30 +290,7 @@ func (b *bucket) entry(h *Map) (e HMapEntry) {
 
 }
 
-type commonOpt struct {
-	onOk bool
-}
-
-type cOptFn func(opt *commonOpt) cOptFn
-
-func useOnOk(t bool) cOptFn {
-
-	return func(opt *commonOpt) cOptFn {
-		prev := opt.onOk
-		opt.onOk = t
-		return useOnOk(prev)
-	}
-}
-func (o *commonOpt) Option(opts ...cOptFn) (prevs []cOptFn) {
-
-	for i := range opts {
-		prevs = append(prevs, opts[i](o))
-	}
-
-	return
-}
-
-func (b *bucket) largestDown(ignoreNoPool, ignoreNoInitDummy bool) *bucket {
+func (b *bucket[K, V]) largestDown(ignoreNoPool, ignoreNoInitDummy bool) *bucket[K, V] {
 
 	if len(b.downLevels) == 0 {
 		return b
@@ -335,9 +313,9 @@ func (b *bucket) largestDown(ignoreNoPool, ignoreNoInitDummy bool) *bucket {
 	return b
 }
 
-func (b *bucket) _validateItemsNear() {
+func (b *bucket[K, V]) _validateItemsNear() {
 
-	var bp, bn *bucket
+	var bp, bn *bucket[K, V]
 	_, _ = bp, bn
 	if b.itemPool().validateItems() != nil {
 		bp = b.prevAsB()
@@ -355,22 +333,22 @@ func (b *bucket) _validateItemsNear() {
 
 }
 
-func (b *bucket) GetItem(r uint64) (MapItem, *samepleItemPool, unlocker) {
+func (b *bucket[K, V]) GetItem(r uint64) (MapItem[K, V], *samepleItemPool[K, V], unlocker) {
 	return b.itemPool().getWithFn(r, &b.muPool)
 }
 
-func (b *bucket) RunLazyUnlocker(fn unlocker) {
+func (b *bucket[K, V]) RunLazyUnlocker(fn unlocker) {
 
 	fn(&b.muPool)
 
 }
 
-func (b *bucket) headNoWaitEmpty() *elist_head.ListHead {
+func (b *bucket[K, V]) headNoWaitEmpty() *elist_head.ListHead {
 
 	return b._head()
 }
 
-func (b *bucket) head() *elist_head.ListHead {
+func (b *bucket[K, V]) head() *elist_head.ListHead {
 
 	if b._itemPool != nil {
 		return b._head()
@@ -395,7 +373,7 @@ func (b *bucket) head() *elist_head.ListHead {
 
 }
 
-func (b *bucket) _head() *elist_head.ListHead {
+func (b *bucket[K, V]) _head() *elist_head.ListHead {
 	if b._parent != nil {
 		return b._parent.head()
 	}
@@ -416,43 +394,70 @@ func (b *bucket) _head() *elist_head.ListHead {
 	return &b.dummy.ListHead
 }
 
-func (b *bucket) isRequireOnOk() bool {
+func (b *bucket[K, V]) isRequireOnOk() bool {
 	return b.state != bucketStateActive && !b.ListHead.IsSingle() && !b.LevelHead.IsSingle() && !b.dummy.IsSingle() && !b.dummy.Empty()
 }
 
-func (b *bucket) setLevel(l int32) (prev int32) {
+func (b *bucket[K, V]) setLevel(l int32) (prev int32) {
 
 	prev = atomic.LoadInt32(&b._level)
 	atomic.StoreInt32(&b._level, l)
 	return
 }
 
-func (b *bucket) level() (prev int32) {
+func (b *bucket[K, V]) level() (prev int32) {
 
 	return atomic.LoadInt32(&b._level)
 }
 
-type bucketSlice struct {
+func bucketDownlevelsOffset[K, V any]() uintptr {
+
+	return unsafe.Offsetof((&bucket[K, V]{}).downLevels)
+}
+
+func bucketSize[K, V any]() uintptr {
+
+	return unsafe.Sizeof(bucket[K, V]{})
+
+}
+
+func (b *bucket[K, V]) ptrDownLevels() *bucketSlice[K, V] {
+
+	return (*bucketSlice[K, V])(unsafe.Add(unsafe.Pointer(b), bucketDownlevelsOffset[K, V]()))
+}
+
+// type bucketSlice[K, V any] []bucket[K, V]
+
+// func (list bucketSlice[K, V]) _at(i int) (result *bucket[K, V]) {
+// 	return &list[i]
+// }
+
+// func (list bucketSlice[K, V]) at(i int) (result *bucket[K, V]) {
+// 	return &list[i]
+// }
+
+// func (list bucketSlice[K, V]) Len() int {
+
+// 	return atomic_util.LoadInt(&list.len)
+// }
+
+// func (list bucketSlice[K, V]) Cap() int {
+
+// 	return atomic_util.LoadInt(&list.cap)
+// }
+
+type bucketSlice[K, V any] struct {
 	data unsafe.Pointer
 	len  int
 	cap  int
 }
 
-const bucketDownlevelsOffset = unsafe.Offsetof(emptyBucket.downLevels)
-const bucketSize = unsafe.Sizeof(*emptyBucket)
-
-func (b *bucket) ptrDownLevels() *bucketSlice {
-
-	return (*bucketSlice)(unsafe.Add(unsafe.Pointer(b), bucketDownlevelsOffset))
-
-}
-
-func (list *bucketSlice) at(i int) (result *bucket) {
+func (list *bucketSlice[K, V]) at(i int) (result *bucket[K, V]) {
 
 	return list._at(i, true)
 }
 
-func (list *bucketSlice) _at(i int, checklen bool) (result *bucket) {
+func (list *bucketSlice[K, V]) _at(i int, checklen bool) (result *bucket[K, V]) {
 
 	if checklen && atomic_util.LoadInt(&list.len) <= i {
 		return nil
@@ -461,15 +466,15 @@ func (list *bucketSlice) _at(i int, checklen bool) (result *bucket) {
 	}
 
 	data := atomic.LoadPointer(&list.data)
-	return (*bucket)(unsafe.Add(data, i*int(bucketSize)))
+	return (*bucket[K, V])(unsafe.Add(data, i*int(bucketSize[K, V]())))
 }
 
-func (list *bucketSlice) Len() int {
+func (list *bucketSlice[K, V]) Len() int {
 
 	return atomic_util.LoadInt(&list.len)
 }
 
-func (list *bucketSlice) Cap() int {
+func (list *bucketSlice[K, V]) Cap() int {
 
 	return atomic_util.LoadInt(&list.cap)
 }

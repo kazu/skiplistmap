@@ -88,9 +88,19 @@ func (c *MapHead) PrevtWithNil() *MapHead {
 	return c.fromListHead(c.Prev())
 }
 
-func (mhead *MapHead) dump(w io.Writer) {
+// func (mhead *MapHead) dump(w io.Writer) {
 
-	e := fromMapHead(mhead)
+// 	e := fromMapHead(mhead)
+
+// 	var ekey interface{}
+// 	ekey = e.Key()
+// 	fmt.Fprintf(w, "  entryHMap{key: %+10v, k: 0x%16x, reverse: 0x%16x), conflict: 0x%x, cur: %p, prev: %p, next: %p}\n",
+// 		ekey, bits.Reverse64(mhead.reverse), mhead.reverse, mhead.conflict, mhead.PtrListHead(), mhead.PtrListHead().DirectPrev(), mhead.PtrListHead().DirectNext())
+
+// }
+
+func dumpMapHead[K, V any](mhead *MapHead, w io.Writer) {
+	e := fromMapHead[K, V](mhead)
 
 	var ekey interface{}
 	ekey = e.Key()
@@ -99,10 +109,10 @@ func (mhead *MapHead) dump(w io.Writer) {
 
 }
 
-func fromMapHead(mhead *MapHead) MapItem {
+func fromMapHead[K, V any](mhead *MapHead) MapItem[K, V] {
 
 	if mhead.IsDummy() {
-		return entryHMapFromListHead(mhead.PtrListHead())
+		return entryHMapFromListHead[K, V](mhead.PtrListHead())
 	}
-	return SampleItemFromListHead(mhead.PtrListHead())
+	return SampleItemFromListHead[K, V](mhead.PtrListHead())
 }

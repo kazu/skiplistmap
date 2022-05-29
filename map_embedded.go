@@ -18,7 +18,7 @@ import (
 	"github.com/lk4d4/trylock"
 )
 
-func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
+func (h *Map[K, V]) bsearchBybucket(bucket *bucket[K, V], reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
 
 	pool := bucket.toBase().itemPool()
 	// FIXME: why fail to get
@@ -51,14 +51,14 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 	return nil
 }
 
-func (h *Map) searchKeyFromEmbeddedPool(k uint64, ignoreBucketEnry bool) HMapEntry {
+func (h *Map[K, V]) searchKeyFromEmbeddedPool(k uint64, ignoreBucketEnry bool) HMapEntry {
 	rev := bits.Reverse64(k)
 	//return h.searchByEmbeddedbucket(h.findBucket(rev), rev, ignoreBucketEnry)
 	return h.bsearchBybucket(h.findBucket(rev), rev, ignoreBucketEnry)
 
 }
 
-func (h *Map) makeBucket2(bucket *bucket) (err error) {
+func (h *Map[K, V]) makeBucket2(bucket *bucket[K, V]) (err error) {
 	atomic.AddInt32(&madeBucket, 1)
 
 	nextBucket := bucket.prevAsB()
@@ -105,12 +105,12 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 
 	if nextLevel != nil {
 
-		nextLevelBucket := bucketFromLevelHead(nextLevel)
+		nextLevelBucket := bucketFromLevelHead[K, V](nextLevel)
 		if nextLevelBucket.reverse < b.reverse {
 			nextLevel.InsertBefore(&b.LevelHead)
 		} else if nextLevelBucket.reverse != b.reverse {
 
-			nextnextBucket := bucketFromLevelHead(nextLevel.Next())
+			nextnextBucket := bucketFromLevelHead[K, V](nextLevel.Next())
 			_ = nextnextBucket
 			nextLevel.DirectNext().InsertBefore(&b.LevelHead)
 		}
@@ -122,16 +122,16 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 		Log(LogWarn, "bucket.LevelHead is pointed to self")
 	}
 
-	if int(b.len()) > h.maxPerBucket {
+	if int(b.len()) > h.conf.maxPerBucket {
 		h.makeBucket2(b)
-	} else if int(bucket.len()) > h.maxPerBucket {
+	} else if int(bucket.len()) > h.conf.maxPerBucket {
 		h.makeBucket2(bucket)
 	}
 
 	return nil
 }
 
-func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
+func (h *Map[K, V]) bucketFromPoolEmbedded(reverse uint64) (b *bucket[K, V]) {
 
 	level := int32(0)
 	for cur := bits.Reverse64(reverse); cur != 0; cur >>= 4 {
@@ -145,13 +145,13 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 			continue
 		}
 		idx := int((reverse >> (4 * (16 - l))) & 0xf)
-		var downs *bucketSlice
+		var downs *bucketSlice[K, V]
 		downs = b.ptrDownLevels()
 
 		// init downLevels[0]
 		if downs == nil || atomic_util.CompareAndSwapInt(&downs.cap, 0, 1) {
 			//if cap(b.downLevels) == 0 {
-			b.downLevels = make([]bucket, 0, 16)
+			b.downLevels = make([]bucket[K, V], 0, 16)
 			downs = b.ptrDownLevels()
 			if atomic_util.LoadInt(&downs.len) == 1 {
 				goto SKIP_FIRST_DOWN_INIT
@@ -163,13 +163,13 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 			firstDown.LevelHead.Init()
 			firstDown._parent = b
 
-			firstDown.setItemPoolFn = func(p *samepleItemPool) {
+			firstDown.setItemPoolFn = func(p *samepleItemPool[K, V]) {
 				b.setItemPool(p)
 			}
 
 			lCur := h.levelBucket(l)
 			if lCur.LevelHead.Empty() {
-				lCur = bucketFromLevelHead(lCur.LevelHead.DirectPrev().DirectNext())
+				lCur = bucketFromLevelHead[K, V](lCur.LevelHead.DirectPrev().DirectNext())
 			}
 			for ; lCur != lCur.NextOnLevel(); lCur = lCur.NextOnLevel() {
 				if lCur.LevelHead.Empty() {
@@ -219,7 +219,7 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 
 }
 
-func (b *bucket) toBase() *bucket {
+func (b *bucket[K, V]) toBase() *bucket[K, V] {
 
 	if b._parent == nil {
 		return b
@@ -235,16 +235,16 @@ const (
 	foundFree          = 5
 )
 
-func (sp *samepleItemPool) len() (l int) {
+func (sp *samepleItemPool[K, V]) len() (l int) {
 	return sp.ptrItems().Len()
 
 }
 
-func (sp *samepleItemPool) cap() (l int) {
+func (sp *samepleItemPool[K, V]) cap() (l int) {
 	return sp.ptrItems().Cap()
 }
 
-func (sp *samepleItemPool) state4get(reverse uint64, tail int, len int, cap int) byte {
+func (sp *samepleItemPool[K, V]) state4get(reverse uint64, tail int, len int, cap int) byte {
 
 	if len == 0 {
 		return getEmpty
@@ -268,7 +268,7 @@ func (sp *samepleItemPool) state4get(reverse uint64, tail int, len int, cap int)
 
 }
 
-func (sp *samepleItemPool) bsearchFromFreeList(reverse uint64, tail int) (int, bool) {
+func (sp *samepleItemPool[K, V]) bsearchFromFreeList(reverse uint64, tail int) (int, bool) {
 
 	items := sp.ptrItems()
 
@@ -298,14 +298,14 @@ func lazyUnlock(mu sync.Locker) {
 
 type unlocker func(mu sync.Locker)
 
-func (sp *samepleItemPool) appendLast(mu sync.Locker) (newItem MapItem, nPool *samepleItemPool, fn unlocker) {
+func (sp *samepleItemPool[K, V]) appendLast(mu sync.Locker) (newItem MapItem[K, V], nPool *samepleItemPool[K, V], fn unlocker) {
 
 	if mu != nil {
 		mu.Lock()
 		fn = lazyUnlock
 	}
 
-	var new *SampleItem
+	var new *SampleItem[K, V]
 	items := sp.ptrItems()
 	l := items.Len()
 	if l >= items.Cap() {
@@ -319,7 +319,7 @@ func (sp *samepleItemPool) appendLast(mu sync.Locker) (newItem MapItem, nPool *s
 	return nil, nil, fn
 }
 
-func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem MapItem, nPool *samepleItemPool, fn unlocker) {
+func (sp *samepleItemPool[K, V]) insertToPool(reverse uint64, mu sync.Locker) (newItem MapItem[K, V], nPool *samepleItemPool[K, V], fn unlocker) {
 	if mu != nil {
 		mu.Lock()
 		fn = lazyUnlock
@@ -332,7 +332,7 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem
 	if IsDebug() {
 		var b strings.Builder
 		for i := range sp.items {
-			sp.items[i].PtrMapHead().dump(&b)
+			dumpMapHead[K, V](sp.items[i].PtrMapHead(), &b)
 		}
 		Log(LogDebug, "B: itemPool.items\n%s\n", b.String())
 	}
@@ -365,7 +365,7 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem
 		nextItem := sp.items[olen-1].ListHead.Next()
 
 		// copy to new slice
-		newItems := make([]SampleItem, olen+1, maxInts(ocap, olen+1))
+		newItems := make([]SampleItem[K, V], olen+1, maxInts(ocap, olen+1))
 		if i > 0 {
 			copy(newItems[0:i], sp.items[0:i])
 		}
@@ -375,7 +375,7 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem
 		newListTail := &elist_head.ListHead{}
 		elist_head.InitAsEmpty(newListHead, newListTail)
 
-		middle := nextListHeadOfSampleItem()
+		middle := nextListHeadOfSampleItem[K, V]()
 		for i := 0; i < olen+1; i++ {
 			newItems[i].ListHead = middle
 		}
@@ -417,7 +417,8 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem
 		if IsDebug() {
 			var b strings.Builder
 			for i := range sp.items {
-				sp.items[i].PtrMapHead().dump(&b)
+				dumpMapHead[K, V](sp.items[i].PtrMapHead(), &b)
+
 			}
 			fmt.Printf("A: itemPool.items\n%s\n", b.String())
 		}
@@ -443,7 +444,7 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem
 }
 
 //go:norace
-func (sp *samepleItemPool) getWithFn(reverse uint64, mu sync.Locker) (new MapItem, nPool *samepleItemPool, fn unlocker) {
+func (sp *samepleItemPool[K, V]) getWithFn(reverse uint64, mu sync.Locker) (new MapItem[K, V], nPool *samepleItemPool[K, V], fn unlocker) {
 
 	lastActiveIdx := -1
 
@@ -544,7 +545,7 @@ RETRY:
 
 }
 
-func (sp *samepleItemPool) expand(mu sync.Locker) (unlocker, error) {
+func (sp *samepleItemPool[K, V]) expand(mu sync.Locker) (unlocker, error) {
 	var fn unlocker
 	if mu != nil {
 		mu.Lock()
@@ -571,7 +572,7 @@ func (sp *samepleItemPool) expand(mu sync.Locker) (unlocker, error) {
 
 	nCap := PoolCap(len(sp.items))
 
-	newItems := make([]SampleItem, olen, nCap)
+	newItems := make([]SampleItem[K, V], olen, nCap)
 	toPtrItemSlice(&newItems).CopyDataFrom(0, sp.ptrItems(), 0, olen)
 
 	newListHead := &elist_head.ListHead{}
@@ -604,7 +605,7 @@ func (sp *samepleItemPool) expand(mu sync.Locker) (unlocker, error) {
 	if IsDebug() {
 		var b strings.Builder
 		for i := range sp.items {
-			sp.items[i].PtrMapHead().dump(&b)
+			dumpMapHead[K, V](sp.items[i].PtrMapHead(), &b)
 		}
 		fmt.Printf("A: itemPool.items\n%s\n", b.String())
 	}
@@ -613,11 +614,11 @@ func (sp *samepleItemPool) expand(mu sync.Locker) (unlocker, error) {
 
 }
 
-func nextListHeadOfSampleItem() elist_head.ListHead {
+func nextListHeadOfSampleItem[K, V any]() elist_head.ListHead {
 
 	list := elist_head.NewEmptyList()
 
-	items := make([]SampleItem, 3)
+	items := make([]SampleItem[K, V], 3)
 
 	list.Tail().InsertBefore(items[2].PtrListHead())
 	items[2].InsertBefore(items[1].PtrListHead())
@@ -626,7 +627,7 @@ func nextListHeadOfSampleItem() elist_head.ListHead {
 	return items[1].ListHead
 }
 
-func (sp *samepleItemPool) findIdx(reverse uint64) (int, error) {
+func (sp *samepleItemPool[K, V]) findIdx(reverse uint64) (int, error) {
 
 	for i := range sp.items {
 		if sp.items[i].IsIgnored() {
@@ -640,18 +641,18 @@ func (sp *samepleItemPool) findIdx(reverse uint64) (int, error) {
 
 }
 
-func (sp *samepleItemPool) split(idx int) (nPool *samepleItemPool, err error) {
+func (sp *samepleItemPool[K, V]) split(idx int) (nPool *samepleItemPool[K, V], err error) {
 	return sp._split(idx, true)
 
 }
-func (sp *samepleItemPool) _split(idx int, connect bool) (nPool *samepleItemPool, err error) {
+func (sp *samepleItemPool[K, V]) _split(idx int, connect bool) (nPool *samepleItemPool[K, V], err error) {
 
 	nlen := int64(len(sp.items))
 	if int(nlen) <= idx {
 		return nil, ErrIdxOverflow
 	}
 
-	nPool = &samepleItemPool{}
+	nPool = &samepleItemPool[K, V]{}
 
 	if !atomic.CompareAndSwapInt64(&nlen, int64(len(sp.items)), nlen+1) {
 		return sp._split(idx, connect)
@@ -679,12 +680,12 @@ func (sp *samepleItemPool) _split(idx int, connect bool) (nPool *samepleItemPool
 
 }
 
-func (sp *samepleItemPool) initFreeList() {
+func (sp *samepleItemPool[K, V]) initFreeList() {
 
 	elist_head.InitAsEmpty(&sp.freeHead, &sp.freeTail)
 }
 
-func (sp *samepleItemPool) PushWithOrder(item *SampleItem) error {
+func (sp *samepleItemPool[K, V]) PushWithOrder(item *SampleItem[K, V]) error {
 
 	p := uintptr(unsafe.Pointer(item.PtrListHead()))
 
@@ -709,7 +710,7 @@ ADD_LAST:
 	return err
 }
 
-func (sp *samepleItemPool) shrinkLen() {
+func (sp *samepleItemPool[K, V]) shrinkLen() {
 
 	pItemSlice := sp.ptrItems()
 	l := pItemSlice.Len()
@@ -732,30 +733,35 @@ type sliceHeader struct {
 	len  int
 	cap  int
 }
-type itemSlice struct {
+type itemSlice[K, V any] struct {
 	sliceHeader
 }
 
-const sampleItemItemsOffset = unsafe.Offsetof(EmptysamepleItemPool.items)
-const itemSize = unsafe.Sizeof(SampleItem{})
+func sampleItemItemsOffset[K, V any]() uintptr {
+	return unsafe.Offsetof(EmptysamepleItemPool[K, V]().items)
+}
+func itemSize[K, V any]() uintptr {
 
-func toPtrItemSlice(items *[]SampleItem) (list *itemSlice) {
-	return (*itemSlice)(unsafe.Pointer(items))
+	return unsafe.Sizeof(SampleItem[K, V]{})
 }
 
-func toItemSlice(items []SampleItem) (list itemSlice) {
-	slice := (*itemSlice)(unsafe.Pointer(&items))
+func toPtrItemSlice[K, V any](items *[]SampleItem[K, V]) (list *itemSlice[K, V]) {
+	return (*itemSlice[K, V])(unsafe.Pointer(items))
+}
+
+func toItemSlice[K, V any](items []SampleItem[K, V]) (list itemSlice[K, V]) {
+	slice := (*itemSlice[K, V])(unsafe.Pointer(&items))
 	list.data = atomic.LoadPointer(&slice.data)
 	list.len = atomic_util.LoadInt(&slice.len)
 	list.cap = atomic_util.LoadInt(&slice.cap)
 	return
 }
 
-func (sp *samepleItemPool) ptrItems() (result *itemSlice) {
-	return (*itemSlice)(unsafe.Add(unsafe.Pointer(sp), sampleItemItemsOffset))
+func (sp *samepleItemPool[K, V]) ptrItems() (result *itemSlice[K, V]) {
+	return (*itemSlice[K, V])(unsafe.Add(unsafe.Pointer(sp), sampleItemItemsOffset[K, V]()))
 }
 
-func (sp *samepleItemPool) itemSlice(isNoneZero bool) (result itemSlice) {
+func (sp *samepleItemPool[K, V]) itemSlice(isNoneZero bool) (result itemSlice[K, V]) {
 	for {
 		//result = *sp.ptrItems()
 		ptr := sp.ptrItems()
@@ -773,12 +779,12 @@ func (sp *samepleItemPool) itemSlice(isNoneZero bool) (result itemSlice) {
 	return
 }
 
-func (list *itemSlice) at(i int) (result *SampleItem) {
+func (list *itemSlice[K, V]) at(i int) (result *SampleItem[K, V]) {
 
 	return list._at(i, true, false)
 }
 
-func (list *itemSlice) _at(i int, checklen bool, skipOnDelete bool) (result *SampleItem) {
+func (list *itemSlice[K, V]) _at(i int, checklen bool, skipOnDelete bool) (result *SampleItem[K, V]) {
 
 	if checklen && atomic_util.LoadInt(&list.len) <= i {
 		return nil
@@ -787,35 +793,35 @@ func (list *itemSlice) _at(i int, checklen bool, skipOnDelete bool) (result *Sam
 	}
 
 	data := atomic.LoadPointer(&list.data)
-	pCur := unsafe.Add(data, i*int(itemSize))
+	pCur := unsafe.Add(data, i*int(itemSize[K, V]()))
 	if !skipOnDelete {
-		return (*SampleItem)(pCur)
+		return (*SampleItem[K, V])(pCur)
 	}
 
 	for {
-		result = (*SampleItem)(pCur)
+		result = (*SampleItem[K, V])(pCur)
 		if !result.IsDeleted() {
 			break
 		}
 		if pCur == data {
 			break
 		}
-		pCur = unsafe.Add(pCur, -int(itemSize))
+		pCur = unsafe.Add(pCur, -int(itemSize[K, V]()))
 	}
 
 	return result
 }
 
-func (list *itemSlice) Len() int {
+func (list *itemSlice[K, V]) Len() int {
 
 	return atomic_util.LoadInt(&list.len)
 }
 
-func (list *itemSlice) Cap() int {
+func (list *itemSlice[K, V]) Cap() int {
 
 	return atomic_util.LoadInt(&list.cap)
 }
-func (list *itemSlice) init() {
+func (list *itemSlice[K, V]) init() {
 	atomic.StorePointer(&list.data, nil)
 	atomic_util.StoreInt(&list.len, 0)
 	atomic_util.StoreInt(&list.cap, 0)
@@ -823,7 +829,7 @@ func (list *itemSlice) init() {
 }
 
 //go:norace
-func (list *itemSlice) CopyFrom(slist *itemSlice, head, len int) {
+func (list *itemSlice[K, V]) CopyFrom(slist *itemSlice[K, V], head, len int) {
 	scap := atomic_util.LoadInt(&slist.cap)
 
 	old := *list
@@ -845,11 +851,11 @@ FAIL:
 	panic("fail copy")
 }
 
-func itemSliceTobytes(list *itemSlice, idx, len int) (bytes []byte) {
+func itemSliceTobytes[K, V any](list *itemSlice[K, V], idx, len int) (bytes []byte) {
 
 	return ptrTobytes(unsafe.Pointer(list._at(idx, false, false)),
-		list.Len()*int(itemSize),
-		(list.Cap()-idx)*int(itemSize))
+		list.Len()*int(itemSize[K, V]()),
+		(list.Cap()-idx)*int(itemSize[K, V]()))
 
 }
 
@@ -873,29 +879,29 @@ FAIL:
 	panic("fail copy")
 }
 
-func (list *itemSlice) CopyDataFrom(head int, slist *itemSlice, shead, slen int) {
+func (list *itemSlice[K, V]) CopyDataFrom(head int, slist *itemSlice[K, V], shead, slen int) {
 
 	sbytes := itemSliceTobytes(slist, shead, slen)
 	bytes := itemSliceTobytes(list, head, slen)
 	copy(bytes, sbytes)
 }
 
-func (list *itemSlice) dup() (new *itemSlice) {
-	new = &itemSlice{}
+func (list *itemSlice[K, V]) dup() (new *itemSlice[K, V]) {
+	new = &itemSlice[K, V]{}
 	new.init()
 	new.CopyFrom(list, 0, list.Len())
 	return
 }
 
-func (list *itemSlice) reverseAt(idx int) (r uint64) {
+func (list *itemSlice[K, V]) reverseAt(idx int) (r uint64) {
 
-	const toReverse = unsafe.Offsetof(EmptySampleHMapEntry.reverse)
-	ptr := unsafe.Add(list.data, idx*int(SampleItemSize)+int(toReverse))
+	toReverse := unsafe.Offsetof(EmptySampleHMapEntry[K, V]().reverse)
+	ptr := unsafe.Add(list.data, idx*int(SampleItemSize[K, V]())+int(toReverse))
 	r = atomic.LoadUint64((*uint64)(ptr))
 	return r
 }
 
-func (list *itemSlice) reduceCap() int {
+func (list *itemSlice[K, V]) reduceCap() int {
 
 	return 0
 }

@@ -1,5 +1,5 @@
-//go:build go1.18
-// +build go1.18
+//go:build !go1.18
+// +build !go1.18
 
 // Package skitlistmap ... concurrent akiplist map implementatin
 // Copyright 2201 Kazuhisa TAKEI<xtakei@rytr.jp>. All rights reserved.
@@ -21,21 +21,21 @@ type HMapEntry interface {
 	Next() HMapEntry
 	Prev() HMapEntry
 }
-type MapItem[K any, V any] interface {
-	Key() K   // require order for HMap
-	Value() V // require order for HMap
-	SetValue(V) bool
+type MapItem interface {
+	Key() interface{}   // require order for HMap
+	Value() interface{} // require order for HMap
+	SetValue(interface{}) bool
 	KeyHash() (uint64, uint64)
 	Delete()
 
 	HMapEntry
 }
 
-type CondOfFinder[K any, V any] func(ehead *entryHMap[K, V]) bool
+type CondOfFinder func(ehead *entryHMap) bool
 
-func CondOfFind[K any, V any](reverse uint64, l sync.Locker) CondOfFinder[K, V] {
+func CondOfFind(reverse uint64, l sync.Locker) CondOfFinder {
 
-	return func(ehead *entryHMap[K, V]) bool {
+	return func(ehead *entryHMap) bool {
 
 		if EnableStats {
 			l.Lock()
@@ -47,23 +47,23 @@ func CondOfFind[K any, V any](reverse uint64, l sync.Locker) CondOfFinder[K, V] 
 
 }
 
-type entryBuffer[K any, V any] struct {
-	entries []entryHMap[K, V]
+type entryBuffer struct {
+	entries []entryHMap
 
 	elist_head.ListHead
 }
 
-func (ebuf *entryBuffer[K, V]) Len() int {
+func (ebuf *entryBuffer) Len() int {
 	return len(ebuf.entries)
 }
 
-func (ebuf *entryBuffer[K, V]) init(cap int) {
+func (ebuf *entryBuffer) init(cap int) {
 
-	ebuf.entries = make([]entryHMap[K, V], 1, cap)
+	ebuf.entries = make([]entryHMap, 1, cap)
 
 }
 
-func (ebuf *entryBuffer[K, V]) getEntryFromPool(idx int) *entryHMap[K, V] {
+func (ebuf *entryBuffer) getEntryFromPool(idx int) *entryHMap {
 
 	// if len(ebuf.entries) == 1 {
 	// 	ebuf.entries = ebuf.entries[:2]

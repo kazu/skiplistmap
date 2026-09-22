@@ -1,0 +1,99 @@
+unit: exit=1
+unexpected fault address 0x0
+fatal error: fault
+[signal SIGSEGV: segmentation violation code=0x80 addr=0x0 pc=0x56fccf]
+
+goroutine 32 gp=0x2ed9537bcb40 m=14 mp=0x2ed9537bb808 [running]:
+runtime.throw({0x6395a3?, 0x2ed9545ed440?})
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/runtime/panic.go:1243 +0x48 fp=0x2ed953796ad8 sp=0x2ed953796aa8 pc=0x48a868
+runtime.sigpanic()
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/runtime/signal_unix.go:945 +0x285 fp=0x2ed953796b38 sp=0x2ed953796ad8 pc=0x48c2e5
+github.com/kazu/skiplistmap.(*SampleItem).PtrMapHead(...)
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap-task-013/sample_hmap_entry.go:80
+github.com/kazu/skiplistmap.(*samepleItemPool).insertToPool(0x2ed953f3b310, 0xa1457b975ed322e5, {0x8af960?, 0x2ed953e6d460?})
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap-task-013/map_embedded.go:410 +0x64f fp=0x2ed953796c60 sp=0x2ed953796b38 pc=0x56fccf
+github.com/kazu/skiplistmap.(*samepleItemPool).getWithFn(0x2ed953f3b310, 0xa1457b975ed322e5, {0x8af960, 0x2ed953e6d460})
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap-task-013/map_embedded.go:540 +0x5c5 fp=0x2ed953796d30 sp=0x2ed953796c60 pc=0x5706a5
+github.com/kazu/skiplistmap.(*Map).Set(0x2ed953819008, {0x87b858, 0x2ed953796f50}, {0x842df8, 0x2ed95381bd90})
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap-task-013/map.go:630 +0x711 fp=0x2ed953796eb8 sp=0x2ed953796d30 pc=0x568a91
+github.com/kazu/skiplistmap_test.(*WrapHMap).Set(...)
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap-task-013/skiplistmap_bench_test.go:61
+github.com/kazu/skiplistmap_test.Test_HMap.func1(0x2ed95386a008)
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap-task-013/skiplistmap_test.go:151 +0x2aa fp=0x2ed953796f70 sp=0x2ed953796eb8 pc=0x5e384a
+testing.tRunner(0x2ed95386a008, 0x2ed95381c400)
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/testing/testing.go:2193 +0xea fp=0x2ed953796fc0 sp=0x2ed953796f70 pc=0x5043aa
+testing.(*T).Run.gowrap1()
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/testing/testing.go:2258 +0x1b fp=0x2ed953796fe0 sp=0x2ed953796fc0 pc=0x509edb
+runtime.goexit({})
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/runtime/asm_amd64.s:1264 +0x1 fp=0x2ed953796fe8 sp=0x2ed953796fe0 pc=0x4912c1
+created by testing.(*T).Run in goroutine 31
+
+race: exit=1
+fatal error: checkptr: pointer arithmetic result points to invalid allocation
+
+goroutine 11 gp=0xc0000b2960 m=0 mp=0xada740 [running]:
+runtime.throw({0x7c8ae5?, 0x4cb3b1?})
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/runtime/panic.go:1243 +0x48 fp=0xc0000f7958 sp=0xc0000f7928 pc=0x4c1768
+runtime.checkptrArithmetic(0xc0001974e8?, {0xc0000f79c0, 0x1, 0x649a54?})
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/runtime/checkptr.go:69 +0x9c fp=0xc0000f7988 sp=0xc0000f7958 pc=0x450a1c
+github.com/kazu/elist_head.(*ListHead).directPrev(0xc000018e00)
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap-task-013/deps/elist_head/elist.go:325 +0x85 fp=0xc0000f79d8 sp=0xc0000f7988 pc=0x649565
+github.com/kazu/elist_head.(*ListHead).insertBefore(0xc000018e00, 0xc0001974e8, {0x0, 0x0, 0x10?})
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap-task-013/deps/elist_head/add.go:70 +0x232 fp=0xc0000f7ad0 sp=0xc0000f79d8 pc=0x647992
+github.com/kazu/elist_head.(*ListHead).InsertBefore(0xc000018e00, 0xc0001974e8, {0x0, 0x0, 0x0})
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap-task-013/deps/elist_head/add.go:50 +0x130 fp=0xc0000f7b18 sp=0xc0000f7ad0 pc=0x6476b0
+github.com/kazu/skiplistmap.(*Map).initBeforeSet(0xc00019c008)
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap-task-013/map.go:237 +0x96d fp=0xc0000f7d18 sp=0xc0000f7b18 pc=0x6506cd
+github.com/kazu/skiplistmap.NewHMap({0xc00008deb0, 0x3, 0xc00008de48?})
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap-task-013/map.go:187 +0x86a fp=0xc0000f7e20 sp=0xc0000f7d18 pc=0x64fc8a
+github.com/kazu/skiplistmap_test.Test_ConccurentWriteEmbeddedBucket(0xc00018ad88?)
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap-task-013/skiplistmap_test.go:49 +0x133 fp=0xc0000f7ee0 sp=0xc0000f7e20 pc=0x723a13
+testing.tRunner(0xc00018ad88, 0xa77720)
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/testing/testing.go:2193 +0x21d fp=0xc0000f7fb0 sp=0xc0000f7ee0 pc=0x59019d
+testing.(*T).Run.gowrap1()
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/testing/testing.go:2258 +0x39 fp=0xc0000f7fe0 sp=0xc0000f7fb0 pc=0x59a5b9
+runtime.goexit({})
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/runtime/asm_amd64.s:1264 +0x1 fp=0xc0000f7fe8 sp=0xc0000f7fe0 pc=0x4c8581
+created by testing.(*T).Run in goroutine 1
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/testing/testing.go:2258 +0xb13
+
+
+checkptr: exit=1
+fatal error: checkptr: pointer arithmetic result points to invalid allocation
+
+goroutine 11 gp=0x1fbdafb70960 m=0 mp=0x947980 [running]:
+runtime.throw({0x6768b1?, 0x1fbdafc554e8?})
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/runtime/panic.go:1243 +0x48 fp=0x1fbdafb47b50 sp=0x1fbdafb47b20 pc=0x48c7c8
+runtime.checkptrArithmetic(0x1fbdafc554e8?, {0x1fbdafb47c18, 0x1, 0x1fbdafb47bb8?})
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/runtime/checkptr.go:69 +0x9c fp=0x1fbdafb47b80 sp=0x1fbdafb47b50 pc=0x41a0fc
+github.com/kazu/elist_head.(*ListHead).directPrev(...)
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap-task-013/deps/elist_head/elist.go:325
+github.com/kazu/elist_head.(*ListHead).insertBefore(0x1fbdafad4980, 0x1fbdafc554e8, {0x0, 0x0, 0x947980?})
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap-task-013/deps/elist_head/add.go:70 +0x1a5 fp=0x1fbdafb47c68 sp=0x1fbdafb47b80 pc=0x57d025
+github.com/kazu/elist_head.(*ListHead).InsertBefore(0x1fbdafad4980, 0x1fbdafc554e8, {0x0, 0x0, 0x0})
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap-task-013/deps/elist_head/add.go:50 +0xc8 fp=0x1fbdafb47ca0 sp=0x1fbdafb47c68 pc=0x57ce28
+github.com/kazu/skiplistmap.(*Map).initBeforeSet(0x1fbdafc58008)
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap-task-013/map.go:237 +0x325 fp=0x1fbdafb47dd8 sp=0x1fbdafb47ca0 pc=0x582d85
+github.com/kazu/skiplistmap.NewHMap({0x1fbdafb47f40, 0x3, 0x8ec8e0?})
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap-task-013/map.go:187 +0x3f3 fp=0x1fbdafb47eb0 sp=0x1fbdafb47dd8 pc=0x5829f3
+github.com/kazu/skiplistmap_test.Test_ConccurentWriteEmbeddedBucket(0x1fbdafc46d88?)
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap-task-013/skiplistmap_test.go:49 +0x8e fp=0x1fbdafb47f70 sp=0x1fbdafb47eb0 pc=0x60e1ee
+testing.tRunner(0x1fbdafc46d88, 0x8eab38)
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/testing/testing.go:2193 +0xea fp=0x1fbdafb47fc0 sp=0x1fbdafb47f70 pc=0x5165aa
+testing.(*T).Run.gowrap1()
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/testing/testing.go:2258 +0x1b fp=0x1fbdafb47fe0 sp=0x1fbdafb47fc0 pc=0x51c17b
+runtime.goexit({})
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/runtime/asm_amd64.s:1264 +0x1 fp=0x1fbdafb47fe8 sp=0x1fbdafb47fe0 pc=0x493221
+created by testing.(*T).Run in goroutine 1
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/testing/testing.go:2258 +0x4d7
+
+
+vet: exit=1
+
+maphead.go:26:40: possible misuse of unsafe.Pointer
+pool2.go:121:64: possible misuse of unsafe.Pointer
+sample_hmap_entry.go:26:54: possible misuse of unsafe.Pointer
+skiplistmap_bench_test.go:150:9: Get passes lock by value: github.com/kazu/skiplistmap_test.syncMap contains sync.Map contains sync.noCopy
+skiplistmap_bench_test.go:157:9: Set passes lock by value: github.com/kazu/skiplistmap_test.syncMap contains sync.Map contains sync.noCopy
+skiplistmap_bench_test.go:183:9: Get passes lock by value: github.com/kazu/skiplistmap_test.cMap contains github.com/lrita/cmap.Cmap contains sync.Mutex
+skiplistmap_bench_test.go:189:9: Set passes lock by value: github.com/kazu/skiplistmap_test.cMap contains github.com/lrita/cmap.Cmap contains sync.Mutex

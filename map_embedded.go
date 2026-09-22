@@ -76,7 +76,7 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 
 	if b.reverse == 0 && b.level() > 1 {
 		err = NewError(EBucketInvalid, "bucket.reverse = 0. but level 1= 1", nil)
-		Log(LogWarn, err.Error())
+		Log(LogWarn, "%s", err.Error())
 		return
 	}
 	b.Init()

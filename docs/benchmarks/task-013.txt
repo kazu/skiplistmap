@@ -1,0 +1,89 @@
+elist-013-finalbench-0-baseline.nuon
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkMigration/16/Walk    	37051628	         6.471 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/EarlyStop         	616302273	         0.3931 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/Recover           	176842268	         1.359 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/DeleteInsert      	 1075063	       226.1 ns/op	     352 B/op	      11 allocs/op
+BenchmarkMigration/1024/Walk            	  237720	      1004 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/EarlyStop       	616667172	         0.3895 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/Recover         	177140680	         1.355 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/DeleteInsert    	 1059514	       224.2 ns/op	     352 B/op	      11 allocs/op
+PASS
+
+elist-013-finalbench-1-owned.nuon
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkMigration/16/Walk    	 5347621	        44.96 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/EarlyStop         	87077641	         2.794 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/Recover           	172846716	         1.391 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/DeleteInsert      	  884521	       275.4 ns/op	     352 B/op	      11 allocs/op
+BenchmarkMigration/1024/Walk            	   81216	      2966 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/EarlyStop       	87213326	         2.801 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/Recover         	175462200	         1.366 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/DeleteInsert    	  872334	       276.9 ns/op	     352 B/op	      11 allocs/op
+PASS
+
+elist-013-finalbench-2-owned.nuon
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkMigration/16/Walk    	 5326009	        45.56 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/EarlyStop         	87257814	         2.816 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/Recover           	173341328	         1.384 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/DeleteInsert      	  855858	       281.8 ns/op	     352 B/op	      11 allocs/op
+BenchmarkMigration/1024/Walk            	   80108	      2995 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/EarlyStop       	85485428	         2.851 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/Recover         	174584907	         1.377 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/DeleteInsert    	  856431	       279.6 ns/op	     352 B/op	      11 allocs/op
+PASS
+
+elist-013-finalbench-3-baseline.nuon
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkMigration/16/Walk    	37041717	         6.469 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/EarlyStop         	616885354	         0.3920 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/Recover           	176391916	         1.355 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/DeleteInsert      	 1099255	       219.3 ns/op	     352 B/op	      11 allocs/op
+BenchmarkMigration/1024/Walk            	  239713	       994.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/EarlyStop       	616741477	         0.3892 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/Recover         	177238257	         1.357 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/DeleteInsert    	 1085926	       223.3 ns/op	     352 B/op	      11 allocs/op
+PASS
+
+elist-013-finalbench-4-baseline.nuon
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkMigration/16/Walk    	33890301	         6.476 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/EarlyStop         	615048420	         0.3916 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/Recover           	177034344	         1.365 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/DeleteInsert      	 1075026	       223.3 ns/op	     352 B/op	      11 allocs/op
+BenchmarkMigration/1024/Walk            	  238892	       997.3 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/EarlyStop       	616454685	         0.3933 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/Recover         	176491140	         1.355 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/DeleteInsert    	 1075386	       224.9 ns/op	     352 B/op	      11 allocs/op
+PASS
+
+elist-013-finalbench-5-owned.nuon
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkMigration/16/Walk    	 5267796	        45.87 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/EarlyStop         	85018198	         2.839 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/Recover           	173085789	         1.386 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/DeleteInsert      	  844462	       287.5 ns/op	     352 B/op	      11 allocs/op
+BenchmarkMigration/1024/Walk            	   74254	      3222 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/EarlyStop       	85997000	         2.843 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/Recover         	175254426	         1.373 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/DeleteInsert    	  854715	       297.8 ns/op	     352 B/op	      11 allocs/op
+PASS

@@ -55,16 +55,19 @@ func (mh *MapHead) Offset() uintptr {
 	return mapheadOffset
 }
 
-//go:nocheckptr
 func mapheadFromLListHead(l *elist_head.ListHead) *MapHead {
-	return (*MapHead)(ElementOf(unsafe.Pointer(l), mapheadOffset))
+	if l == nil {
+		return nil
+	}
+	links := elist_head.NewList[MapHead](mapheadOffset)
+	return links.Element(l)
 }
 
 func (mh *MapHead) fromListHead(l *elist_head.ListHead) *MapHead {
 	return mapheadFromLListHead(l)
 }
 
-func (c *MapHead) FromListHead(l *elist_head.ListHead) elist_head.List {
+func (c *MapHead) FromListHead(l *elist_head.ListHead) *MapHead {
 	return c.fromListHead(l)
 }
 

@@ -1,4 +1,4 @@
-# Generify elist_head before map stabilization
+# Add typed list helpers without changing embedded links
 
 ## 共通作業手順
 
@@ -10,13 +10,13 @@
 
 ## 達成する動作
 
-elist_headの要素・所有者・コールバックを扱うAPIと内部経路を可能な限り型付きにする。任意のユーザー定義structへのリンク埋め込みと実体の同一性を維持し、固定Itemへの詰め替えを要求しない。
+ユーザーの設計確認により、元の非genericなListHeadと相対リンクを維持し、要素型ごとの変換・操作を薄いList[T]にまとめる。任意structへの埋め込みと同一実体を維持し、Owner・要素slice管理・配列検索はelist_headへ持ち込まない。README方式とList[T]の速度・メモリ・profileを比較し、offset保持の影響を切り分ける。
 
 ## 接続点と変更範囲
 
-まずelist_head v0.2.8とskiplistmapの呼び出し元で、interface{}／型消去したany、型アサーション、リンクから実体への復元、owner/offsetの受け渡しを棚卸しする。ListHead、ElementOf、NewEmpty、RepaireSliceAfterCopyおよび利用中のAPIについて、型パラメータ・型付き関数／メソッドで置き換える範囲と署名を実装前に記録する。型制約のanyは型消去した値とは区別する。
+elist_head v0.2.8にはinterface{}／anyはなく、主要リンク操作は具体型のListHeadを使っていると確認した。raw APIを維持し、旧List interface名をList[T]へ変更する。NewList、Link/Element、Next/Prev、DirectNext/DirectPrev、InsertBeforeを追加する。List[T]はoffsetだけを保持し、終端は呼び出し側がpointer比較する。型制約のanyは型消去した値とは区別する。具体的な設計確認は013comment131とその後の修正指示、最新結果はdocs/task-013-offset-results.md。
 
-依存は本repo内のsubmoduleとローカルreplaceで修正する。型付きの外側だけ追加して内部にinterface{}を残す移行にはしない。既存MapのK/V型移行は011に残し、ここでは新しいelist_headへの必要最小限の接続を行う。一時的に必要な旧Mapとの型消去境界は、理由・場所・除去先010/011を記録する。lonchaは接続上必要な箇所を調査するが、全面変更を自動的に範囲へ加えない。
+依存は本repo内のsubmoduleとローカルreplaceで修正する。既存MapのK/V型移行は011に残し、MapHead実体復元など利益のある接続だけを変更する。元から具体型のrawリンクを不要にgeneric化しない。旧Mapの型消去境界は理由・場所・除去先010/011を記録する。lonchaの全面変更は範囲へ加えない。
 
 ## 所有権・安全性と後続の境界
 
@@ -25,11 +25,11 @@ elist_headの要素・所有者・コールバックを扱うAPIと内部経路�
 ## 検証と完了条件
 
 - 003を待たず依存単体のテスト・ベンチを用意し、変更前commitと同じ測定条件を保存する。追加・削除・走査／早期停止・実体復元を測り、ns/op、B/op、allocs/opを記録する。
-- 異なるlayout/alignmentと独自フィールドを持つ複数structで、登録・取得・削除後の同一性、所有者を保持した強制GC、文書化した寿命を確認する。利用例を実行し、race/checkptrを無効化せず新経路を検証する。
+- 異なる配置・埋め込み位置と独自フィールドを持つ複数structで、挿入・取得・削除後の同一性、呼び出し側が要素を保持した強制GC、文書化した寿命を確認する。利用例を実行し、race/checkptrを無効化せず同一allocationの新経路を検証する。
 - skiplistmapの接続をビルド・通常テストで確認し、従来からのrace/checkptr/vet失敗と新規失敗を区別する。Mapの既知不具合を依存単体の成功で解決済みとしない。
 - 型消去・型アサーションの残存一覧、必要な理由、後続の除去先を記録する。余計なコピー・allocation・interface dispatchの影響を測る。任意structや相対配置・連続poolの用途を黙って削らない。
 - 依存commit、親gitlink、replace、型付きAPI、測定とレビュー結果をgit_taskへ記録する。003へ変更前／変更後の比較点と接続上の制約を引き継ぐ。
 
 ## 今回の作業範囲
 
-2026-09-22の依頼は計画・タスクの見直しと反映まで。実装開始は別途仕切り直す。元の003のout_review依頼を、この先行taskの実装開始指示に読み替えない。
+013をworktreeで実装しout_reviewまで進める指示の後、Owner案を却下されin_processへ戻した。最新の承認は元のListHead＋List[T]補助APIとREADME方式との性能・メモリ比較。実装結果・測定・旧Mapとの境界は[結果文書](task-013-list-results.md)、最新の状態とレビューはgit_task 013を参照する。計測で残った性能差を許容済みと扱わない。

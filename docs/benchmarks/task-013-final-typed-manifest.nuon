@@ -1,0 +1,3 @@
+{revision: "11cac48ce52e72e30e2120564ddc39baca023c92", status: "", go: "go version go1.27.1 linux/amd64", env: "linux
+amd64
+v1", order: [Readme, Typed, RuntimeOffset, RuntimeOffset, Typed, Readme, Readme, RuntimeOffset, Typed], benchtime: "300ms", profiletime: "2s", cpu: 1}

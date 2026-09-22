@@ -1,0 +1,12 @@
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/skiplistmap
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkMapHeadRecovery/Original         	265115918	         1.358 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMapHeadRecovery/Original         	265498567	         1.358 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMapHeadRecovery/Original         	265471495	         1.358 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMapHeadRecovery/List             	265518162	         1.359 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMapHeadRecovery/List             	264738489	         1.367 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMapHeadRecovery/List             	263510383	         1.355 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/kazu/skiplistmap	2.993s

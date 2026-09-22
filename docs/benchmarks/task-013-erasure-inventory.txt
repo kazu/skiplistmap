@@ -1,0 +1,65 @@
+./map.go:306:func (h *Map) _update(item MapItem, v interface{}) bool {
+./map.go:437:func (h *Map) get(key interface{}) (interface{}, bool) {
+./map.go:463:	return e.(MapItem), true
+./map.go:504:	return e.(MapItem), bucket, true
+./map.go:535:func (h *Map) Get(key interface{}) (value interface{}, ok bool) {
+./map.go:543:func (h *Map) GetByHash(hash, conflict uint64) (value interface{}, ok bool) {
+./map.go:552:func (h *Map) LoadItem(key interface{}) (item MapItem, success bool) {
+./map.go:563:func (h *Map) loadItem(k uint64, conflict uint64, key interface{}) (item MapItem, bucket *bucket, lock *trylock.Mutex, found bool) {
+./map.go:579:func (h *Map) _loadItem(k uint64, conflict uint64, key interface{}) (MapItem, *bucket, bool) {
+./map.go:591:func (h *Map) Set(key, value interface{}) bool {
+./map.go:635:		s = item.(*SampleItem)
+./map.go:655:			s = item.(*SampleItem)
+./map.go:688:	s.K = key.(string)
+./map.go:691:	if _, ok := h.ItemFn().(*SampleItem); !ok {
+./map.go:730:func (h *Map) each(start *elist_head.ListHead[MapHead], fn func(key, value interface{})) {
+./map.go:1113:		var ekey interface{}
+./map.go:1263:	b = ov.Load().(*bucket)
+./map.go:1347:	return _sharedSearchOpt.Load().(*searchOpt)
+./map.go:1351:	return o._ignoreBucketEntry.Load().(bool)
+./map.go:1359:		prev := opt._ignoreBucketEntry.Load().(bool)
+./map.go:1550:func (h *Map) Delete(key interface{}) bool {
+./map.go:1562:func (h *Map) Purge(key interface{}) bool {
+./map.go:1569:func (h *Map) purgeInEmbedded(key interface{}) bool {
+./map.go:1608:	err := pool.PushWithOrder(item.(*SampleItem))
+./map.go:1627:		e := h.ItemFn().HmapEntryFromListHead(mhead.PtrListHead()).(MapItem)
+./map.go:1636:func (h *Map) Range(f func(key, value interface{}) bool) {
+./debug.go:37:func Log(l LogLevel, s string, args ...interface{}) {
+./map_embedded.go:504:		if mu != nil && !mu.(*trylock.Mutex).TryLock() {
+./maphead.go:95:	var ekey interface{}
+./hashfn.go:28:func KeyToHash(key interface{}) (uint64, uint64) {
+./hashfn.go:33:	switch k := key.(type) {
+./pool2.go:268:func (sp *samepleItemPool) DumpExpandInfo(w io.Writer, outers []unsafe.Pointer, format string, args ...interface{}) {
+./pool2.go:362:	s, ok := item.(*SampleItem)
+./item.go:15:	key   interface{}
+./item.go:16:	value interface{}
+./item.go:21:func NewEntryMap(key, value interface{}) *entryHMap {
+./item.go:50:func (s *entryHMap) Key() interface{} {
+./item.go:54:func (s *entryHMap) Value() interface{} {
+./item.go:58:func (s *entryHMap) SetValue(v interface{}) bool {
+./item.go:98:	Key() interface{}   // require order for HMap
+./item.go:99:	Value() interface{} // require order for HMap
+./item.go:100:	SetValue(interface{}) bool
+./sample_hmap_entry.go:51:func (s *SampleItem) Key() interface{} {
+./sample_hmap_entry.go:55:func (s *SampleItem) Value() interface{} {
+./sample_hmap_entry.go:59:func (s *SampleItem) SetValue(v interface{}) bool {
+./sample_hmap_entry.go:91:func NewSampleItem(key string, value interface{}) (item *SampleItem) {
+./rmap/rmap.go:49:func (m *RMap) Set(key string, v interface{}) bool {
+./rmap/rmap.go:65:func (m *RMap) getDirty(k, conflict uint64) (v interface{}, ok bool) {
+./rmap/rmap.go:71:func (m *RMap) Set2(k, conflict uint64, kstr string, v interface{}) bool {
+./rmap/rmap.go:72:	read, succ := m.read.Load().(*readMap)
+./rmap/rmap.go:75:		read, succ = m.read.Load().(*readMap)
+./rmap/rmap.go:133:	read := m.read.Load().(*readMap)
+./rmap/rmap.go:148:func (m *RMap) Get(key string) (v interface{}, ok bool) {
+./rmap/rmap.go:153:func (m *RMap) Get2(k, conflict uint64) (v interface{}, ok bool) {
+./rmap/rmap.go:155:	read := m.read.Load().(*readMap)
+./rmap/rmap.go:159:		e, ok = av.Load().(*smap.SampleItem)
+./rmap/rmap.go:170:		read := m.read.Load().(*readMap)
+./rmap/rmap.go:183:	read, _ := m.read.Load().(*readMap)
+./rmap/rmap.go:188:		read, _ := m.read.Load().(*readMap)
+./rmap/rmap.go:203:		ohead := av.Load().(*smap.SampleItem)
+./rmap/rmap.go:220:		oread, _ := m.read.Load().(*readMap)
+./rmap/rmap.go:229:			_, ok := a.Load().(*smap.SampleItem)
+./rmap/rmap.go:236:			e, ok := item.(*smap.SampleItem)
+./rmap/rmap.go:273:func (r *readMap) store2(k, conflict uint64, kstr string, v interface{}) (smap.MapItem, bool) {
+./rmap/rmap.go:278:	ohead := ov.Load().(*smap.SampleItem)

@@ -1,6 +1,6 @@
 module github.com/kazu/skiplistmap
 
-go 1.17
+go 1.27.1
 
 require (
 	github.com/cespare/xxhash v1.1.0
@@ -25,3 +25,5 @@ require (
 
 // replace github.com/kazu/loncha => ../loncha/
 // replace github.com/kazu/elist_head => ../elist_head/
+
+replace github.com/kazu/elist_head => ./deps/elist_head

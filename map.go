@@ -841,7 +841,7 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 
 	if b.reverse == 0 && b.level() > 1 {
 		err = NewError(EBucketInvalid, "bucket.reverse = 0. but level 1= 1", nil)
-		Log(LogWarn, err.Error())
+		Log(LogWarn, "%s", err.Error())
 		return
 	}
 
@@ -1107,7 +1107,7 @@ func (h *Map) DumpEntry(w io.Writer) {
 	for cur := h.head.Prev().Next(); !cur.Empty(); cur = cur.Next() {
 		//var e HMapEntry
 		//e = e.HmapEntryFromListHead(cur)
-		mhead := EmptyMapHead.FromListHead(cur).(*MapHead)
+		mhead := EmptyMapHead.FromListHead(cur)
 		e := fromMapHead(mhead)
 
 		var ekey interface{}
@@ -1546,7 +1546,7 @@ func (h *Map) _searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketE
 
 }
 
-//Delete ... set nil to the key of MapItem. cannot Get entry
+// Delete ... set nil to the key of MapItem. cannot Get entry
 func (h *Map) Delete(key interface{}) bool {
 
 	item, ok := h.LoadItem(key)
@@ -1558,7 +1558,7 @@ func (h *Map) Delete(key interface{}) bool {
 
 }
 
-//Purge ... key/value entry from map.
+// Purge ... key/value entry from map.
 func (h *Map) Purge(key interface{}) bool {
 	if h.isEmbededItemInBucket {
 		return h.purgeInEmbedded(key)
@@ -1620,7 +1620,7 @@ func (h *Map) RangeItem(f func(MapItem) bool) {
 	defer list_head.DefaultModeTraverse.Option(oldConfs...)
 
 	for cur := h.head.Prev(list_head.WaitNoM()).Next(list_head.WaitNoM()); !cur.Empty(); cur = cur.Next(list_head.WaitNoM()) {
-		mhead := EmptyMapHead.FromListHead(cur).(*MapHead)
+		mhead := EmptyMapHead.FromListHead(cur)
 		if mhead.IsIgnored() {
 			continue
 		}

@@ -1,0 +1,53 @@
+elist-013-repairbench-0-baseline.nuon
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkCopyRepair/16         	 6565564	        35.64 ns/op	       8 B/op	       1 allocs/op
+BenchmarkCopyRepair/1024       	  183019	      1326 ns/op	       8 B/op	       1 allocs/op
+PASS
+
+elist-013-repairbench-1-owned.nuon
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkCopyRepair/16         	 1214404	       198.0 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyRepair/1024       	   20178	     11911 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+elist-013-repairbench-2-owned.nuon
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkCopyRepair/16         	 1217170	       196.4 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyRepair/1024       	   20107	     11973 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+elist-013-repairbench-3-baseline.nuon
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkCopyRepair/16         	 6575144	        35.09 ns/op	       8 B/op	       1 allocs/op
+BenchmarkCopyRepair/1024       	  181418	      1316 ns/op	       8 B/op	       1 allocs/op
+PASS
+
+elist-013-repairbench-4-baseline.nuon
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkCopyRepair/16         	 6542635	        35.46 ns/op	       8 B/op	       1 allocs/op
+BenchmarkCopyRepair/1024       	  182652	      1310 ns/op	       8 B/op	       1 allocs/op
+PASS
+
+elist-013-repairbench-5-owned.nuon
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkCopyRepair/16         	 1216886	       198.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyRepair/1024       	   20166	     11898 ns/op	       0 B/op	       0 allocs/op
+PASS

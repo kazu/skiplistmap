@@ -273,11 +273,11 @@ func (sp *samepleItemPool) DumpExpandInfo(w io.Writer, outers []unsafe.Pointer, 
 		nCur := cur.DirectNext()
 
 		fmt.Fprintf(w, format, args...)
-		mhead := EmptyMapHead.FromListHead(cur).(*MapHead)
+		mhead := EmptyMapHead.FromListHead(cur)
 		mhead.dump(w)
-		mhead = EmptyMapHead.FromListHead(pCur).(*MapHead)
+		mhead = EmptyMapHead.FromListHead(pCur)
 		mhead.dump(w)
-		mhead = EmptyMapHead.FromListHead(nCur).(*MapHead)
+		mhead = EmptyMapHead.FromListHead(nCur)
 		mhead.dump(w)
 	}
 
@@ -422,7 +422,7 @@ func (sp *samepleItemPool) dump() string {
 	var b strings.Builder
 
 	for i := 0; i < len(sp.items); i++ {
-		mhead := EmptyMapHead.FromListHead(&sp.items[i].ListHead).(*MapHead)
+		mhead := EmptyMapHead.FromListHead(&sp.items[i].ListHead)
 		mhead.dump(&b)
 	}
 	return b.String()

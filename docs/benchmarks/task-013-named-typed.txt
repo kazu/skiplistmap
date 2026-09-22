@@ -1,0 +1,478 @@
+# Local-DirectWalk-profile.stderr.txt
+
+
+# Local-DirectWalk-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkList/1024/Local/DirectWalk         	 2055506	      1170 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+
+# Local-DirectWalk-top.stderr.txt
+
+
+# Local-DirectWalk-top.txt
+File: list.test
+Build ID: 99d406fc648616a0e6e3e25f1646a3438aa2cafe
+Type: cpu
+Time: 2026-09-22 23:46:56 JST
+Duration: 3.59s, Total samples = 3580ms (99.79%)
+Showing nodes accounting for 3570ms, 99.72% of 3580ms total
+Dropped 1 node (cum <= 17.90ms)
+      flat  flat%   sum%        cum   cum%
+    2270ms 63.41% 63.41%     3580ms   100%  github.com/kazu/elist_head_test.BenchmarkList.func1.1.1
+    1110ms 31.01% 94.41%     1310ms 36.59%  github.com/kazu/elist_head.List[go.shape.struct { Name string; Age int; github.com/kazu/elist_head.ListHead }].DirectNext (inline)
+     190ms  5.31% 99.72%      190ms  5.31%  github.com/kazu/elist_head.(*ListHead).directNext (inline)
+         0     0% 99.72%      190ms  5.31%  github.com/kazu/elist_head.(*ListHead).DirectNext (inline)
+         0     0% 99.72%     3580ms   100%  testing.(*B).launch
+         0     0% 99.72%     3580ms   100%  testing.(*B).runN
+
+
+# Local-Walk-profile.stderr.txt
+
+
+# Local-Walk-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkList/1024/Local/Walk         	 1000000	      2131 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+
+# Local-Walk-top.stderr.txt
+
+
+# Local-Walk-top.txt
+File: list.test
+Build ID: 99d406fc648616a0e6e3e25f1646a3438aa2cafe
+Type: cpu
+Time: 2026-09-22 23:46:54 JST
+Duration: 2.16s, Total samples = 2.15s (99.75%)
+Showing nodes accounting for 2.15s, 100% of 2.15s total
+      flat  flat%   sum%        cum   cum%
+     1.04s 48.37% 48.37%      2.15s   100%  github.com/kazu/elist_head_test.BenchmarkList.func1.1.2
+     0.77s 35.81% 84.19%      0.77s 35.81%  github.com/kazu/elist_head.(*ListHead).directNext (inline)
+     0.19s  8.84% 93.02%      0.19s  8.84%  github.com/kazu/loncha/lista_encabezado.(*ModeTraverse).Type (inline)
+     0.13s  6.05% 99.07%      1.09s 50.70%  github.com/kazu/elist_head.(*ListHead).Next
+     0.02s  0.93%   100%      1.11s 51.63%  github.com/kazu/elist_head.List[go.shape.struct { Name string; Age int; github.com/kazu/elist_head.ListHead }].Next (inline)
+         0     0%   100%      2.15s   100%  testing.(*B).launch
+         0     0%   100%      2.15s   100%  testing.(*B).runN
+
+
+# Readme-DirectWalk-profile.stderr.txt
+
+
+# Readme-DirectWalk-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkList/1024/Readme/DirectWalk         	 1966375	      1223 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+
+# Readme-DirectWalk-top.stderr.txt
+
+
+# Readme-DirectWalk-top.txt
+File: list.test
+Build ID: 99d406fc648616a0e6e3e25f1646a3438aa2cafe
+Type: cpu
+Time: 2026-09-22 23:46:35 JST
+Duration: 3.64s, Total samples = 3640ms (  100%)
+Showing nodes accounting for 3630ms, 99.73% of 3640ms total
+Dropped 1 node (cum <= 18.20ms)
+      flat  flat%   sum%        cum   cum%
+    2100ms 57.69% 57.69%     3640ms   100%  github.com/kazu/elist_head_test.BenchmarkList.func1.3.1
+     700ms 19.23% 76.92%      900ms 24.73%  github.com/kazu/elist_head.(*ListHead).DirectNext (inline)
+     630ms 17.31% 94.23%      640ms 17.58%  github.com/kazu/elist_head.SampleEntryFromListHead (inline)
+     200ms  5.49% 99.73%      200ms  5.49%  github.com/kazu/elist_head.(*ListHead).directNext (inline)
+         0     0% 99.73%     3640ms   100%  testing.(*B).launch
+         0     0% 99.73%     3640ms   100%  testing.(*B).runN
+
+
+# Readme-Walk-profile.stderr.txt
+
+
+# Readme-Walk-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkList/1024/Readme/Walk         	 1000000	      2111 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+
+# Readme-Walk-top.stderr.txt
+
+
+# Readme-Walk-top.txt
+File: list.test
+Build ID: 99d406fc648616a0e6e3e25f1646a3438aa2cafe
+Type: cpu
+Time: 2026-09-22 23:46:33 JST
+Duration: 2.14s, Total samples = 2.13s (99.75%)
+Showing nodes accounting for 2.13s, 100% of 2.13s total
+      flat  flat%   sum%        cum   cum%
+     1.08s 50.70% 50.70%      2.13s   100%  github.com/kazu/elist_head_test.BenchmarkList.func1.3.2
+     0.58s 27.23% 77.93%      0.58s 27.23%  github.com/kazu/elist_head.(*ListHead).directNext (inline)
+     0.29s 13.62% 91.55%      1.04s 48.83%  github.com/kazu/elist_head.(*ListHead).Next
+     0.17s  7.98% 99.53%      0.17s  7.98%  github.com/kazu/loncha/lista_encabezado.(*ModeTraverse).Type (inline)
+     0.01s  0.47%   100%      1.05s 49.30%  github.com/kazu/elist_head.(*SampleEntry).Next (inline)
+         0     0%   100%      2.13s   100%  testing.(*B).launch
+         0     0%   100%      2.13s   100%  testing.(*B).runN
+
+
+# RuntimeOffset-DirectWalk-profile.stderr.txt
+
+
+# RuntimeOffset-DirectWalk-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkList/1024/RuntimeOffset/DirectWalk         	 1465946	      1636 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+
+# RuntimeOffset-DirectWalk-top.stderr.txt
+
+
+# RuntimeOffset-DirectWalk-top.txt
+File: list.test
+Build ID: 99d406fc648616a0e6e3e25f1646a3438aa2cafe
+Type: cpu
+Time: 2026-09-22 23:46:49 JST
+Duration: 4.05s, Total samples = 4050ms (99.89%)
+Showing nodes accounting for 4040ms, 99.75% of 4050ms total
+Dropped 6 nodes (cum <= 20.25ms)
+      flat  flat%   sum%        cum   cum%
+    3190ms 78.77% 78.77%     3190ms 78.77%  github.com/kazu/elist_head.(*ListHead).directNext (inline)
+     440ms 10.86% 89.63%     3630ms 89.63%  github.com/kazu/elist_head_test.readmeDirectNextWithOffset (inline)
+     410ms 10.12% 99.75%     4040ms 99.75%  github.com/kazu/elist_head_test.BenchmarkList.func1.2.1
+         0     0% 99.75%     3190ms 78.77%  github.com/kazu/elist_head.(*ListHead).DirectNext (inline)
+         0     0% 99.75%     4040ms 99.75%  testing.(*B).launch
+         0     0% 99.75%     4040ms 99.75%  testing.(*B).runN
+
+
+# RuntimeOffset-Walk-profile.stderr.txt
+
+
+# RuntimeOffset-Walk-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkList/1024/RuntimeOffset/Walk    	 1000000	      2160 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+
+# RuntimeOffset-Walk-top.stderr.txt
+
+
+# RuntimeOffset-Walk-top.txt
+File: list.test
+Build ID: 99d406fc648616a0e6e3e25f1646a3438aa2cafe
+Type: cpu
+Time: 2026-09-22 23:46:46 JST
+Duration: 2.18s, Total samples = 2180ms (99.82%)
+Showing nodes accounting for 2180ms, 100% of 2180ms total
+      flat  flat%   sum%        cum   cum%
+     840ms 38.53% 38.53%     2180ms   100%  github.com/kazu/elist_head_test.BenchmarkList.func1.2.2
+     620ms 28.44% 66.97%      620ms 28.44%  github.com/kazu/elist_head.(*ListHead).directNext (inline)
+     290ms 13.30% 80.28%      290ms 13.30%  github.com/kazu/elist_head.ElementOf (inline)
+     220ms 10.09% 90.37%     1050ms 48.17%  github.com/kazu/elist_head.(*ListHead).Next
+     210ms  9.63%   100%      210ms  9.63%  github.com/kazu/loncha/lista_encabezado.(*ModeTraverse).Type (inline)
+         0     0%   100%     1340ms 61.47%  github.com/kazu/elist_head_test.readmeNextWithOffset (inline)
+         0     0%   100%     2180ms   100%  testing.(*B).launch
+         0     0%   100%     2180ms   100%  testing.(*B).runN
+
+
+# Typed-DirectWalk-profile.stderr.txt
+
+
+# Typed-DirectWalk-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkList/1024/Typed/DirectWalk         	 1461763	      1639 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+
+# Typed-DirectWalk-top.stderr.txt
+
+
+# Typed-DirectWalk-top.txt
+File: list.test
+Build ID: 99d406fc648616a0e6e3e25f1646a3438aa2cafe
+Type: cpu
+Time: 2026-09-22 23:46:42 JST
+Duration: 4.06s, Total samples = 4060ms (100.07%)
+Showing nodes accounting for 4050ms, 99.75% of 4060ms total
+Dropped 12 nodes (cum <= 20.30ms)
+      flat  flat%   sum%        cum   cum%
+    3110ms 76.60% 76.60%     3110ms 76.60%  github.com/kazu/elist_head.(*ListHead).directNext (inline)
+     510ms 12.56% 89.16%     4050ms 99.75%  github.com/kazu/elist_head_test.BenchmarkList.func1.4.1
+     430ms 10.59% 99.75%     3540ms 87.19%  github.com/kazu/elist_head.List[go.shape.struct { Name string; Age int; github.com/kazu/elist_head.ListHead }].DirectNext (inline)
+         0     0% 99.75%     3110ms 76.60%  github.com/kazu/elist_head.(*ListHead).DirectNext (inline)
+         0     0% 99.75%     4050ms 99.75%  testing.(*B).launch
+         0     0% 99.75%     4060ms   100%  testing.(*B).runN
+
+
+# Typed-Walk-profile.stderr.txt
+
+
+# Typed-Walk-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkList/1024/Typed/Walk         	 1000000	      2140 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+
+# Typed-Walk-top.stderr.txt
+
+
+# Typed-Walk-top.txt
+File: list.test
+Build ID: 99d406fc648616a0e6e3e25f1646a3438aa2cafe
+Type: cpu
+Time: 2026-09-22 23:46:39 JST
+Duration: 2.16s, Total samples = 2160ms (99.79%)
+Showing nodes accounting for 2160ms, 100% of 2160ms total
+      flat  flat%   sum%        cum   cum%
+     900ms 41.67% 41.67%     2160ms   100%  github.com/kazu/elist_head_test.BenchmarkList.func1.4.2
+     620ms 28.70% 70.37%      620ms 28.70%  github.com/kazu/elist_head.(*ListHead).directNext (inline)
+     240ms 11.11% 81.48%     1040ms 48.15%  github.com/kazu/elist_head.(*ListHead).Next
+     220ms 10.19% 91.67%     1260ms 58.33%  github.com/kazu/elist_head.List[go.shape.struct { Name string; Age int; github.com/kazu/elist_head.ListHead }].Next (inline)
+     180ms  8.33%   100%      180ms  8.33%  github.com/kazu/loncha/lista_encabezado.(*ModeTraverse).Type (inline)
+         0     0%   100%     2160ms   100%  testing.(*B).launch
+         0     0%   100%     2160ms   100%  testing.(*B).runN
+
+
+# build.stderr.txt
+
+
+# build.txt
+
+
+# sizes.stderr.txt
+
+
+# sizes.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkListView 	925991444	         0.3897 ns/op	        40.00 B/entry	        16.00 B/head	         8.000 B/offset	         8.000 B/view	       0 B/op	       0 allocs/op
+PASS
+
+
+# timing-0-Readme.stderr.txt
+
+
+# timing-0-Readme.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkList/16/Readme/DirectWalk         	30812618	        11.18 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Readme/Walk               	11641094	        31.14 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Readme/EarlyStop          	220409500	         1.645 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Readme/Recover            	262956148	         1.361 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Readme/DirectWalk       	  293900	      1245 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Readme/Walk             	  163134	      2145 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Readme/EarlyStop        	219924900	         1.649 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Readme/Recover          	264718261	         1.360 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+
+# timing-1-Typed.stderr.txt
+
+
+# timing-1-Typed.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkList/16/Typed/DirectWalk         	18360946	        19.07 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Typed/Walk               	11567598	        31.31 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Typed/EarlyStop          	207528328	         1.718 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Typed/Recover            	263080496	         1.373 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Typed/DirectWalk       	  219802	      1637 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Typed/Walk             	  167908	      2158 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Typed/EarlyStop        	206892622	         1.737 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Typed/Recover          	264282259	         1.363 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+
+# timing-10-Local.stderr.txt
+
+
+# timing-10-Local.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkList/16/Local/DirectWalk         	31158895	        11.58 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Local/Walk               	11542501	        31.46 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Local/DirectWalk       	  306476	      1168 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Local/Walk             	  169789	      2132 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+
+# timing-11-Typed.stderr.txt
+
+
+# timing-11-Typed.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkList/16/Typed/DirectWalk         	18882080	        19.11 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Typed/Walk               	11500681	        31.53 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Typed/EarlyStop          	207684330	         1.730 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Typed/Recover            	264702228	         1.363 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Typed/DirectWalk       	  211603	      1648 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Typed/Walk             	  169364	      2147 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Typed/EarlyStop        	208286710	         1.731 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Typed/Recover          	263933478	         1.360 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+
+# timing-2-RuntimeOffset.stderr.txt
+
+
+# timing-2-RuntimeOffset.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkList/16/RuntimeOffset/DirectWalk         	18976734	        18.88 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/RuntimeOffset/Walk               	11382640	        31.67 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/RuntimeOffset/DirectWalk       	  218878	      1637 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/RuntimeOffset/Walk             	  169032	      2155 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+
+# timing-3-Local.stderr.txt
+
+
+# timing-3-Local.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkList/16/Local/DirectWalk         	28850629	        11.60 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Local/Walk               	11502894	        31.47 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Local/DirectWalk       	  306715	      1166 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Local/Walk             	  170452	      2130 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+
+# timing-4-Local.stderr.txt
+
+
+# timing-4-Local.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkList/16/Local/DirectWalk         	31092109	        11.63 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Local/Walk               	11698405	        31.08 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Local/DirectWalk       	  308625	      1167 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Local/Walk             	  171920	      2102 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+
+# timing-5-RuntimeOffset.stderr.txt
+
+
+# timing-5-RuntimeOffset.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkList/16/RuntimeOffset/DirectWalk         	19032367	        18.82 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/RuntimeOffset/Walk               	11650945	        31.29 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/RuntimeOffset/DirectWalk       	  219434	      1636 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/RuntimeOffset/Walk             	  170464	      2122 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+
+# timing-6-Typed.stderr.txt
+
+
+# timing-6-Typed.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkList/16/Typed/DirectWalk         	18543450	        19.06 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Typed/Walk               	11679541	        31.14 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Typed/EarlyStop          	210648553	         1.706 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Typed/Recover            	264561302	         1.358 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Typed/DirectWalk       	  219655	      1639 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Typed/Walk             	  169318	      2131 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Typed/EarlyStop        	211329360	         1.715 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Typed/Recover          	264486294	         1.358 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+
+# timing-7-Readme.stderr.txt
+
+
+# timing-7-Readme.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkList/16/Readme/DirectWalk         	32414029	        11.32 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Readme/Walk               	11244290	        31.17 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Readme/EarlyStop          	220696218	         1.654 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Readme/Recover            	264369673	         1.359 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Readme/DirectWalk       	  289669	      1245 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Readme/Walk             	  173647	      2128 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Readme/EarlyStop        	220567873	         1.628 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Readme/Recover          	264695755	         1.364 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+
+# timing-8-Readme.stderr.txt
+
+
+# timing-8-Readme.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkList/16/Readme/DirectWalk         	32907933	        11.05 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Readme/Walk               	11590710	        31.04 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Readme/EarlyStop          	219983236	         1.633 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/Readme/Recover            	263826764	         1.362 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Readme/DirectWalk       	  287979	      1244 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Readme/Walk             	  169539	      2129 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Readme/EarlyStop        	220437987	         1.645 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/Readme/Recover          	264437281	         1.363 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+
+# timing-9-RuntimeOffset.stderr.txt
+
+
+# timing-9-RuntimeOffset.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkList/16/RuntimeOffset/DirectWalk         	19134465	        18.88 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/16/RuntimeOffset/Walk               	11464706	        31.69 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/RuntimeOffset/DirectWalk       	  218047	      1639 ns/op	       0 B/op	       0 allocs/op
+BenchmarkList/1024/RuntimeOffset/Walk             	  169598	      2153 ns/op	       0 B/op	       0 allocs/op
+PASS
+

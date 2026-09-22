@@ -1,0 +1,241 @@
+diff --git a/copy_bench_test.go b/copy_bench_test.go
+new file mode 100644
+index 0000000..9520fff
+--- /dev/null
++++ b/copy_bench_test.go
+@@ -0,0 +1,25 @@
++package elist_head_test
++
++import (
++	"fmt"
++	"testing"
++)
++
++// BenchmarkCopyOnly includes the representation size but no link repair.
++func BenchmarkCopyOnly(b *testing.B) {
++	for _, n := range []int{16, 1024} {
++		b.Run(fmt.Sprint(n), func(b *testing.B) {
++			src, dst := make([]benchEntry, n), make([]benchEntry, n)
++			for i := range src {
++				src[i].key = uint64(i)
++			}
++			b.ReportAllocs()
++			b.ResetTimer()
++			for i := 0; i < b.N; i++ {
++				copy(dst, src)
++				benchSum = dst[i%n].key
++			}
++			benchResult = &dst[0]
++		})
++	}
++}
+diff --git a/elist_test.go b/elist_test.go
+index 849b2ff..b94a3c1 100644
+--- a/elist_test.go
++++ b/elist_test.go
+@@ -1,6 +1,7 @@
+ package elist_head_test
+ 
+ import (
++	"runtime"
+ 	"testing"
+ 	"unsafe"
+ 
+@@ -83,6 +84,10 @@ func Test_CopySlice(t *testing.T) {
+ 
+ }
+ 
++var benchmarkNextNormal *list_head.ListHead
++var benchmarkNextRelative *elist_head.ListHead
++
++// One operation traverses 10000 links; fixture construction is not timed.
+ func Benchmark_Next(b *testing.B) {
+ 
+ 	l := list_head.ListHead{}
+@@ -103,24 +108,30 @@ func Benchmark_Next(b *testing.B) {
+ 		el.Prev().Next().InsertBefore(ee)
+ 	}
+ 
+-	b.ResetTimer()
+ 	b.Run("list_head", func(b *testing.B) {
+-		cur := &l
+-		b.StartTimer()
+-		for i := 0; i < 10000; i++ {
+-			cur = cur.Next()
++		b.ReportAllocs()
++		b.ResetTimer()
++		for iteration := 0; iteration < b.N; iteration++ {
++			cur := &l
++			for i := 0; i < 10000; i++ {
++				cur = cur.Next()
++			}
++			benchmarkNextNormal = cur
+ 		}
+-		b.StopTimer()
+ 	})
+-	b.ResetTimer()
+ 	b.Run("elist_head", func(b *testing.B) {
+-		cur := el
+-		b.StartTimer()
+-		for i := 0; i < 10000; i++ {
+-			cur = cur.Next()
++		b.ReportAllocs()
++		b.ResetTimer()
++		for iteration := 0; iteration < b.N; iteration++ {
++			cur := el
++			for i := 0; i < 10000; i++ {
++				cur = cur.Next()
++			}
++			benchmarkNextRelative = cur
+ 		}
+-		b.StopTimer()
+ 	})
++	runtime.KeepAlive(items)
++	runtime.KeepAlive(els)
+ 
+ }
+ 
+diff --git a/migration_bench_test.go b/migration_bench_test.go
+new file mode 100644
+index 0000000..c78a220
+--- /dev/null
++++ b/migration_bench_test.go
+@@ -0,0 +1,89 @@
++package elist_head_test
++
++import (
++	"runtime"
++	"testing"
++	"unsafe"
++
++	elist "github.com/kazu/elist_head"
++)
++
++type benchEntry struct {
++	key uint64
++	elist.ListHead
++}
++
++var benchResult *benchEntry
++var benchSum uint64
++
++func BenchmarkMigration(b *testing.B) {
++	for _, n := range []int{16, 1024} {
++		name := "16"
++		if n == 1024 {
++			name = "1024"
++		}
++		b.Run(name, func(b *testing.B) {
++			items := make([]benchEntry, n)
++			ends := make([]elist.ListHead, 2)
++			elist.InitAsEmpty(&ends[0], &ends[1])
++			for i := range items {
++				items[i].key = uint64(i)
++				if _, err := ends[1].InsertBefore(&items[i].ListHead); err != nil {
++					b.Fatal(err)
++				}
++			}
++			b.Run("Walk", func(b *testing.B) {
++				b.ReportAllocs()
++				for i := 0; i < b.N; i++ {
++					count := 0
++					for p := ends[0].DirectNext(); p != &ends[1]; p = p.DirectNext() {
++						count++
++					}
++					if count != n {
++						b.Fatal(count)
++					}
++				}
++			})
++			b.Run("PayloadWalk", func(b *testing.B) {
++				b.ReportAllocs()
++				for i := 0; i < b.N; i++ {
++					var sum uint64
++					for p := ends[0].DirectNext(); p != &ends[1]; p = p.DirectNext() {
++						sum += (*benchEntry)(elist.ElementOf(unsafe.Pointer(p), unsafe.Offsetof(benchEntry{}.ListHead))).key
++					}
++					benchSum = sum
++					if sum != uint64(n*(n-1)/2) {
++						b.Fatal(sum)
++					}
++				}
++			})
++			b.Run("EarlyStop", func(b *testing.B) {
++				b.ReportAllocs()
++				for i := 0; i < b.N; i++ {
++					if ends[0].DirectNext() != &items[0].ListHead {
++						b.Fatal("first")
++					}
++				}
++			})
++			b.Run("Recover", func(b *testing.B) {
++				b.ReportAllocs()
++				for i := 0; i < b.N; i++ {
++					benchResult = (*benchEntry)(elist.ElementOf(unsafe.Pointer(&items[i%n].ListHead), unsafe.Offsetof(benchEntry{}.ListHead)))
++				}
++			})
++			b.Run("DeleteInsert", func(b *testing.B) {
++				b.ReportAllocs()
++				for i := 0; i < b.N; i++ {
++					if _, err := items[n-1].Delete(func(h *elist.ListHead) error { h.Init(); return nil }); err != nil {
++						b.Fatal(err)
++					}
++					if _, err := ends[1].InsertBefore(&items[n-1].ListHead); err != nil {
++						b.Fatal(err)
++					}
++				}
++			})
++			runtime.KeepAlive(items)
++			runtime.KeepAlive(ends)
++		})
++	}
++}
+diff --git a/repair_bench_test.go b/repair_bench_test.go
+new file mode 100644
+index 0000000..ea0e41d
+--- /dev/null
++++ b/repair_bench_test.go
+@@ -0,0 +1,43 @@
++package elist_head_test
++
++import (
++	elist "github.com/kazu/elist_head"
++	"testing"
++	"unsafe"
++)
++
++func BenchmarkCopyRepair(b *testing.B) {
++	for _, n := range []int{16, 1024} {
++		name := "16"
++		if n == 1024 {
++			name = "1024"
++		}
++		b.Run(name, func(b *testing.B) {
++			src, dst := make([]benchEntry, n), make([]benchEntry, n)
++			ends := make([]elist.ListHead, 2)
++			elist.InitAsEmpty(&ends[0], &ends[1])
++			for i := range src {
++				if _, err := ends[1].InsertBefore(&src[i].ListHead); err != nil {
++					b.Fatal(err)
++				}
++			}
++			b.ReportAllocs()
++			b.ResetTimer()
++			for i := 0; i < b.N; i++ {
++				copy(dst, src)
++				if err := elist.RepaireSliceAfterCopy(unsafe.Pointer(&src[0]), unsafe.Pointer(&src[len(src)-1]), unsafe.Pointer(&dst[0]), int(unsafe.Sizeof(src[0])), int(unsafe.Offsetof(src[0].ListHead))); err != nil {
++					b.Fatal(err)
++				}
++				src, dst = dst, src
++			}
++			b.StopTimer()
++			p := ends[0].DirectNext()
++			for i := range src {
++				if p != &src[i].ListHead {
++					b.Fatal("relocation order", i)
++				}
++				p = p.DirectNext()
++			}
++		})
++	}
++}

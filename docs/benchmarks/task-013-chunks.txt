@@ -1,0 +1,14 @@
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkOwnerChunks/1         	   78115	      3071 ns/op	        24.00 B/head	        80.00 B/owner	       0 B/op	       0 allocs/op
+BenchmarkOwnerChunks/1         	   78325	      3071 ns/op	        24.00 B/head	        80.00 B/owner	       0 B/op	       0 allocs/op
+BenchmarkOwnerChunks/1         	   76615	      3105 ns/op	        24.00 B/head	        80.00 B/owner	       0 B/op	       0 allocs/op
+BenchmarkOwnerChunks/8         	   47836	      5109 ns/op	        24.00 B/head	        80.00 B/owner	       0 B/op	       0 allocs/op
+BenchmarkOwnerChunks/8         	   47467	      5122 ns/op	        24.00 B/head	        80.00 B/owner	       0 B/op	       0 allocs/op
+BenchmarkOwnerChunks/8         	   47653	      5123 ns/op	        24.00 B/head	        80.00 B/owner	       0 B/op	       0 allocs/op
+BenchmarkOwnerChunks/64        	   10000	     22976 ns/op	        24.00 B/head	        80.00 B/owner	       0 B/op	       0 allocs/op
+BenchmarkOwnerChunks/64        	   10000	     22843 ns/op	        24.00 B/head	        80.00 B/owner	       0 B/op	       0 allocs/op
+BenchmarkOwnerChunks/64        	   10000	     22886 ns/op	        24.00 B/head	        80.00 B/owner	       0 B/op	       0 allocs/op
+PASS

@@ -19,19 +19,25 @@ type baseMap struct {
 type RMap struct {
 	baseMap
 	limit int
+	len   int64
 	dirty *smap.Map
 }
 
 type readMap struct {
-	m       map[uint64]atomic.Value
+	m       map[uint64]*atomic.Value
 	amended bool // include dirty map
 }
+
+// expunged marks a read-map slot whose key was deleted. atomic.Value cannot
+// hold nil or a value of another type, so the marker is a *SampleItem.
+var expunged = &smap.SampleItem{}
 
 func New() (rmap *RMap) {
 
 	rmap = &RMap{
 		limit: 1000,
 	}
+	rmap.read.Store(&readMap{})
 	rmap.initDirty()
 
 	return rmap
@@ -65,22 +71,24 @@ func (m *RMap) getDirtyEntry(k, conflict uint64) (e smap.MapItem) {
 func (m *RMap) getDirty(k, conflict uint64) (v interface{}, ok bool) {
 
 	e := m.getDirtyEntry(k, conflict)
+	if e == nil {
+		return nil, false
+	}
 	return e.Value(), true
 }
 
 func (m *RMap) Set2(k, conflict uint64, kstr string, v interface{}) bool {
-	read, succ := m.read.Load().(*readMap)
-	if !succ {
-		m.read.Store(&readMap{})
-		read, succ = m.read.Load().(*readMap)
-	}
+	read := m.read.Load().(*readMap)
 
 	ensure := func(item smap.MapItem) {
 		for _, fn := range m.onNewStores {
 			fn(item)
 		}
 	}
-	if e, ok := read.store2(k, conflict, kstr, v); ok {
+	if e, revived, ok := read.store2(k, conflict, kstr, v); ok {
+		if revived {
+			atomic.AddInt64(&m.len, 1)
+		}
 		defer ensure(e)
 		return true
 	}
@@ -98,14 +106,13 @@ func (m *RMap) Set2(k, conflict uint64, kstr string, v interface{}) bool {
 	}
 
 	if !ok {
-		e := smap.NewSampleItem(kstr, v)
-		e.Init()
-		m.dirty.StoreItem(e)
+		// Set, not StoreItem: a heap item linked only by offsets is freed by the GC.
+		m.dirty.Set(kstr, v)
+		atomic.AddInt64(&m.len, 1)
 
 		if len(read.m) == 0 {
 			m.storeReadFromDirty(true)
 		}
-		defer ensure(e)
 	}
 	return true
 }
@@ -153,62 +160,49 @@ func (m *RMap) Get(key string) (v interface{}, ok bool) {
 func (m *RMap) Get2(k, conflict uint64) (v interface{}, ok bool) {
 
 	read := m.read.Load().(*readMap)
-	av, ok := read.m[k]
-	var e *smap.SampleItem
-	if ok {
-		e, ok = av.Load().(*smap.SampleItem)
-		if e.MapHead.ConflictInHamp() != conflict {
-			ok = false
-		} else {
-			v = e.V
+	if av, hit := read.m[k]; hit {
+		e := av.Load().(*smap.SampleItem)
+		if e != expunged && e.MapHead.ConflictInHamp() == conflict {
+			return e.Value(), true
 		}
 	}
-
-	if !ok && read.amended {
-		// m.Lock()
-		// defer m.Unlock()
-		read := m.read.Load().(*readMap)
-		av, ok = read.m[k]
-		if !ok && read.amended {
-			v, ok = m.getDirty(k, conflict)
-			m.missLocked()
-		}
+	if !read.amended {
+		return nil, false
 	}
+	v, ok = m.getDirty(k, conflict)
+	m.missLocked()
 	return
 }
 
 func (m *RMap) Delete(key string) bool {
 	k, conflict := smap.KeyToHash(key)
 
-	read, _ := m.read.Load().(*readMap)
+	read := m.read.Load().(*readMap)
 	av, ok := read.m[k]
 	if !ok && read.amended {
-		m.Lock()
-		defer m.Unlock()
-		read, _ := m.read.Load().(*readMap)
-		if !ok && read.amended {
-			// av, ok = m.dirty[k]
-			// delete(m.dirty, k)
-			e := m.getDirtyEntry(k, conflict)
-			if e != nil {
-				m.dirty.AddLen(-1)
-				e.Delete()
-			}
-
-			m.missLocked()
+		// no m.Lock(): storeReadFromDirty under missLocked takes it.
+		deleted := m.dirty.Delete(key)
+		if deleted {
+			atomic.AddInt64(&m.len, -1)
 		}
+		m.missLocked()
+		return deleted
 	}
 
 	if ok {
 		ohead := av.Load().(*smap.SampleItem)
-		//ohead.conflict = conflict
-		return av.CompareAndSwap(ohead, nil)
-
+		if ohead == expunged || ohead.MapHead.ConflictInHamp() != conflict {
+			return false
+		}
+		if av.CompareAndSwap(ohead, expunged) {
+			atomic.AddInt64(&m.len, -1)
+			return true
+		}
 	}
 	return false
 }
 func (m *RMap) Len() int {
-	return int(m.dirty.Len())
+	return int(atomic.LoadInt64(&m.len))
 }
 
 func (m *RMap) storeReadFromDirty(amended bool) {
@@ -220,14 +214,13 @@ func (m *RMap) storeReadFromDirty(amended bool) {
 		oread, _ := m.read.Load().(*readMap)
 
 		nread := &readMap{
-			m:       map[uint64]atomic.Value{},
+			m:       map[uint64]*atomic.Value{},
 			amended: amended,
 		}
 
 		//MENTION: not require copy oread ?
 		for k, a := range oread.m {
-			_, ok := a.Load().(*smap.SampleItem)
-			if !ok {
+			if a.Load().(*smap.SampleItem) == expunged {
 				continue
 			}
 			nread.m[k] = a
@@ -235,7 +228,7 @@ func (m *RMap) storeReadFromDirty(amended bool) {
 		m.dirty.RangeItem(func(item smap.MapItem) bool {
 			e, ok := item.(*smap.SampleItem)
 			if ok {
-				a := atomic.Value{}
+				a := &atomic.Value{}
 				a.Store(e)
 				nread.m[e.KeyInHmap()] = a
 
@@ -262,25 +255,29 @@ func (m *RMap) storeReadFromDirty(amended bool) {
 
 func (m *RMap) initDirty() {
 
+	// item-pool mode (skiplistmap4 in the README); the pool-less mode hangs on insertion.
 	m.dirty = smap.New(
-		smap.BucketMode(smap.CombineSearch),
+		smap.UsePool(true),
+		smap.BucketMode(smap.CombineSearch4),
 		smap.MaxPefBucket(16),
 		smap.ItemFn(func() skiplistmap.MapItem {
 			return skiplistmap.EmptySampleHMapEntry
 		}))
 }
 
-func (r *readMap) store2(k, conflict uint64, kstr string, v interface{}) (smap.MapItem, bool) {
+// store2 replaces the read-map slot of k. revived is true when the slot held
+// a deleted key, so the caller counts the key as inserted again.
+func (r *readMap) store2(k, conflict uint64, kstr string, v interface{}) (item smap.MapItem, revived bool, ok bool) {
 	ov, ok := r.m[k]
 	if !ok {
-		return nil, ok
+		return nil, false, ok
 	}
 	ohead := ov.Load().(*smap.SampleItem)
-	item := smap.NewSampleItem(kstr, v)
-	item.PtrListHead().Init()
-	item.Setup()
+	nitem := smap.NewSampleItem(kstr, v)
+	nitem.PtrListHead().Init()
+	nitem.Setup()
 
-	ok = ov.CompareAndSwap(ohead, item)
-	return item, ok
+	ok = ov.CompareAndSwap(ohead, nitem)
+	return nitem, ohead == expunged, ok
 
 }

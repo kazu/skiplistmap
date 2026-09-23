@@ -1559,6 +1559,7 @@ func (h *Map) Delete(key interface{}) bool {
 		return false
 	}
 	item.Delete()
+	h.AddLen(-1)
 	return true
 
 }
@@ -1595,6 +1596,7 @@ func (h *Map) purgeInEmbedded(key interface{}) bool {
 		return false
 	}
 	item.Delete()
+	h.AddLen(-1)
 
 	pOpts := elist_head.SharedTrav(list_head.WaitNoM())
 	item.PtrListHead().MarkForDelete()

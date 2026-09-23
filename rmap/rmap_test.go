@@ -2,6 +2,7 @@ package rmap_test
 
 import (
 	"fmt"
+	"math/rand"
 	"runtime"
 	"testing"
 
@@ -151,6 +152,55 @@ func Test_Delete_AfterPromotion(t *testing.T) {
 	assert.Equal(t, cnt-1, m.Len())
 }
 
+// After every key of the read map is deleted, a new key is still found by
+// Get, counted by Len and removed by Delete.
+func Test_Set_AfterAllReadKeysDeleted(t *testing.T) {
+	for _, cnt := range []int{1, 100} {
+		t.Run(fmt.Sprintf("n=%d", cnt), func(t *testing.T) {
+			m := rmap.New()
+			for i := 0; i < cnt; i++ {
+				m.Set(key(i), i)
+			}
+			// enough misses to rebuild the read map from the dirty map
+			for i := 0; i < 2*cnt; i++ {
+				m.Get("missing")
+			}
+			for i := 0; i < cnt; i++ {
+				assert.Truef(t, m.Delete(key(i)), "Delete(%q)", key(i))
+			}
+			assert.Equal(t, 0, m.Len())
+
+			assert.True(t, m.Set("new", -1))
+			v, ok := m.Get("new")
+			assert.True(t, ok)
+			assert.Equal(t, -1, v)
+			assert.Equal(t, 1, m.Len())
+			assert.True(t, m.Delete("new"))
+			_, ok = m.Get("new")
+			assert.False(t, ok)
+			assert.Equal(t, 0, m.Len())
+		})
+	}
+}
+
+// Once every key is deleted, a miss finds an empty read map and an empty
+// dirty map: repeated Get and Delete of an absent key must not rebuild them
+// (AllocsPerRun leaves its first call out).
+func Test_Miss_AfterAllKeysDeleted(t *testing.T) {
+	m := rmap.New()
+	m.Set("a", 1)
+	m.Delete("a")
+	assert.Equal(t, 0, m.Len())
+
+	allocs := testing.AllocsPerRun(100, func() {
+		m.Get("missing")
+		m.Delete("missing")
+	})
+	assert.Equal(t, 0.0, allocs, "allocations per Get and Delete of an absent key")
+	_, ok := m.Get("a")
+	assert.False(t, ok)
+}
+
 // A key that lives only in the dirty map is deleted and set again while the
 // dirty map keeps enough live keys that no read on it promotes (every dirty
 // read counts as a miss, promotion happens once misses reach dirty.Len()),
@@ -191,4 +241,42 @@ func Test_Delete_Reinsert_InDirty(t *testing.T) {
 		assert.Equal(t, want, v)
 	}
 	assert.Equal(t, cnt+4, m.Len())
+}
+
+// Random Set, Get and Delete steps checked against a Go map after every step.
+func Test_SequentialModel(t *testing.T) {
+	for seed := int64(1); seed <= 200; seed++ {
+		r := rand.New(rand.NewSource(seed))
+		nkeys := 1 + r.Intn(40)
+		m := rmap.New()
+		want := map[string]int{}
+		for step := 0; step < 2000; step++ {
+			k := key(r.Intn(nkeys))
+			switch op := r.Intn(10); {
+			case op < 4:
+				m.Set(k, step)
+				want[k] = step
+			case op < 7:
+				v, ok := m.Get(k)
+				wv, live := want[k]
+				if ok != live || (live && v != wv) {
+					t.Fatalf("seed %d step %d: Get(%q) = (%v, %v), want (%v, %v)", seed, step, k, v, ok, wv, live)
+				}
+			case op < 9:
+				_, live := want[k]
+				if got := m.Delete(k); got != live {
+					t.Fatalf("seed %d step %d: Delete(%q) = %v, want %v", seed, step, k, got, live)
+				}
+				delete(want, k)
+			default:
+				// a miss counts towards rebuilding the read map
+				if _, ok := m.Get("missing"); ok {
+					t.Fatalf("seed %d step %d: Get(missing) found", seed, step)
+				}
+			}
+			if got := m.Len(); got != len(want) {
+				t.Fatalf("seed %d step %d: Len() = %d, want %d", seed, step, got, len(want))
+			}
+		}
+	}
 }

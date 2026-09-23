@@ -109,10 +109,6 @@ func (m *RMap) Set2(k, conflict uint64, kstr string, v interface{}) bool {
 		// Set, not StoreItem: a heap item linked only by offsets is freed by the GC.
 		m.dirty.Set(kstr, v)
 		atomic.AddInt64(&m.len, 1)
-
-		if len(read.m) == 0 {
-			m.storeReadFromDirty(true)
-		}
 	}
 	return true
 }
@@ -237,12 +233,6 @@ func (m *RMap) storeReadFromDirty(amended bool) {
 			return true
 		})
 
-		if len(nread.m) == 0 {
-			break
-		}
-		if len(oread.m) == 0 {
-			nread.amended = true
-		}
 		if m.read.CompareAndSwap(oread, nread) {
 			m.Unlock()
 			m.initDirty()

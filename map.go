@@ -625,12 +625,17 @@ func (h *Map) Set(key, value interface{}) bool {
 		k, conflict := KeyToHash(key)
 		var nPool *samepleItemPool
 
+		// Hold the bucket lock from the existence re-check to the link, so two
+		// goroutines inserting the same key cannot both miss and both insert.
+		bucket.muPool.Lock()
+		defer bucket.muPool.Unlock()
+		if item, _, found = h._loadItem(0, 0, key); found {
+			return h._update(item, value)
+		}
+
 		//lastgets = nil
 		oPool := bucket.itemPool()
-		item, nPool, fn := oPool.getWithFn(bits.Reverse64(k), &bucket.muPool)
-		if fn != nil {
-			defer fn(&bucket.muPool)
-		}
+		item, nPool, _ := oPool.getWithFn(bits.Reverse64(k), nil)
 
 		s = item.(*SampleItem)
 		if nPool != nil {
@@ -1584,7 +1589,6 @@ func (h *Map) purgeInEmbedded(key interface{}) bool {
 	// remove item
 	// 1. item status to remove
 	// 2. purge from linked-list
-	// 3. insert free list ( keep pointer order ?)
 
 	pool := bucket.itemPool()
 	if pool == nil {
@@ -1605,10 +1609,9 @@ func (h *Map) purgeInEmbedded(key interface{}) bool {
 		return true
 	}
 
-	err := pool.PushWithOrder(item.(*SampleItem))
-	if err != nil {
-		return false
-	}
+	// The slot stays in the array, unlinked, with mapIsDeleted set; that flag
+	// is what getWithFn's foundFree path reuses. No free list: its offsets
+	// would go stale when expand/insertToPool rebuild the array.
 	return true
 }
 

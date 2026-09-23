@@ -378,8 +378,9 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem
 			return newItem, nPool, fn
 		}
 		var err error
-		prevItem := sp.items[0].ListHead.Prev()
-		nextItem := sp.items[olen-1].ListHead.Next()
+		head, tail := sp.linkedEnds(olen)
+		prevItem := sp.items[head].ListHead.Prev()
+		nextItem := sp.items[tail].ListHead.Next()
 
 		// copy to new slice
 		newItems := make([]SampleItem, olen+1, maxInts(ocap, olen+1))
@@ -542,6 +543,20 @@ RETRY:
 
 }
 
+// linkedEnds returns the first and the last of sp.items[:n] that are in the
+// list: purged items stay in the array unlinked. insertToPool and expand
+// call it with a live item in sp.items[:n].
+func (sp *samepleItemPool) linkedEnds(n int) (head, tail int) {
+	head, tail = 0, n-1
+	for sp.items[head].ListHead.Empty() {
+		head++
+	}
+	for sp.items[tail].ListHead.Empty() {
+		tail--
+	}
+	return
+}
+
 func (sp *samepleItemPool) expand(mu sync.Locker) (unlocker, error) {
 	var fn unlocker
 	if mu != nil {
@@ -566,8 +581,9 @@ func (sp *samepleItemPool) expand(mu sync.Locker) (unlocker, error) {
 	}
 
 	var err error
-	prevItem := sp.items[0].ListHead.Prev()
-	nextItem := sp.items[olen-1].ListHead.Next()
+	head, tail := sp.linkedEnds(olen)
+	prevItem := sp.items[head].ListHead.Prev()
+	nextItem := sp.items[tail].ListHead.Next()
 
 	nCap := PoolCap(len(sp.items))
 
@@ -576,7 +592,7 @@ func (sp *samepleItemPool) expand(mu sync.Locker) (unlocker, error) {
 
 	// Links are offsets; the copied ends still point relative to the old
 	// array, so connect them straight to the heap neighbours (no stack heads).
-	err = prevItem.ReplaceNext(&newItems[0].ListHead, &newItems[olen-1].ListHead, nextItem)
+	err = prevItem.ReplaceNext(&newItems[head].ListHead, &newItems[tail].ListHead, nextItem)
 	if err != nil {
 		Log(LogFatal, "fail to replace newItems")
 	}

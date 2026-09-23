@@ -3,6 +3,7 @@ package skiplistmap_test
 import (
 	"fmt"
 	"math/bits"
+	"math/rand"
 	"sort"
 	"testing"
 
@@ -231,6 +232,9 @@ func Test_PoolSequences(t *testing.T) {
 		{"insert above a deleted last item", []string{"Set r4", "Set r1", "Del r4", "Set r3", "Set r5", "Set r4"}},
 		{"insert below a deleted last item", []string{"Set r1", "Set r3", "Del r3", "Set r2"}},
 		{"split at a deleted item", []string{"Set B17", "Set A1", "Set A12", "Set B7", "Set A4", "Set B2", "Set B5", "Set B9", "Set B16", "Set A6", "Del A1", "Set B6", "Set A21", "Set B8", "Set B14", "Set A17", "Set B11", "Set B13", "Set B10", "Set A11"}},
+		{"insert after a purged first key", []string{"Set r0", "Set r1", "Pur r0", "Set r3", "Set r2", "Set r4"}},
+		{"expand with a purged first item", []string{"Set A7", "Set B5", "Set B12", "Set A8", "Set A6", "Set A18", "Set A16", "Set B14", "Set B6", "Set A13", "Set B10", "Set A9", "Set A3", "Set A0", "Set B7", "Set B13", "Set B3", "Pur B3", "Set B15"}},
+		{"expand with a purged last item", []string{"Set B0", "Set B2", "Set B4", "Set B6", "Set B8", "Set B10", "Set B12", "Set B14", "Set B16", "Set B18", "Set B20", "Set B22", "Set B24", "Set B26", "Set B28", "Set A0", "Pur B28", "Set A1", "Set B1"}},
 	} {
 		for _, p := range crashMapParams() {
 			t.Run(c.name+"/"+p.name, func(t *testing.T) {
@@ -271,5 +275,48 @@ func Test_PoolSequences(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// Random Set, Delete and Purge steps on the keys of one bucket, checked
+// against a Go map after every step. With one bucket the pool splits,
+// expands and reuses deleted items.
+func Test_SequentialModel(t *testing.T) {
+	keys := sameBucketKeys(120)
+	for _, p := range crashMapParams() {
+		t.Run(p.name, func(t *testing.T) {
+			for seed := int64(1); seed <= 10; seed++ {
+				r := rand.New(rand.NewSource(seed))
+				m := p.newMap()
+				want := map[string]*list_head.ListHead{}
+				for step := 0; step < 1500; step++ {
+					k := keys[r.Intn(len(keys))]
+					switch op := r.Intn(6); {
+					case op < 3:
+						v := &list_head.ListHead{}
+						m.Set(k, v)
+						want[k] = v
+					case op < 5:
+						d := seqDeletes()[op-3]
+						_, live := want[k]
+						if got := d.fn(m.base, k); got != live {
+							t.Fatalf("seed %d step %d: %s(%q) = %v, want %v", seed, step, d.name, k, got, live)
+						}
+						delete(want, k)
+					default:
+						if got := rangeCount(t, m.base); got != len(want) {
+							t.Fatalf("seed %d step %d: Range visited %d keys, want %d", seed, step, got, len(want))
+						}
+					}
+					wv, live := want[k]
+					if v, ok := m.Get(k); ok != live || v != wv {
+						t.Fatalf("seed %d step %d: Get(%q) = (%p, %v), want (%p, %v)", seed, step, k, v, ok, wv, live)
+					}
+					if got := m.base.Len(); got != len(want) {
+						t.Fatalf("seed %d step %d: Len() = %d, want %d", seed, step, got, len(want))
+					}
+				}
+			}
+		})
 	}
 }

@@ -4,7 +4,7 @@ Map から得たポインタがいつまで有効か、誰が item を生かす�
 
 ## stale read と lost update
 
-デフォルトの `New()` でも `UseEmbeddedPool(true)` でも、下のとおりになる。
+デフォルトの `New()` でも `UseEmbeddedPool(true)` でも、下のとおりになる(lifetime_test.go の `Test_LoadItemAfterPoolGrowth` が確かめる)。
 
 ```go
 m := skiplistmap.New()

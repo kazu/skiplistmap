@@ -91,6 +91,27 @@ func Test_ConcurrentFirstStoreItem(t *testing.T) {
 	}
 }
 
+// The first Sets of a new Map run at the same time: the Map must make one
+// item pool, and every item must stay reachable after a GC.
+func Test_ConcurrentFirstSet(t *testing.T) {
+	const goroutines = 8
+	keys := keysWithDistinctTopBits(goroutines)
+	for round := 0; round < 200; round++ {
+		m := newDefaultMap()
+		runWithDeadline(t, time.Minute, func() {
+			runTogether(goroutines, func(g int) {
+				m.Set(keys[g], &list_head.ListHead{})
+			})
+		})
+		runtime.GC()
+		for _, k := range keys {
+			if _, ok := m.Get(k); !ok {
+				t.Fatalf("round %d: Get(%q) not found", round, k)
+			}
+		}
+	}
+}
+
 // Lookups of absent keys run at the same time. A miss records its key in
 // Failreverse only while Failreverse is 0, so the test clears it first.
 func Test_ConcurrentGetMissing(t *testing.T) {

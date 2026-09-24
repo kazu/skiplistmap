@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"unsafe"
 
 	"github.com/kazu/elist_head"
 	list_head "github.com/kazu/loncha/lista_encabezado"
@@ -119,11 +120,14 @@ func ItemFn(fn func() MapItem) OptHMap {
 
 func UsePool(enable bool) OptHMap {
 	return func(h *Map) OptHMap {
+		ptr := (*unsafe.Pointer)(unsafe.Pointer(&h.pooler))
 		if !enable {
 			h.pooler = nil
-		} else if h.pooler == nil {
-			h.pooler = newPool()
-			h.pooler.startMgr()
+		} else if atomic.LoadPointer(ptr) == nil {
+			p := newPool()
+			if atomic.CompareAndSwapPointer(ptr, nil, unsafe.Pointer(p)) {
+				p.startMgr()
+			}
 		}
 
 		return UsePool(!enable)
@@ -630,7 +634,7 @@ func (h *Map) Set(key, value interface{}) bool {
 	var s *SampleItem
 	useDump := false
 
-	if h.pooler == nil && !h.isEmbededItemInBucket {
+	if atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&h.pooler))) == nil && !h.isEmbededItemInBucket {
 		UsePool(true)(h)
 	}
 	if !h.isEmbededItemInBucket && bucket.head().Empty() {
@@ -674,7 +678,8 @@ func (h *Map) Set(key, value interface{}) bool {
 		var fn func()
 		fn = nil
 		wg.Add(1)
-		h.pooler.Get(bits.Reverse64(k), func(item MapItem, mu sync.Locker) {
+		pooler := (*Pool)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&h.pooler))))
+		pooler.Get(bits.Reverse64(k), func(item MapItem, mu sync.Locker) {
 			s = item.(*SampleItem)
 			if mu != nil {
 				fn = func() {

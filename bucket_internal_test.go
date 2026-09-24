@@ -6,6 +6,21 @@ import (
 	"testing"
 )
 
+// A slot that a split has claimed but not built yet has no item pool, so a
+// lookup of its keys must not find it and must reach the bucket that still
+// holds the items.
+func Test_ClaimedBucketIsNotFound(t *testing.T) {
+	h := New(UseEmbeddedPool(true))
+	parent := &h.buckets[3]
+	r := parent.reverse | 8<<56
+	if b := h.bucketFromPoolEmbedded(r); b == nil || b == parent {
+		t.Fatalf("bucketFromPoolEmbedded(%x) did not claim a new slot", r)
+	}
+	if got := h.findBucket(r); got.toBase() != parent {
+		t.Errorf("findBucket(%x) = bucket %x of level %d, want the parent %x", r, got.reverse, got.level(), parent.reverse)
+	}
+}
+
 // A lookup that found its bucket before a split moved the key to a new
 // bucket must still find the key.
 func Test_LookupFromBucketFoundBeforeSplit(t *testing.T) {

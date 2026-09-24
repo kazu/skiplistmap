@@ -77,9 +77,7 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 	if newReverse&1 > 0 {
 		newReverse++
 	}
-	// Decide whether a split is possible before touching the bucket table:
-	// bucketFromPoolEmbedded marks the slot as a live bucket (level, reverse),
-	// and a slot left without a pool sends every lookup into itemPool() forever.
+	// Decide whether a split is possible before claiming a slot of the bucket table.
 	idx, err := bucket.itemPool().findIdx(newReverse)
 	if err != nil || idx == 0 {
 		return err
@@ -107,6 +105,9 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 	atomic.StoreInt32(&b._len, int32(olen-idx))
 
 	h.addBucket(b)
+	if l := b.level(); l < 0 {
+		b.setLevel(-l)
+	}
 	spItems := bucket.itemPool().ptrItems()
 	atomic_util.StoreInt(&spItems.len, idx)
 	atomic_util.StoreInt(&spItems.cap, idx)
@@ -165,7 +166,9 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 		// init downLevels[0]
 		if downs == nil || atomic_util.CompareAndSwapInt(&downs.cap, 0, 1) {
 			//if cap(b.downLevels) == 0 {
-			b.downLevels = make([]bucket, 0, 16)
+			downLevels := make([]bucket, 0, 16)
+			atomic.StorePointer(&downs.data, unsafe.Pointer(unsafe.SliceData(downLevels)))
+			atomic_util.StoreInt(&downs.cap, cap(downLevels))
 			downs = b.ptrDownLevels()
 			if atomic_util.LoadInt(&downs.len) == 1 {
 				goto SKIP_FIRST_DOWN_INIT
@@ -215,7 +218,7 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 			if l != level {
 				Log(LogWarn, "not collected already inited")
 			}
-			downs.at(idx).setLevel(b.level() + 1)
+			downs.at(idx).setLevel(-(b.level() + 1))
 			downs.at(idx).reverse = b.reverse | (uint64(idx) << (4 * (16 - l)))
 			b = downs.at(idx)
 			if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {

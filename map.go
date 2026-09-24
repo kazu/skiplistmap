@@ -888,6 +888,9 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 	if !h.isEmbededItemInBucket && b.head().Empty() {
 		panic("bucket head empty")
 	}
+	if l := b.level(); l < 0 {
+		b.setLevel(-l)
+	}
 
 	nextLevel := h.findNextLevelBucket(b.reverse, b.level())
 
@@ -1732,14 +1735,14 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy b
 
 		idx := int((reverse >> (4 * (16 - l))) & 0xf)
 		if atomic_util.LoadInt(&bucketDowns.len) <= idx ||
-			bucketDowns.at(idx).level() == 0 {
+			bucketDowns.at(idx).level() <= 0 {
 
 			nidx := idx
 			if downlen := atomic_util.LoadInt(&bucketDowns.len); nidx > downlen-1 {
 				nidx = downlen - 1
 			}
 			for i := nidx; i > -1; i-- {
-				if bucketDowns.at(i).level() == 0 {
+				if bucketDowns.at(i).level() <= 0 {
 					continue
 				}
 				// FIXME: should not lookup direct
@@ -1831,7 +1834,10 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 			// if idx != 0 && !h.isEmbededItemInBucket {
 			// 	h.add2(b.head(), &b.downLevels[0].dummy)
 			// }
-			b.downLevels = downLevels
+			downs := b.ptrDownLevels()
+			atomic.StorePointer(&downs.data, unsafe.Pointer(unsafe.SliceData(downLevels)))
+			atomic_util.StoreInt(&downs.len, len(downLevels))
+			atomic_util.StoreInt(&downs.cap, cap(downLevels))
 		} else if len(b.downLevels) == 0 {
 			if !recoverBucketWithOutInit {
 				goto RETRY_INITIALIZE
@@ -1910,7 +1916,7 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 			if l != level {
 				Log(LogWarn, "not collected already inited")
 			}
-			b.downLevels[idx].setLevel(b.level() + 1)
+			b.downLevels[idx].setLevel(-(b.level() + 1))
 			b.downLevels[idx].reverse = b.reverse | (uint64(idx) << (4 * (16 - l)))
 			if onOk != nil {
 				Log(LogWarn, "found old fn ")
@@ -1966,14 +1972,15 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 }
 
 // init bucket
-//  bucketFromPool()            set bucket.level/ reverser
+//  bucketFromPool()            set bucket.reverse, bucket.level < 0 (claimed)
 //  makeBucket()/makeBucket2()  init  as bucket elemet  .Init()
 //                              init  as level element  .LevelHead.Init()
 //    ->addBucket()             find previous bucket
 //      -> _InsertBefore()      set dummy.fields
 //                              connect dummy to item List
 //                              connect bucket to bucket list
-//  makeBucket()/makeBucket2()  connect bucket to level list
+//  makeBucket()/makeBucket2()  bucket.level > 0: lookups find the bucket from here
+//                              connect bucket to level list
 
 func (h *Map) setupBcukets(buckets []*bucket) {
 

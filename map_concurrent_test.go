@@ -5,6 +5,7 @@ import (
 	"math/bits"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -131,6 +132,56 @@ func Test_ConcurrentGetMissing(t *testing.T) {
 					}
 				})
 			})
+		})
+	}
+}
+
+// One goroutine links new items with StoreItem, which splits buckets, while
+// others look up keys stored before: no lookup may miss. The items are the
+// test's, so no item pool grows.
+func Test_SearchDuringSplit(t *testing.T) {
+	for _, p := range poolMapParams() {
+		t.Run(p.name, func(t *testing.T) {
+			const stored = 1000
+			const added = 20000
+			m := p.newMap()
+			items := make([]skiplistmap.SampleItem, stored+added)
+			for i := range items {
+				items[i].K = crashKey(i)
+				items[i].SetValue(&list_head.ListHead{})
+			}
+			for i := 0; i < stored; i++ {
+				m.base.StoreItem(&items[i])
+			}
+			var stop atomic.Bool
+			var misses atomic.Int64
+			runWithDeadline(t, 2*time.Minute, func() {
+				var wg sync.WaitGroup
+				for g := 0; g < 8; g++ {
+					wg.Add(1)
+					go func(g int) {
+						defer wg.Done()
+						for i := g; !stop.Load(); i++ {
+							if _, ok := m.Get(crashKey(i % stored)); !ok {
+								misses.Add(1)
+							}
+						}
+					}(g)
+				}
+				for i := stored; i < stored+added; i++ {
+					m.base.StoreItem(&items[i])
+					if i%997 == 0 {
+						runtime.GC()
+					}
+				}
+				stop.Store(true)
+				wg.Wait()
+			})
+			if n := misses.Load(); n > 0 {
+				t.Errorf("%d lookups of stored keys missed", n)
+			}
+			assertAllFound(t, m, stored+added)
+			runtime.KeepAlive(items)
 		})
 	}
 }

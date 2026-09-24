@@ -17,7 +17,7 @@ const (
 )
 
 type bucket struct {
-	_level  int32
+	_level  int32 // < 0 while a split builds the slot; lookups skip level() <= 0
 	_len    int32
 	reverse uint64
 	dummy   entryHMap
@@ -314,23 +314,24 @@ func (o *commonOpt) Option(opts ...cOptFn) (prevs []cOptFn) {
 
 func (b *bucket) largestDown(ignoreNoPool, ignoreNoInitDummy bool) *bucket {
 
-	if len(b.downLevels) == 0 {
+	downs := b.ptrDownLevels()
+	if downs.Cap() == 0 {
 		return b
 	}
 
-	for i := len(b.downLevels) - 1; i > -1; i-- {
-
-		if b.downLevels[i].level() == 0 || b.downLevels[i].reverse == 0 {
+	for i := downs.Len() - 1; i > -1; i-- {
+		down := downs.at(i)
+		if down.level() <= 0 || down.reverse == 0 {
 			continue
 		}
 		//FIXME: should not lookup direct
-		if ignoreNoPool && b.downLevels[i]._itemPool == nil {
+		if ignoreNoPool && down._itemPool == nil {
 			continue
 		}
-		if ignoreNoInitDummy && b.downLevels[i].state != bucketStateActive {
+		if ignoreNoInitDummy && down.state != bucketStateActive {
 			continue
 		}
-		return b.downLevels[i].largestDown(ignoreNoPool, ignoreNoInitDummy)
+		return down.largestDown(ignoreNoPool, ignoreNoInitDummy)
 	}
 	return b
 }

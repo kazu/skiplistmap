@@ -41,7 +41,7 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 	for ; idx < l && items.reverseAt(idx) == reverseNoMask; idx++ {
 		item := items._at(idx, true, false)
 		if item == nil {
-			return nil
+			break
 		}
 		if ignoreBucketEnry && item.IsIgnored() {
 			continue
@@ -50,9 +50,10 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 	}
 
 	a := bucket.toBase().prevAsB()
-	_ = a
 	if a.reverse < reverseNoMask {
-		h.findBucket(reverseNoMask)
+		if nb := h.findBucket(reverseNoMask); nb.toBase() != bucket.toBase() {
+			return h.bsearchBybucket(nb, reverseNoMask, ignoreBucketEnry)
+		}
 	}
 
 	return nil
@@ -106,6 +107,9 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 	atomic.StoreInt32(&b._len, int32(olen-idx))
 
 	h.addBucket(b)
+	spItems := bucket.itemPool().ptrItems()
+	atomic_util.StoreInt(&spItems.len, idx)
+	atomic_util.StoreInt(&spItems.cap, idx)
 
 	nextLevel := h.findNextLevelBucket(b.reverse, b.level())
 
@@ -675,17 +679,9 @@ func (sp *samepleItemPool) _split(idx int, connect bool) (nPool *samepleItemPool
 		return sp._split(idx, connect)
 	}
 
-	for {
-		nItems := nPool.ptrItems()
-		spItems := sp.ptrItems()
-
-		nItems.CopyFrom(spItems, idx, spItems.Len()-idx)
-		if atomic_util.CompareAndSwapInt(&spItems.len, spItems.len, idx) &&
-			atomic_util.CompareAndSwapInt(&spItems.cap, spItems.cap, idx) {
-			break
-		}
-		nItems.init()
-	}
+	// sp keeps its items: the caller shrinks sp after nPool's bucket is readable.
+	spItems := sp.ptrItems()
+	nPool.ptrItems().CopyFrom(spItems, idx, spItems.Len()-idx)
 	nPool.Init()
 	//sp.validateItems()
 	//nPool.validateItems()

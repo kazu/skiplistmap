@@ -17,7 +17,6 @@ import (
 	"syscall"
 
 	"github.com/kazu/elist_head"
-	"github.com/kazu/loncha"
 	list_head "github.com/kazu/loncha/lista_encabezado"
 	"github.com/kazu/skiplistmap/atomic_util"
 	"github.com/lk4d4/trylock"
@@ -1703,27 +1702,6 @@ func (h *Map) findBucket(reverse uint64) (b *bucket) {
 }
 
 func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy bool) (b *bucket) {
-
-	emptyeList := elist_head.ListHead{}
-
-	results := []*bucket{}
-
-	defer func() {
-		if h.isEmbededItemInBucket || b._parent != nil || b.dummy.ListHead != emptyeList {
-			return
-		}
-		results = append(results, b)
-		if !h.isEmbededItemInBucket {
-			loncha.Reverse(results)
-		}
-		for _, cBucket := range results {
-			if cBucket.dummy.ListHead != emptyeList {
-				b = cBucket
-				return
-			}
-		}
-		Log(LogWarn, "not found with inited-dummpy")
-	}()
 
 	for l := 1; l < 16; l++ {
 		if l == 1 {

@@ -649,10 +649,20 @@ func (h *Map) Set(key, value interface{}) bool {
 
 		// Hold the bucket lock from the existence re-check to the link, so two
 		// goroutines inserting the same key cannot both miss and both insert.
-		bucket.muPool.Lock()
-		defer bucket.muPool.Unlock()
-		if item, _, found = h._loadItem(0, 0, key); found {
-			return h._update(item, value)
+		for {
+			mu := &bucket.toBase().muPool
+			mu.Lock()
+			nb := bucket
+			if item, nb, found = h._loadItem(0, 0, key); found {
+				defer mu.Unlock()
+				return h._update(item, value)
+			}
+			if nb.toBase() == bucket.toBase() {
+				defer mu.Unlock()
+				break
+			}
+			mu.Unlock()
+			bucket = nb
 		}
 
 		//lastgets = nil

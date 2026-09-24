@@ -185,3 +185,37 @@ func Test_SearchDuringSplit(t *testing.T) {
 		})
 	}
 }
+
+// Goroutines add different new keys to a map with the embedded pool at the
+// same time: every key must be found once, and setting it again must not add
+// a second item.
+func Test_ConcurrentNewKeys(t *testing.T) {
+	for _, p := range crashMapParams()[:2] {
+		t.Run(p.name, func(t *testing.T) {
+			const goroutines = 16
+			const perGoroutine = 5000
+			const cnt = goroutines * perGoroutine
+			m := p.newMap()
+			runWithDeadline(t, 2*time.Minute, func() {
+				runTogether(goroutines, func(g int) {
+					for i := 0; i < perGoroutine; i++ {
+						m.Set(crashKey(g*perGoroutine+i), &list_head.ListHead{})
+					}
+				})
+			})
+			runtime.GC()
+			runWithDeadline(t, 2*time.Minute, func() {
+				assertAllFound(t, m, cnt)
+			})
+			if got := m.base.Len(); got != cnt {
+				t.Errorf("Len() = %d, want %d", got, cnt)
+			}
+			runWithDeadline(t, 2*time.Minute, func() {
+				prefill(t, m, cnt)
+			})
+			if got := m.base.Len(); got != cnt {
+				t.Errorf("Len() after setting every key again = %d, want %d", got, cnt)
+			}
+		})
+	}
+}

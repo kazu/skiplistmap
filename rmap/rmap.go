@@ -245,7 +245,8 @@ func (m *RMap) storeReadFromDirty(amended bool) {
 
 func (m *RMap) initDirty() {
 
-	// item-pool mode (skiplistmap4 in the README); the pool-less mode hangs on insertion.
+	// item-pool mode (skiplistmap4 in the README). The pool is made here, because
+	// Set2 does not lock and the first Set would make it without synchronization.
 	m.dirty = smap.New(
 		smap.UsePool(true),
 		smap.BucketMode(smap.CombineSearch4),

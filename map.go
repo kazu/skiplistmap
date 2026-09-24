@@ -612,7 +612,7 @@ func (h *Map) Set(key, value interface{}) bool {
 	var s *SampleItem
 	useDump := false
 
-	if h.pooler == nil && h.modeForBucket == CombineSearch4 && !h.isEmbededItemInBucket {
+	if h.pooler == nil && !h.isEmbededItemInBucket {
 		UsePool(true)(h)
 	}
 	if !h.isEmbededItemInBucket && bucket.head().Empty() {
@@ -650,7 +650,7 @@ func (h *Map) Set(key, value interface{}) bool {
 		if !atomic.CompareAndSwapUint64(&item.PtrMapHead().conflict, 0, conflict) {
 			Log(LogDebug, "already set conflict")
 		}
-	} else if h.pooler != nil {
+	} else {
 		k, _ := KeyToHash(key)
 		var wg sync.WaitGroup
 		var fn func()
@@ -686,8 +686,6 @@ func (h *Map) Set(key, value interface{}) bool {
 			fmt.Println(b.String())
 			useDump = false
 		}
-	} else {
-		s = &SampleItem{}
 	}
 
 	s.K = key.(string)

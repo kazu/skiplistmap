@@ -389,7 +389,7 @@ SKIP_FETCH_BUCKET:
 	entry, cnt := h.find(btable.head(), func(item HMapEntry) bool {
 		mHead := item.PtrMapHead()
 		return bits.Reverse64(k) <= mHead.reverse
-	}, ignoreBucketEntry(false))
+	})
 	_ = cnt
 
 	var pEntry HMapEntry
@@ -768,16 +768,8 @@ func (h *Map) each(start *elist_head.ListHead, fn func(key, value interface{})) 
 }
 
 // must renename to find
-func (h *Map) find(start *elist_head.ListHead, cond func(HMapEntry) bool, opts ...searchArg) (result HMapEntry, cnt int) {
+func (h *Map) find(start *elist_head.ListHead, cond func(HMapEntry) bool) (result HMapEntry, cnt int) {
 
-	conf := sharedSearchOpt(nil)
-	previous := conf.Options(opts...)
-	defer func() {
-		if previous != nil {
-			conf.Options(previous)
-			sharedSearchOpt(conf)
-		}
-	}()
 	cnt = 0
 	var e MapItem
 	if start.Empty() {
@@ -786,9 +778,6 @@ func (h *Map) find(start *elist_head.ListHead, cond func(HMapEntry) bool, opts .
 	for cur := start; cur != cur.Next(); cur = cur.Next() {
 		e = entryHMapFromListHead(cur)
 
-		if conf.ignoreBucketEntry() && e.PtrMapHead().IsIgnored() {
-			continue
-		}
 		if cond(e) {
 			result = e
 			return
@@ -972,7 +961,7 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 			Log(LogWarn, "add2: element for insertion  is not single ")
 		}
 		return e.PtrMapHead().reverse < ehead.PtrMapHead().reverse
-	}, ignoreBucketEntry(false))
+	})
 	if !e.PtrListHead().IsSingle() {
 
 		// rev := e.PtrMapHead().reverse
@@ -1049,7 +1038,7 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 		if err != nil {
 			pos, _ = h.find(start, func(ehead HMapEntry) bool {
 				return e.PtrMapHead().reverse < ehead.PtrMapHead().reverse
-			}, ignoreBucketEntry(false))
+			})
 			nextE := nextAsE(opt.bucket.entry(h))
 			_ = nextE
 		}
@@ -1058,7 +1047,7 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 	pos, _ = h.find(start, func(ehead HMapEntry) bool {
 		cnt++
 		return e.PtrMapHead().reverse < ehead.PtrMapHead().reverse
-	}, ignoreBucketEntry(false))
+	})
 
 	inserBeforeWithCheck(h.tail.Prev(), e.PtrListHead())
 	return true

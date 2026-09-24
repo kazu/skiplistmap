@@ -2,15 +2,28 @@ package skiplistmap_test
 
 import (
 	"fmt"
+	"math/bits"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
 
+	list_head "github.com/kazu/loncha/lista_encabezado"
 	"github.com/kazu/skiplistmap"
 )
 
 func newDefaultMap() *WrapHMap {
 	return newWrapHMap(skiplistmap.New())
+}
+
+// poolMapParams are the configurations without the embedded pool: Set takes
+// items from the Map's item pool, and StoreItem links the caller's items.
+func poolMapParams() []crashMapParam {
+	return []crashMapParam{
+		{"skiplistmap4 bucket=16", func() *WrapHMap { return newPoolMap(16) }},
+		{"skiplistmap4 bucket=32", func() *WrapHMap { return newPoolMap(32) }},
+		{"default", newDefaultMap},
+	}
 }
 
 // runTogether starts fn(g) for g in [0, n) at the same time and waits for all.
@@ -27,6 +40,55 @@ func runTogether(n int, fn func(g int)) {
 	}
 	start.Done()
 	wg.Wait()
+}
+
+// keysWithDistinctTopBits returns n keys whose reversed hashes differ in
+// the top 4 bits modulo 8. Their items go to different top-level buckets and
+// are taken from different sub-pools of the Map's item pool.
+func keysWithDistinctTopBits(n int) []string {
+	const subPools = 8
+	seen := map[uint64]bool{}
+	var keys []string
+	for i := 0; len(keys) < n; i++ {
+		k := crashKey(i)
+		idx := (bits.Reverse64(skiplistmap.MemHashString(k)) >> 60) % subPools
+		if seen[idx] {
+			continue
+		}
+		seen[idx] = true
+		keys = append(keys, k)
+	}
+	return keys
+}
+
+// Items of keys in different top-level buckets are linked by StoreItem at
+// the same time on a new Map: every key must be found.
+func Test_ConcurrentFirstStoreItem(t *testing.T) {
+	const goroutines = 8
+	keys := keysWithDistinctTopBits(goroutines)
+	for _, p := range poolMapParams() {
+		t.Run(p.name, func(t *testing.T) {
+			for round := 0; round < 200; round++ {
+				m := p.newMap()
+				items := make([]skiplistmap.SampleItem, goroutines)
+				for g := range items {
+					items[g].K = keys[g]
+					items[g].SetValue(&list_head.ListHead{})
+				}
+				runWithDeadline(t, time.Minute, func() {
+					runTogether(goroutines, func(g int) {
+						m.base.StoreItem(&items[g])
+					})
+				})
+				for _, k := range keys {
+					if _, ok := m.Get(k); !ok {
+						t.Fatalf("round %d: Get(%q) not found", round, k)
+					}
+				}
+				runtime.KeepAlive(items)
+			}
+		})
+	}
 }
 
 // Lookups of absent keys run at the same time. A miss records its key in

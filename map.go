@@ -549,11 +549,25 @@ func (h *Map) GetByHash(hash, conflict uint64) (value interface{}, ok bool) {
 }
 
 // LoadItem ... return key/value item with embedded-linked-list. if not found, ok is false
+//
+// An item stored by Set lives in the map's item pool, and a later Set of a
+// new key can move it to a new array: when the pool grows, and with
+// UseEmbeddedPool also on an insert that is not at the end of the bucket's
+// array. After such a Set, a read through the returned item can be a stale
+// read and a write through it a lost update. With UseEmbeddedPool, the slot
+// of a deleted item can also be reused for another key; if the returned item
+// still points to that slot, it then reads and writes that key's entry. So
+// use the returned item only when it is read, and change entries through the
+// map's methods (Set, Delete, Purge). If the caller serializes all writes,
+// the item stays valid until the next write. An item stored by StoreItem is
+// kept alive by the caller and never moves.
 func (h *Map) LoadItem(key interface{}) (item MapItem, success bool) {
 	item, _, success = h._loadItem(0, 0, key)
 	return
 }
 
+// LoadItemByHash ... LoadItem by the hash pair of KeyToHash.
+// The returned item is valid only when it is read, as described in LoadItem.
 func (h *Map) LoadItemByHash(k uint64, conflict uint64) (item MapItem, success bool) {
 
 	item, success = h._get(k, conflict)
@@ -588,6 +602,11 @@ func (h *Map) _loadItem(k uint64, conflict uint64, key interface{}) (MapItem, *b
 var madeBucket int32 = 0
 
 // Set ... set the value for a key
+//
+// When Set adds a new key, the item that holds it lives in the map's item
+// pool, whose array keeps it reachable for the GC. A map without
+// UseEmbeddedPool creates the pool on the first such Set if it has none. For
+// a key already present, Set stores only the value into the existing item.
 func (h *Map) Set(key, value interface{}) bool {
 	atomic.StoreInt32(&madeBucket, 0)
 
@@ -612,7 +631,7 @@ func (h *Map) Set(key, value interface{}) bool {
 	var s *SampleItem
 	useDump := false
 
-	if h.pooler == nil && h.modeForBucket == CombineSearch4 && !h.isEmbededItemInBucket {
+	if h.pooler == nil && !h.isEmbededItemInBucket {
 		UsePool(true)(h)
 	}
 	if !h.isEmbededItemInBucket && bucket.head().Empty() {
@@ -650,7 +669,7 @@ func (h *Map) Set(key, value interface{}) bool {
 		if !atomic.CompareAndSwapUint64(&item.PtrMapHead().conflict, 0, conflict) {
 			Log(LogDebug, "already set conflict")
 		}
-	} else if h.pooler != nil {
+	} else {
 		k, _ := KeyToHash(key)
 		var wg sync.WaitGroup
 		var fn func()
@@ -686,8 +705,6 @@ func (h *Map) Set(key, value interface{}) bool {
 			fmt.Println(b.String())
 			useDump = false
 		}
-	} else {
-		s = &SampleItem{}
 	}
 
 	s.K = key.(string)
@@ -710,6 +727,15 @@ func (h *Map) Set(key, value interface{}) bool {
 }
 
 // StoreItem ... set key/value item with embedded-linked-list
+//
+// StoreItem links item itself into the map and does not copy it. The map
+// holds only offsets to item, which the GC does not follow, so the caller
+// must keep item reachable until it stops using the map, even after Delete
+// or Purge, because a deleted item stays linked. Otherwise the map links
+// freed memory (a dangling reference). The map never moves item. If the key
+// is already present, only the value is stored into the existing item, and
+// item is not linked. Use StoreItem only on maps without UseEmbeddedPool:
+// there item is linked but cannot be found.
 func (h *Map) StoreItem(item MapItem) bool {
 	k, conflict := item.KeyHash()
 
@@ -1376,6 +1402,9 @@ func (o *searchOpt) Options(opts ...searchArg) (previous searchArg) {
 	}
 	return previous
 }
+
+// SearchKey ... search the entry of the hash k of KeyToHash.
+// The returned entry is valid only when it is read, as described in LoadItem.
 func (h *Map) SearchKey(k uint64, opts ...searchArg) HMapEntry {
 
 	conf := sharedSearchOpt(nil)
@@ -1619,6 +1648,9 @@ func (h *Map) purgeInEmbedded(key interface{}) bool {
 
 // RangeItem ... calls f sequentially for each key and value present in the map.
 // called ordre is reverse key order
+//
+// The item passed to f is valid only when it is read, as described in
+// LoadItem.
 func (h *Map) RangeItem(f func(MapItem) bool) {
 
 	oldConfs := list_head.DefaultModeTraverse.Option(list_head.WaitNoM())
@@ -1645,11 +1677,17 @@ func (h *Map) Range(f func(key, value interface{}) bool) {
 	})
 }
 
+// First ... return the first entry of the list: the dummy entry of a bucket
+// that starts the list, which is not in the item pool. Items reached from it
+// by Next are valid only when read, as described in LoadItem.
 func (h *Map) First() HMapEntry {
 	cur := h.head.DirectPrev().DirectNext()
 	return h.ItemFn().HmapEntryFromListHead(cur)
 }
 
+// Last ... return the last entry of the list: the dummy entry of a bucket
+// that ends the list, which is not in the item pool. Items reached from it
+// by Prev are valid only when read, as described in LoadItem.
 func (h *Map) Last() HMapEntry {
 	cur := h.tail.DirectNext().DirectPrev()
 	return h.ItemFn().HmapEntryFromListHead(cur)

@@ -119,7 +119,9 @@ func Test_SetSequential(t *testing.T) {
 
 // Item 1: Set with runtime.GC() between inserts must not free live elements.
 func Test_SetWithForcedGC(t *testing.T) {
-	for _, p := range crashMapParams() {
+	params := append(crashMapParams(),
+		crashMapParam{"default", func() *WrapHMap { return newWrapHMap(skiplistmap.New()) }})
+	for _, p := range params {
 		t.Run(p.name, func(t *testing.T) {
 			m := p.newMap()
 			runWithDeadline(t, 2*time.Minute, func() {

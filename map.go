@@ -452,8 +452,8 @@ func (h *Map) _get(k, conflict uint64) (MapItem, bool) {
 	}
 	e := h.searchKey(k, true)
 	if e == nil {
-		if Failreverse == 0 {
-			Failreverse = bits.Reverse64(k)
+		if atomic.LoadUint64(&Failreverse) == 0 {
+			atomic.CompareAndSwapUint64(&Failreverse, 0, bits.Reverse64(k))
 		}
 		return nil, false
 	}
@@ -489,8 +489,8 @@ func (h *Map) getWithBucket(k, conflict uint64) (MapItem, *bucket, bool) {
 	}
 
 	if e == nil {
-		if Failreverse == 0 {
-			Failreverse = bits.Reverse64(k)
+		if atomic.LoadUint64(&Failreverse) == 0 {
+			atomic.CompareAndSwapUint64(&Failreverse, 0, bits.Reverse64(k))
 		}
 		return nil, bucket, false
 	}

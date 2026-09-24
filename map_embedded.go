@@ -254,13 +254,13 @@ func (sp *samepleItemPool) cap() (l int) {
 	return sp.ptrItems().Cap()
 }
 
-func (sp *samepleItemPool) state4get(reverse uint64, tail int, len int, cap int) byte {
+func (sp *samepleItemPool) state4get(reverse uint64, len int, cap int) byte {
 
 	if len == 0 {
 		return getEmpty
 	}
 
-	if _, found := sp.bsearchFromFreeList(reverse, tail); found {
+	if _, found := sp.bsearchFromFreeList(reverse); found {
 		return foundFree
 	}
 
@@ -268,8 +268,9 @@ func (sp *samepleItemPool) state4get(reverse uint64, tail int, len int, cap int)
 		return getNoCap
 	}
 
+	// deleted items keep their place in the order, so compare with the last one
 	items := sp.itemSlice(false)
-	last := items._at(tail, false, true)
+	last := items._at(len-1, false, false)
 	if atomic.LoadUint64(&last.reverse) < reverse {
 		return getLargest
 	}
@@ -278,22 +279,23 @@ func (sp *samepleItemPool) state4get(reverse uint64, tail int, len int, cap int)
 
 }
 
-func (sp *samepleItemPool) bsearchFromFreeList(reverse uint64, tail int) (int, bool) {
+// bsearchFromFreeList returns a deleted item that can take reverse without
+// breaking the order of items, deleted ones included: the last item not
+// above reverse, or items[0] when every item is above it.
+func (sp *samepleItemPool) bsearchFromFreeList(reverse uint64) (int, bool) {
 
 	items := sp.ptrItems()
 
-	// tail is the index of the last active item, so search tail+1 items:
-	// leaving items[tail] out lets a key larger than it reuse the slot before it.
-	idx := sort.Search(tail+1, func(i int) bool {
+	idx := sort.Search(items.Len(), func(i int) bool {
 		item := items._at(i, true, false)
 		return atomic.LoadUint64(&item.reverse) > reverse
 	})
 	if idx < 1 {
-		return -1, false
+		idx = 1
 	}
 	mItem := items._at(idx-1, true, false)
 
-	if mItem.IsDeleted() {
+	if mItem != nil && mItem.IsDeleted() {
 		//mItem.Init()
 		return idx - 1, true
 	}
@@ -364,9 +366,6 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem
 
 	for i := 0; i < olen; i++ {
 		//for i := range sp.items {
-		if sp.items[i].IsIgnored() {
-			continue
-		}
 		if sp.items[i].reverse < reverse {
 			continue
 		}
@@ -379,8 +378,9 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem
 			return newItem, nPool, fn
 		}
 		var err error
-		prevItem := sp.items[0].ListHead.Prev()
-		nextItem := sp.items[olen-1].ListHead.Next()
+		head, tail := sp.linkedEnds(olen)
+		prevItem := sp.items[head].ListHead.Prev()
+		nextItem := sp.items[tail].ListHead.Next()
 
 		// copy to new slice
 		newItems := make([]SampleItem, olen+1, maxInts(ocap, olen+1))
@@ -456,24 +456,9 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem
 //go:norace
 func (sp *samepleItemPool) getWithFn(reverse uint64, mu sync.Locker) (new MapItem, nPool *samepleItemPool, fn unlocker) {
 
-	lastActiveIdx := -1
-
 	items := *sp.ptrItems()
 	olen := items.Len()
 	ocap := items.Cap()
-
-	for i := olen - 1; i >= 0; i-- {
-		pItem := items.at(i)
-		if pItem == nil {
-			continue
-		}
-		item := *pItem
-		if item.IsIgnored() {
-			continue
-		}
-		lastActiveIdx = i
-		break
-	}
 
 	defer func() {
 		if new == nil {
@@ -484,7 +469,7 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu sync.Locker) (new MapIte
 
 	// for debug
 	//lastgets = append(lastgets, sp.state4get(reverse, lastActiveIdx))
-	switch sp.state4get(reverse, lastActiveIdx, olen, ocap) {
+	switch sp.state4get(reverse, olen, ocap) {
 	case getEmpty, getLargest:
 		nmu := mu
 		new, nPool, fn = sp.appendLast(nmu)
@@ -520,7 +505,7 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu sync.Locker) (new MapIte
 			fn = lazyUnlock
 		}
 
-		idx, found := sp.bsearchFromFreeList(reverse, lastActiveIdx)
+		idx, found := sp.bsearchFromFreeList(reverse)
 		if !found {
 			goto RETRY
 		}
@@ -558,6 +543,20 @@ RETRY:
 
 }
 
+// linkedEnds returns the first and the last of sp.items[:n] that are in the
+// list: purged items stay in the array unlinked. insertToPool and expand
+// call it with a live item in sp.items[:n].
+func (sp *samepleItemPool) linkedEnds(n int) (head, tail int) {
+	head, tail = 0, n-1
+	for sp.items[head].ListHead.Empty() {
+		head++
+	}
+	for sp.items[tail].ListHead.Empty() {
+		tail--
+	}
+	return
+}
+
 func (sp *samepleItemPool) expand(mu sync.Locker) (unlocker, error) {
 	var fn unlocker
 	if mu != nil {
@@ -582,8 +581,9 @@ func (sp *samepleItemPool) expand(mu sync.Locker) (unlocker, error) {
 	}
 
 	var err error
-	prevItem := sp.items[0].ListHead.Prev()
-	nextItem := sp.items[olen-1].ListHead.Next()
+	head, tail := sp.linkedEnds(olen)
+	prevItem := sp.items[head].ListHead.Prev()
+	nextItem := sp.items[tail].ListHead.Next()
 
 	nCap := PoolCap(len(sp.items))
 
@@ -592,7 +592,7 @@ func (sp *samepleItemPool) expand(mu sync.Locker) (unlocker, error) {
 
 	// Links are offsets; the copied ends still point relative to the old
 	// array, so connect them straight to the heap neighbours (no stack heads).
-	err = prevItem.ReplaceNext(&newItems[0].ListHead, &newItems[olen-1].ListHead, nextItem)
+	err = prevItem.ReplaceNext(&newItems[head].ListHead, &newItems[tail].ListHead, nextItem)
 	if err != nil {
 		Log(LogFatal, "fail to replace newItems")
 	}
@@ -650,9 +650,6 @@ func holeListHeadsOfSampleItem() (before, after elist_head.ListHead) {
 func (sp *samepleItemPool) findIdx(reverse uint64) (int, error) {
 
 	for i := range sp.items {
-		if sp.items[i].IsIgnored() {
-			continue
-		}
 		if reverse <= sp.items[i].reverse {
 			return i, nil
 		}

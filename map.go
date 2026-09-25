@@ -973,6 +973,23 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 	}
 
 	cnt := 0
+
+	defer func() {
+		if !EnableStats || e.PtrMapHead().IsIgnored() {
+			return
+		}
+
+		if h.SearchKey(bits.Reverse64(e.PtrMapHead().reverse), ignoreBucketEntry(false)) == nil {
+			o := sharedSearchOpt(nil)
+			o.Lock()
+			o.e = ErrItemInvalidAdd
+			o.Unlock()
+			sharedSearchOpt(o)
+		}
+
+	}()
+
+RETRY:
 	pos, _ := h.find(start, func(ehead HMapEntry) bool {
 		cnt++
 		if !e.PtrListHead().IsSingle() {
@@ -997,21 +1014,6 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 		Log(LogWarn, "add2: element for insertion  is not single ")
 	}
 
-	defer func() {
-		if !EnableStats || e.PtrMapHead().IsIgnored() {
-			return
-		}
-
-		if h.SearchKey(bits.Reverse64(e.PtrMapHead().reverse), ignoreBucketEntry(false)) == nil {
-			o := sharedSearchOpt(nil)
-			o.Lock()
-			o.e = ErrItemInvalidAdd
-			o.Unlock()
-			sharedSearchOpt(o)
-		}
-
-	}()
-
 	if pos != nil {
 		if !e.PtrListHead().IsSingle() {
 			Log(LogWarn, "add2: element for insertion  is not single ")
@@ -1022,9 +1024,8 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 			e.PtrListHead().Init()
 		}
 
-		_, err := inserBeforeWithCheck(pos.PtrListHead(), e.PtrListHead())
-		if err != nil {
-			Log(LogError, "fail insert")
+		if err := insertInOrder(pos.PtrListHead(), e.PtrListHead()); err != nil {
+			goto RETRY
 		}
 		if opt == nil || opt.bucket == nil {
 			return true

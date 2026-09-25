@@ -219,3 +219,36 @@ func Test_ConcurrentNewKeys(t *testing.T) {
 		})
 	}
 }
+
+// Goroutines link different new items with StoreItem at the same time: every
+// key must be found. The items are kept alive by the test, as StoreItem requires.
+func Test_ConcurrentStoreItem(t *testing.T) {
+	for _, p := range poolMapParams() {
+		t.Run(p.name, func(t *testing.T) {
+			const goroutines = 16
+			const perGoroutine = 2000
+			const cnt = goroutines * perGoroutine
+			m := p.newMap()
+			items := make([]skiplistmap.SampleItem, cnt)
+			for i := range items {
+				items[i].K = crashKey(i)
+				items[i].SetValue(&list_head.ListHead{})
+			}
+			runWithDeadline(t, 2*time.Minute, func() {
+				runTogether(goroutines, func(g int) {
+					for i := g * perGoroutine; i < (g+1)*perGoroutine; i++ {
+						m.base.StoreItem(&items[i])
+					}
+				})
+			})
+			runtime.GC()
+			runWithDeadline(t, 2*time.Minute, func() {
+				assertAllFound(t, m, cnt)
+			})
+			if got := m.base.Len(); got != cnt {
+				t.Errorf("Len() = %d, want %d", got, cnt)
+			}
+			runtime.KeepAlive(items)
+		})
+	}
+}

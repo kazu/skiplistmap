@@ -14,6 +14,7 @@ import (
 //
 // Points and arguments:
 //   - "add2.found" (item, pos): add2 found the position to insert item before.
+//   - "makeBucket.begin" (item, nil): _set starts to split the bucket of item.
 //   - "makeBucket.claimed" (bucket, item): bucketFromPool returned bucket for the split started by item.
 //   - "bucketFromPool.lenStored" (bucket, nil): the length of the new downLevels of bucket is stored.
 //   - "insertBucket.begin" (bucket, nil): before the dummy of bucket is initialized.

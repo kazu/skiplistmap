@@ -804,6 +804,7 @@ func (h *Map) find(start *elist_head.ListHead, cond func(HMapEntry) bool) (resul
 
 func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 
+	stepAt("makeBucket.begin", unsafe.Pointer(ocur), nil)
 	enableDumpBucket := false
 
 	cur := ocur
@@ -854,7 +855,7 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 		} else {
 			Log(LogWarn, "no okFn")
 		}
-		if b.state != bucketStateActive {
+		if atomic.LoadUint32(&b.state) != bucketStateActive {
 			Log(LogWarn, "not active?")
 		}
 	}()
@@ -1108,7 +1109,7 @@ func (h *Map) DumpBucket(w io.Writer) {
 	for cur := h.headBucket.Prev().Next(); !cur.Empty(); cur = cur.Next() {
 		btable := bucketFromListHead(cur)
 		fmt.Fprintf(&b, "  bucket{reverse: 0x%16x, len: %d, start: %p, level{%d, cur: %p, prev: %p next: %p} down: %d}\n",
-			btable.reverse, btable.len(), btable.head, btable.level(), &btable.LevelHead, btable.LevelHead.DirectPrev(), btable.LevelHead.DirectNext(), len(btable.downLevels))
+			btable.reverse, btable.len(), btable.head, btable.level(), &btable.LevelHead, btable.LevelHead.DirectPrev(), btable.LevelHead.DirectNext(), btable.ptrDownLevels().Len())
 	}
 	if w == nil {
 		os.Stdout.WriteString(b.String())
@@ -1134,7 +1135,7 @@ func (h *Map) DumpBucketPerLevel(w io.Writer) {
 			cBucket = bucketFromLevelHead(cur)
 			cur = cBucket.LevelHead.DirectNext()
 			fmt.Fprintf(&b, "  bucket{reverse: 0x%16x, len: %d, start: %p, level{%d, cur: %p, prev: %p next: %p} down: %d}\n",
-				cBucket.reverse, cBucket.len(), cBucket.head, cBucket.level(), &cBucket.LevelHead, cBucket.LevelHead.DirectPrev(), cBucket.LevelHead.DirectNext(), len(cBucket.downLevels))
+				cBucket.reverse, cBucket.len(), cBucket.head, cBucket.level(), &cBucket.LevelHead, cBucket.LevelHead.DirectPrev(), cBucket.LevelHead.DirectNext(), cBucket.ptrDownLevels().Len())
 
 		}
 	}
@@ -1215,8 +1216,8 @@ func (h *Map) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket) {
 		thead = tBucket.head().Prev().Next()
 	}
 	h.add2(thead, empty)
-	emptyElist := elist_head.ListHead{}
-	if empty.ListHead == emptyElist {
+	stepAt("insertBucket.dummyLinked", unsafe.Pointer(nBtable), nil)
+	if empty.ListHead.DirectPrev() == &empty.ListHead && empty.ListHead.DirectNext() == &empty.ListHead {
 		Log(LogWarn, "fail register dummy of bucket")
 	}
 
@@ -1224,7 +1225,6 @@ func (h *Map) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket) {
 	if IsDebug() {
 		h.validateBucket(tBucket)
 	}
-	stepAt("insertBucket.dummyLinked", unsafe.Pointer(nBtable), nil)
 
 	// add bucket
 	tBtable.InsertBefore(&nBtable.ListHead)
@@ -1769,7 +1769,7 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy b
 				if ignoreNoPool && bucketDowns.at(i)._itemPool == nil {
 					continue
 				}
-				if ignoreNoInitDummy && bucketDowns.at(i).state != bucketStateActive {
+				if ignoreNoInitDummy && atomic.LoadUint32(&bucketDowns.at(i).state) != bucketStateActive {
 					continue
 				}
 
@@ -1783,7 +1783,7 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy b
 		if ignoreNoPool && bucketDowns.at(idx)._itemPool == nil {
 			break
 		}
-		if ignoreNoInitDummy && bucketDowns.at(idx).state != bucketStateActive {
+		if ignoreNoInitDummy && atomic.LoadUint32(&bucketDowns.at(idx).state) != bucketStateActive {
 			break
 		}
 		// MENTION: if result pool is require, enable
@@ -1859,7 +1859,7 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 			atomic_util.StoreInt(&downs.cap, cap(downLevels))
 			atomic_util.StoreInt(&downs.len, len(downLevels))
 			stepAt("bucketFromPool.lenStored", unsafe.Pointer(b), nil)
-		} else if len(b.downLevels) == 0 {
+		} else if b.ptrDownLevels().Len() == 0 {
 			if !recoverBucketWithOutInit {
 				goto RETRY_INITIALIZE
 			}
@@ -1869,16 +1869,16 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 			goto RETRY_INITIALIZE
 		}
 	RETRY_SETUP:
-		if b.cntOfActiveLevels <= int32(idx) && atomic.CompareAndSwapInt32(&b.cntOfActiveLevels, int32(len(b.downLevels)), int32(idx)+1) {
-			cidx := int(b.cntOfActiveLevels) - 1
+		if atomic.LoadInt32(&b.cntOfActiveLevels) <= int32(idx) && atomic.CompareAndSwapInt32(&b.cntOfActiveLevels, int32(b.ptrDownLevels().Len()), int32(idx)+1) {
+			cidx := int(atomic.LoadInt32(&b.cntOfActiveLevels)) - 1
 			if cidx > 32 || cidx < -32 {
 				Log(LogWarn, "invalid cidx ")
 			}
 
-			nDownLevel := &b.downLevels[cidx : cidx+1 : cidx+1][0]
+			nDownLevel := b.ptrDownLevels()._at(cidx, false)
 			nDownLevel.reverse = b.reverse | (uint64(cidx) << (4 * (16 - l)))
 			nDownLevel.setLevel(b.level() + 1)
-			nDownLevel.state = bucketStateInit
+			atomic.StoreUint32(&nDownLevel.state, bucketStateInit)
 
 			oBucket := b
 			oIdx := cidx
@@ -1904,7 +1904,7 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 				Log(LogDebug, "backet already expand ")
 
 			EXPAND:
-				if !atomic.CompareAndSwapUint32(&oBucket.downLevels[oIdx].state, bucketStateInit, bucketStateActive) {
+				if !atomic.CompareAndSwapUint32(&oBucket.ptrDownLevels().at(oIdx).state, bucketStateInit, bucketStateActive) {
 					Log(LogDebug, "fail bucket state change to finish ")
 				}
 			}
@@ -1918,10 +1918,9 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 
 			b = nDownLevel
 			break
-		} else if len(b.downLevels) <= idx {
+		} else if b.ptrDownLevels().Len() <= idx {
 			// for debug
-			cDownLevels := b.downLevels[0:b.cntOfActiveLevels]
-			last := &cDownLevels[b.cntOfActiveLevels-1]
+			last := b.ptrDownLevels()._at(int(atomic.LoadInt32(&b.cntOfActiveLevels))-1, false)
 			if !recoverBucketWithOutInit {
 				goto RETRY_SETUP
 			}
@@ -1933,12 +1932,13 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 			goto RETRY_SETUP
 		}
 
-		if idx != 0 && atomic.CompareAndSwapUint32(&b.downLevels[idx].state, bucketStateNone, bucketStateInit) {
+		down := b.ptrDownLevels().at(idx)
+		if idx != 0 && atomic.CompareAndSwapUint32(&down.state, bucketStateNone, bucketStateInit) {
 			if l != level {
 				Log(LogWarn, "not collected already inited")
 			}
-			b.downLevels[idx].setLevel(-(b.level() + 1))
-			b.downLevels[idx].reverse = b.reverse | (uint64(idx) << (4 * (16 - l)))
+			down.setLevel(-(b.level() + 1))
+			down.reverse = b.reverse | (uint64(idx) << (4 * (16 - l)))
 			if onOk != nil {
 				Log(LogWarn, "found old fn ")
 			}
@@ -1947,18 +1947,18 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 			oIdx := idx
 
 			onOk = func() {
-				if !atomic.CompareAndSwapUint32(&oBucket.downLevels[oIdx].state, bucketStateInit, bucketStateActive) {
+				if !atomic.CompareAndSwapUint32(&oBucket.ptrDownLevels().at(oIdx).state, bucketStateInit, bucketStateActive) {
 					Log(LogWarn, "fail bucket state change to finish ")
 				}
 			}
-			b.downLevels[idx].onOkFn = onOk
+			down.onOkFn = onOk
 
-			b = &b.downLevels[idx]
+			b = down
 			if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {
 				Log(LogWarn, "already inited")
 			}
 			break
-		} else if idx != 0 && b.downLevels[idx].state != bucketStateActive {
+		} else if idx != 0 && atomic.LoadUint32(&down.state) != bucketStateActive {
 			Log(LogWarn, "initializetion is not finished")
 			if l == level {
 				// the goroutine that won the CAS makes this bucket
@@ -1966,13 +1966,13 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 			}
 		}
 
-		if !h.isEmbededItemInBucket && l < level && idx != 0 && b.downLevels[idx].state != bucketStateActive {
-			bucketNotInits = append(bucketNotInits, &b.downLevels[idx])
+		if !h.isEmbededItemInBucket && l < level && idx != 0 && atomic.LoadUint32(&down.state) != bucketStateActive {
+			bucketNotInits = append(bucketNotInits, down)
 		}
 		if onOk != nil {
 			Log(LogWarn, " skip okfn?")
 		}
-		b = &b.downLevels[idx]
+		b = down
 	}
 	if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {
 		h.DumpBucket(logio)

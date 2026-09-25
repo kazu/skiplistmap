@@ -107,19 +107,34 @@ func NilMapEntry() HMapEntry {
 
 func inserBeforeWithCheck(right *elist_head.ListHead, center *elist_head.ListHead) (*elist_head.ListHead, error) {
 
-	centermHead := mapheadFromLListHead(center)
-	rightmHead := mapheadFromLListHead(right)
-	leftmHead := mapheadFromLListHead(right.Prev())
-	if !center.Empty() && !center.IsSingle() {
-		return nil, NewError(EIItemInvalidAdd, "invalid left state ", nil)
+	left := right.Prev()
+	if err := checkLinkBefore(right, center); err != nil {
+		return nil, err
 	}
-
-	if rightmHead.reverse < centermHead.reverse {
-		return nil, NewError(EIItemInvalidAdd, "invalid insert order", nil)
-	}
-	if !leftmHead.Empty() && centermHead.reverse < leftmHead.reverse {
+	if !canLinkAfter(mapheadFromLListHead(left), mapheadFromLListHead(center)) {
 		return nil, NewError(EIItemInvalidAdd, "invalid insert order", nil)
 	}
 
 	return right.InsertBefore(center)
+}
+
+// checkLinkBefore returns an error unless center is not linked and its key
+// does not come after the key of right.
+func checkLinkBefore(right, center *elist_head.ListHead) error {
+
+	centermHead := mapheadFromLListHead(center)
+	rightmHead := mapheadFromLListHead(right)
+	if !center.Empty() && !center.IsSingle() {
+		return NewError(EIItemInvalidAdd, "invalid left state ", nil)
+	}
+
+	if rightmHead.reverse < centermHead.reverse {
+		return NewError(EIItemInvalidAdd, "invalid insert order", nil)
+	}
+	return nil
+}
+
+// canLinkAfter reports whether center may be linked just after left.
+func canLinkAfter(left, center *MapHead) bool {
+	return left.Empty() || left.reverse <= center.reverse
 }

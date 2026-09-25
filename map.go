@@ -842,6 +842,9 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 
 	b, onOk := h.bucketFromPool(newReverse, useOnOk(true))
 	stepAt("makeBucket.claimed", unsafe.Pointer(b), unsafe.Pointer(ocur))
+	if b == nil {
+		return ErrBucketAlreadyExit
+	}
 	if onOk == nil {
 		Log(LogWarn, "no okFn")
 	}
@@ -1956,6 +1959,10 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 			break
 		} else if idx != 0 && b.downLevels[idx].state != bucketStateActive {
 			Log(LogWarn, "initializetion is not finished")
+			if l == level {
+				// the goroutine that won the CAS makes this bucket
+				return nil, nil
+			}
 		}
 
 		if !h.isEmbededItemInBucket && l < level && idx != 0 && b.downLevels[idx].state != bucketStateActive {

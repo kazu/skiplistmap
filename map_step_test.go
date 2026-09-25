@@ -22,6 +22,7 @@ type stepper struct {
 	mu    sync.Mutex
 	stops []*stepStop
 	hits  map[stepHit]int
+	last  map[string][2]unsafe.Pointer
 }
 
 type stepHit struct {
@@ -33,6 +34,7 @@ type stepStop struct {
 	point   string
 	match   func(a, b, c unsafe.Pointer) bool
 	used    bool
+	a, b    unsafe.Pointer // the arguments of the stopped goroutine
 	reached chan struct{}
 	release chan struct{}
 	once    sync.Once
@@ -40,7 +42,7 @@ type stepStop struct {
 
 func newStepper(t *testing.T) *stepper {
 	t.Helper()
-	s := &stepper{hits: map[stepHit]int{}}
+	s := &stepper{hits: map[stepHit]int{}, last: map[string][2]unsafe.Pointer{}}
 	elist_head.SetStepHook(func(point string, a, b, c *elist_head.ListHead) {
 		s.at("elist."+point, unsafe.Pointer(a), unsafe.Pointer(b), unsafe.Pointer(c))
 	})
@@ -69,6 +71,14 @@ func (s *stepper) stopAt(point string, match func(a, b, c unsafe.Pointer) bool) 
 	return st
 }
 
+// args returns the arguments of the last time point was reached.
+func (s *stepper) args(point string) (a, b unsafe.Pointer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	l := s.last[point]
+	return l[0], l[1]
+}
+
 // count returns how many times point was reached with first argument a.
 func (s *stepper) count(point string, a unsafe.Pointer) int {
 	s.mu.Lock()
@@ -76,13 +86,28 @@ func (s *stepper) count(point string, a unsafe.Pointer) int {
 	return s.hits[stepHit{point, a}]
 }
 
+// total returns how many times point was reached.
+func (s *stepper) total(point string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for h, c := range s.hits {
+		if h.point == point {
+			n += c
+		}
+	}
+	return n
+}
+
 func (s *stepper) at(point string, a, b, c unsafe.Pointer) {
 	s.mu.Lock()
 	s.hits[stepHit{point, a}]++
+	s.last[point] = [2]unsafe.Pointer{a, b}
 	var st *stepStop
 	for _, x := range s.stops {
 		if !x.used && x.point == point && (x.match == nil || x.match(a, b, c)) {
 			x.used = true
+			x.a, x.b = a, b
 			st = x
 			break
 		}
@@ -113,6 +138,10 @@ func (st *stepStop) waitReached(t *testing.T, done <-chan struct{}) {
 
 func isNode(p unsafe.Pointer) func(a, b, c unsafe.Pointer) bool {
 	return func(a, b, c unsafe.Pointer) bool { return a == p }
+}
+
+func isSecond(p unsafe.Pointer) func(a, b, c unsafe.Pointer) bool {
+	return func(a, b, c unsafe.Pointer) bool { return b == p }
 }
 
 // goStep runs fn in a new goroutine and returns a channel closed when fn
@@ -171,6 +200,20 @@ func adjacentKeys(n int) []string {
 			return g
 		}
 	}
+}
+
+// regionKeys returns n keys whose reversed hashes have top as their top 4
+// bits and second as their next 4 bits, in the order of the reversed hashes.
+func regionKeys(top, second uint64, n int) []string {
+	var keys []string
+	for i := 0; len(keys) < n; i++ {
+		k := crashKey(i)
+		if r := reverseOf(k); r>>60 == top && (r>>56)&0xf == second {
+			keys = append(keys, k)
+		}
+	}
+	sort.Slice(keys, func(i, j int) bool { return reverseOf(keys[i]) < reverseOf(keys[j]) })
+	return keys
 }
 
 func newStepItems(keys []string) []skiplistmap.SampleItem {
@@ -323,5 +366,99 @@ func Test_StepInsertNextToUnfinishedInsert(t *testing.T) {
 	waitDone(t, doneC, "StoreItem(c)")
 
 	assertStoredInOrder(t, m, keys)
+	runtime.KeepAlive(items)
+}
+
+// Two goroutines split the same bucket at the same time. The one that loses
+// the CAS on the state of the new bucket must not initialize the bucket or its
+// dummy again. In this interleaving the loser initializes the dummy after the
+// winner linked it.
+//
+// A first split of the region at a higher position leaves the slot of the
+// second split in downLevels unclaimed, so that both goroutines take the
+// state CAS path of bucketFromPool for it.
+func Test_StepSplitLoserKeepsWinnersDummy(t *testing.T) {
+	const top = 0x3
+	upper := regionKeys(top, 0xc, 8)
+	lower := regionKeys(top, 0x0, 16)
+	items := newStepItems(append(append([]string{}, upper...), lower...))
+	upperItems, lowerItems := items[:len(upper)], items[len(upper):]
+	m := newWrapHMap(skiplistmap.NewHMap())
+	skiplistmap.MaxPefBucket(2)(m.base)
+	skiplistmap.BucketMode(skiplistmap.CombineSearch4)(m.base)
+
+	s := newStepper(t)
+	var stored []string
+	for i := range upperItems {
+		m.base.StoreItem(&upperItems[i])
+		stored = append(stored, upperItems[i].K)
+		if s.total("map.makeBucket.claimed") > 0 {
+			break
+		}
+	}
+	first, _ := s.args("map.makeBucket.claimed")
+	if first == nil {
+		t.Fatalf("storing %d keys did not split the region", len(stored))
+	}
+	t.Logf("first split: %016x", skiplistmap.StepBucketReverse(first))
+
+	// The first lower key whose store splits the bucket stops as the winner.
+	var stop1 *stepStop
+	var done1 <-chan struct{}
+	next := 0
+	for ; next < len(lowerItems); next++ {
+		st := s.stopAt("map.makeBucket.claimed", isSecond(nodeOf(&lowerItems[next])))
+		d := goStep(t, func(it *skiplistmap.SampleItem) func() {
+			return func() { m.base.StoreItem(it) }
+		}(&lowerItems[next]))
+		stored = append(stored, lowerItems[next].K)
+		select {
+		case <-st.reached:
+			stop1, done1 = st, d
+		case <-d:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("StoreItem(%q) neither split nor finished", lowerItems[next].K)
+		}
+		if stop1 != nil {
+			next++
+			break
+		}
+	}
+	if stop1 == nil {
+		t.Fatalf("no lower key split the bucket")
+	}
+	b1 := stop1.a
+	t.Logf("second split: %016x", skiplistmap.StepBucketReverse(b1))
+
+	// The next lower key splits the same bucket.
+	stop2 := s.stopAt("map.makeBucket.claimed", isSecond(nodeOf(&lowerItems[next])))
+	done2 := goStep(t, func() { m.base.StoreItem(&lowerItems[next]) })
+	stored = append(stored, lowerItems[next].K)
+	stop2.waitReached(t, done2)
+	switch b2 := stop2.a; {
+	case b2 == nil:
+		// The loser leaves the split to the winner.
+		stop2.Release()
+		waitDone(t, done2, "loser")
+		stop1.Release()
+		waitDone(t, done1, "winner")
+	case b2 == b1:
+		// The loser runs up to the initialization of the dummy, the winner
+		// links the dummy, and then the loser initializes it.
+		beforeInit := s.stopAt("map.insertBucket.begin", isNode(b1))
+		stop2.Release()
+		beforeInit.waitReached(t, done2)
+		linked := s.stopAt("map.insertBucket.dummyLinked", isNode(b1))
+		stop1.Release()
+		linked.waitReached(t, done1)
+		beforeInit.Release()
+		waitDone(t, done2, "loser")
+		linked.Release()
+		waitDone(t, done1, "winner")
+	default:
+		t.Fatalf("the second store split another bucket: %016x", skiplistmap.StepBucketReverse(b2))
+	}
+
+	assertStoredInOrder(t, m, stored)
 	runtime.KeepAlive(items)
 }

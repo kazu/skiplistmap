@@ -1856,8 +1856,9 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 			// }
 			downs := b.ptrDownLevels()
 			atomic.StorePointer(&downs.data, unsafe.Pointer(unsafe.SliceData(downLevels)))
-			atomic_util.StoreInt(&downs.len, len(downLevels))
 			atomic_util.StoreInt(&downs.cap, cap(downLevels))
+			atomic_util.StoreInt(&downs.len, len(downLevels))
+			stepAt("bucketFromPool.lenStored", unsafe.Pointer(b), nil)
 		} else if len(b.downLevels) == 0 {
 			if !recoverBucketWithOutInit {
 				goto RETRY_INITIALIZE

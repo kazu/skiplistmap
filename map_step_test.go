@@ -462,3 +462,55 @@ func Test_StepSplitLoserKeepsWinnersDummy(t *testing.T) {
 	assertStoredInOrder(t, m, stored)
 	runtime.KeepAlive(items)
 }
+
+// storeUntilStop stores items one by one, each in a new goroutine, until one
+// of them stops at st. It returns the keys stored so far, the index of the
+// item after the stopped one, and the channel closed when the stopped store
+// finishes. It fails the test unless an item other than the last one stops.
+func storeUntilStop(t *testing.T, m *WrapHMap, items []skiplistmap.SampleItem, st *stepStop) (stored []string, next int, done <-chan struct{}) {
+	t.Helper()
+	for ; next < len(items) && done == nil; next++ {
+		d := goStep(t, func(it *skiplistmap.SampleItem) func() {
+			return func() { m.base.StoreItem(it) }
+		}(&items[next]))
+		stored = append(stored, items[next].K)
+		select {
+		case <-st.reached:
+			done = d
+		case <-d:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("StoreItem(%q) neither reached %s nor finished", items[next].K, st.point)
+		}
+	}
+	if done == nil || next == len(items) {
+		t.Fatalf("storing %d keys reached %s only at the last key or never", len(stored), st.point)
+	}
+	return stored, next, done
+}
+
+// Two goroutines make the first split of a region at the same time. The one
+// that loses the CAS on cntOfActiveLevels waits until the winner has stored
+// the new downLevels; once it sees their length it must also see their
+// capacity. In this interleaving the winner stops right after storing the
+// length.
+func Test_StepSplitSeesDownLevelsCapacity(t *testing.T) {
+	const top = 0x3
+	keys := regionKeys(top, 0xc, 8)
+	items := newStepItems(keys)
+	m := newWrapHMap(skiplistmap.NewHMap())
+	skiplistmap.MaxPefBucket(2)(m.base)
+	skiplistmap.BucketMode(skiplistmap.CombineSearch4)(m.base)
+
+	s := newStepper(t)
+	stop := s.stopAt("map.bucketFromPool.lenStored", nil)
+	stored, next, doneW := storeUntilStop(t, m, items, stop)
+
+	doneL := goStep(t, func() { m.base.StoreItem(&items[next]) })
+	stored = append(stored, items[next].K)
+	waitDone(t, doneL, "loser")
+	stop.Release()
+	waitDone(t, doneW, "winner")
+
+	assertStoredInOrder(t, m, stored)
+	runtime.KeepAlive(items)
+}

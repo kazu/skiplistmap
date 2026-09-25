@@ -841,6 +841,7 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 	}
 
 	b, onOk := h.bucketFromPool(newReverse, useOnOk(true))
+	stepAt("makeBucket.claimed", unsafe.Pointer(b), unsafe.Pointer(ocur))
 	if onOk == nil {
 		Log(LogWarn, "no okFn")
 	}
@@ -979,6 +980,9 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 		}
 		return e.PtrMapHead().reverse < ehead.PtrMapHead().reverse
 	})
+	if stepEnabled && pos != nil {
+		stepAt("add2.found", unsafe.Pointer(e.PtrListHead()), unsafe.Pointer(pos.PtrListHead()))
+	}
 	if !e.PtrListHead().IsSingle() {
 
 		// rev := e.PtrMapHead().reverse
@@ -1193,6 +1197,7 @@ func reverse2Index(level int, r uint64) (idx int) {
 
 func (h *Map) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket) {
 
+	stepAt("insertBucket.begin", unsafe.Pointer(nBtable), nil)
 	empty := &nBtable.dummy
 	empty.key, empty.value = nil, nil
 	empty.reverse, empty.conflict = nBtable.reverse, 0
@@ -1215,6 +1220,7 @@ func (h *Map) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket) {
 	if IsDebug() {
 		h.validateBucket(tBucket)
 	}
+	stepAt("insertBucket.dummyLinked", unsafe.Pointer(nBtable), nil)
 
 	// add bucket
 	tBtable.InsertBefore(&nBtable.ListHead)

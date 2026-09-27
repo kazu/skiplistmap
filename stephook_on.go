@@ -34,7 +34,7 @@ import (
 //   - "set.updateLocked" (item, bucket): Set of a key present locked bucket.muPool; before it stores the value into item.
 //   - "purge.beforeInit" (item, nil): purgeInEmbedded returned from MarkForDelete of item; before it runs Init on item.
 //   - "makeBucket2.got" (new bucket, bucket): makeBucket2 of bucket got new bucket from bucketFromPoolEmbedded; before it runs Init on new bucket.
-//   - "makeBucket2.recurse" (bucket, new bucket): makeBucket2 of bucket published new bucket; before it checks whether new bucket is over the limit and splits it.
+//   - "makeBucket2.recurse" (bucket, new bucket): makeBucket2 of bucket published new bucket; before it checks whether new bucket is over the limit and, holding the muPool of new bucket, splits it.
 //   - "bucketFromPoolEmbedded.claim" (down, bucket): down, an element of the downLevels of bucket, has level 0; before its level is set.
 //   - "bucketFromPoolEmbedded.claimed" (down, nil): the level and the reverse of down are set; before it is returned.
 //   - "appendLast.claimed" (item, nil): appendLast raised the length of the pool over item, its last slot; before it clears the state of item.

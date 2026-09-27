@@ -444,6 +444,11 @@ SKIP_FETCH_BUCKET:
 		// that one is
 		stepAt("set.waitLinked", unsafe.Pointer(item.PtrListHead()), nil)
 		item.PtrMapHead().waitLinked()
+		if fromUser {
+			// that store may have linked item into another map; store
+			// item again as if this store came after it
+			return h.StoreItem(item), false
+		}
 		return true, false
 	}
 	var split *bucket

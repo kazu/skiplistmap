@@ -1830,20 +1830,48 @@ func (h *Map) _searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketE
 // Delete ... set nil to the key of MapItem. cannot Get entry
 func (h *Map) Delete(key interface{}) bool {
 
-	item, ok := h.LoadItem(key)
-	if !ok {
-		return false
+	for {
+		item, ok := h.LoadItem(key)
+		if !ok {
+			return false
+		}
+		if stepEnabled {
+			stepAt("delete.found", unsafe.Pointer(item.PtrListHead()), nil)
+		}
+		// an expand of the item pool of item must copy it after the mark
+		// of the delete; hold the pool while marking
+		var sp *samepleItemPool
+		pooler := (*Pool)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&h.pooler))))
+		if pooler != nil && !h.isEmbededItemInBucket {
+			var expanding bool
+			sp, expanding = pooler.holdItem(item.PtrMapHead().reverse, item)
+			if expanding {
+				runtime.Gosched()
+				continue
+			}
+			if sp == nil {
+				// no pool holds item now: an expand moved it, or it is
+				// not from a pool
+				if again, ok := h.LoadItem(key); ok && again.PtrListHead() != item.PtrListHead() {
+					runtime.Gosched()
+					continue
+				}
+			}
+		}
+		claimed := item.PtrMapHead().claimDelete()
+		if claimed {
+			item.Delete()
+		}
+		if sp != nil {
+			sp.linking.Add(-1)
+		}
+		if !claimed {
+			// another delete of the key got there first
+			return false
+		}
+		h.AddLen(-1)
+		return true
 	}
-	if stepEnabled {
-		stepAt("delete.found", unsafe.Pointer(item.PtrListHead()), nil)
-	}
-	if !item.PtrMapHead().claimDelete() {
-		// another delete of the key got there first
-		return false
-	}
-	item.Delete()
-	h.AddLen(-1)
-	return true
 
 }
 

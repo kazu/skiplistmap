@@ -261,6 +261,30 @@ func writeOverlappedExpand(s uint64) bool {
 	return true
 }
 
+// holdItem finds the pool of the Pool whose array holds item, the one for
+// reverse, and counts a write to item on it as countLinking does, so that
+// an expand copies item only after the write. It returns nil and false when
+// no pool holds item: the item is not from a pool, or an expand moved it and
+// the writer looks the key up again. It returns nil and true when the pool
+// of item is being expanded; the writer tries again.
+func (p *Pool) holdItem(reverse uint64, item MapItem) (*samepleItemPool, bool) {
+	idx := (reverse >> (4 * 15) % cntOfPoolMgr)
+	addr := uintptr(unsafe.Pointer(item.PtrListHead()))
+	for cur := p.itemPool[idx].Next(); !cur.Empty(); cur = cur.Next() {
+		sp := samepleItemPoolFromListHead(cur)
+		items := sp.ptrItems()
+		base := uintptr(atomic.LoadPointer(&items.data))
+		if addr < base || addr >= base+uintptr(items.Cap())*uintptr(SampleItemSize) {
+			continue
+		}
+		if !sp.countLinking() {
+			return nil, true
+		}
+		return sp, false
+	}
+	return nil, false
+}
+
 // countLinking counts an item that Get is about to hand out. It reports false,
 // without counting, when an expand of sp has started: the caller then starts
 // again from the pool list.
@@ -319,7 +343,7 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker
 		return nil, false, nil
 	}
 	if !atomic_util.CompareAndSwapInt(&pItems.len, i, i+1) {
-		Log(LogWarn, "fail to increment pItem.len=%d pItem.cap=%d i=%d", pItems.len, pItems.cap, i)
+		Log(LogWarn, "fail to increment pItem.len=%d pItem.cap=%d i=%d", pItems.Len(), pItems.Cap(), i)
 		sp.linking.Add(-1)
 		// the lock of the last item taken above is this Get's own; the
 		// retry takes it again

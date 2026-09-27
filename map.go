@@ -446,7 +446,15 @@ SKIP_FETCH_BUCKET:
 		item.PtrMapHead().waitLinked()
 		return true, false
 	}
-	defer item.PtrMapHead().releaseLink()
+	var split *bucket
+	defer func() {
+		item.PtrMapHead().releaseLink()
+		if split != nil {
+			// split after the release: the split hands item over to a new
+			// bucket, whose Set may copy item
+			h.makeBucket2(split)
+		}
+	}()
 	if !item.PtrListHead().IsSingle() {
 		if fromUser && !item.PtrMapHead().IsDeleted() {
 			// item is linked and not deleted, in another map: one item
@@ -464,11 +472,11 @@ SKIP_FETCH_BUCKET:
 	item.PtrListHead().Init()
 	if addOpt == nil {
 		//btable._validateItemsNear()
-		linked = h.add2(tStart, item)
+		linked, split = h.add2(tStart, item)
 		//btable._validateItemsNear()
 	} else {
 		//btable._validateItemsNear()
-		linked = h.add2(tStart, item, addOpt)
+		linked, split = h.add2(tStart, item, addOpt)
 		//btable._validateItemsNear()
 	}
 	if !linked {
@@ -1112,7 +1120,7 @@ func WithBucket(b *bucket) func(*hmapMethod) {
 	}
 }
 
-func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) bool {
+func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) (linked bool, split *bucket) {
 	var opt *hmapMethod
 	if len(opts) > 0 {
 		opt = &hmapMethod{}
@@ -1174,27 +1182,29 @@ RETRY:
 		}
 
 		if h.storeIntoSameKey(pos.PtrListHead(), e) {
-			return false
+			return false, nil
 		}
 		if err := insertInOrder(pos.PtrListHead(), e.PtrListHead()); err != nil {
 			goto RETRY
 		}
 		if opt == nil || opt.bucket == nil {
-			return true
+			return true, nil
 		}
 		btable := opt.bucket
 		if btable == nil || e.PtrMapHead().IsIgnored() || int(btable.len()) <= h.maxPerBucket {
-			return true
+			return true, nil
 		}
 
 		// FIXME: not run on !h.isEmbededItemInBucket
 		if !h.isEmbededItemInBucket {
 			//h.makeBucket(e.PtrListHead(), int(btable.len())/2)
 		} else {
-			h.makeBucket2(btable)
+			// the caller splits btable when it is done with e: the split
+			// hands e over to a new bucket, whose Set may copy e
+			split = btable
 		}
 
-		return true
+		return true, split
 	}
 	if opt != nil && opt.bucket != nil && opt.bucket.entry(h) != nil {
 		// pos, _ = h.find(start, func(ehead HMapEntry) bool {
@@ -1210,10 +1220,10 @@ RETRY:
 
 		stepAt("add2.bucketInsert", unsafe.Pointer(e.PtrListHead()), unsafe.Pointer(nextE.PtrListHead()))
 		if h.storeIntoSameKey(nextE.PtrListHead(), e) {
-			return false
+			return false, nil
 		}
 		if _, err := inserBeforeWithCheck(nextE.PtrListHead(), e.PtrListHead()); err == nil {
-			return true
+			return true, nil
 		}
 		// the entry after the dummy of the bucket is not a place for e;
 		// no entry comes after e, so e goes just before the last one
@@ -1230,12 +1240,12 @@ RETRY:
 		stepAt("add2.tailInsert", unsafe.Pointer(e.PtrListHead()), unsafe.Pointer(h.tail.Prev()))
 	}
 	if h.storeIntoSameKey(h.tail.Prev(), e) {
-		return false
+		return false, nil
 	}
 	if _, err := inserBeforeWithCheck(h.tail.Prev(), e.PtrListHead()); err != nil {
 		goto RETRY
 	}
-	return true
+	return true, nil
 }
 
 // storeIntoSameKey stores the value of e into the entry just before right

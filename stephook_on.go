@@ -202,6 +202,13 @@ func StepEntryLinked(h *Map, p uintptr) bool {
 	return false
 }
 
+// StepIsLinking reports whether the item that h holds for key is still marked
+// as being linked by a store.
+func StepIsLinking(h *Map, key string) bool {
+	item, ok := h.LoadItem(key)
+	return ok && mapState(atomic.LoadUint32((*uint32)(&item.PtrMapHead().state)))&mapIsLinking != 0
+}
+
 // StepIsLinkedPool reports whether p, a list node that a StepHook point of the
 // pool passed, is the list node of a pool that a pool list of h holds now: not
 // nil, not marked, and neither the head nor the tail of the list. Get may take

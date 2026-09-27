@@ -780,14 +780,14 @@ func (h *Map) Set(key, value interface{}) bool {
 	var item MapItem
 	var bucket *bucket
 	var found bool
+	k, conflict := KeyToHash(key)
 
 	for {
-		item, bucket, found = h._loadItem(0, 0, key)
+		item, bucket, found = h._loadItem(k, conflict, nil)
 		if !found {
 			break
 		}
 		if !h.isEmbededItemInBucket {
-			k, conflict := KeyToHash(key)
 			return h.updateStable(item, k, conflict, value)
 		}
 		if stepEnabled {
@@ -816,7 +816,6 @@ func (h *Map) Set(key, value interface{}) bool {
 	}
 
 	if h.isEmbededItemInBucket {
-		k, conflict := KeyToHash(key)
 		var nPool *samepleItemPool
 
 		// Hold the bucket lock from the existence re-check to the link, so two
@@ -859,7 +858,6 @@ func (h *Map) Set(key, value interface{}) bool {
 			Log(LogDebug, "already set conflict")
 		}
 	} else {
-		k, _ := KeyToHash(key)
 		var wg sync.WaitGroup
 		var held sync.Locker
 		wg.Add(1)
@@ -904,7 +902,6 @@ func (h *Map) Set(key, value interface{}) bool {
 		})(h)
 	}
 
-	k, conflict := KeyToHash(s.K)
 	if h.isEmbededItemInBucket {
 		return h._set(k, conflict, bucket.toBase(), s)
 	}
@@ -1846,7 +1843,8 @@ func (h *Map) _searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketE
 // Delete ... set nil to the key of MapItem. cannot Get entry
 func (h *Map) Delete(key interface{}) bool {
 
-	item, ok := h.LoadItem(key)
+	k, conflict := KeyToHash(key)
+	item, _, ok := h._loadItem(k, conflict, nil)
 	if !ok {
 		return false
 	}
@@ -1855,7 +1853,6 @@ func (h *Map) Delete(key interface{}) bool {
 	}
 	// an expand of the item pool of item must copy it after the mark of
 	// the delete; hold the pool while marking
-	k, conflict := KeyToHash(key)
 	item, sp, found := h.holdEntry(item, k, conflict)
 	if !found {
 		// another delete got the key

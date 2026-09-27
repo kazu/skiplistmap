@@ -1253,16 +1253,21 @@ RETRY:
 	return true, nil
 }
 
-// storeIntoSameKey stores the value of e into the entry just before right
-// when that entry is a live entry of the key of e, which another store
-// linked after the lookup of e missed the key. It reports whether it did.
+// storeIntoSameKey stores the value of e into a live entry of the key of e
+// among the entries of the reverse of e just before right, which another
+// store linked after the lookup of e missed the key. It reports whether it
+// did.
 func (h *Map) storeIntoSameKey(right *elist_head.ListHead, e HMapEntry) bool {
 	left := right.DirectPrev()
-	if left == right || !sameKeyLinked(mapheadFromLListHead(left), e.PtrMapHead()) {
+	if left == right {
+		return false
+	}
+	same := linkedSameKey(mapheadFromLListHead(left), e.PtrMapHead())
+	if same == nil {
 		return false
 	}
 	if item, ok := e.(MapItem); ok {
-		if old, ok := e.HmapEntryFromListHead(left).(MapItem); ok {
+		if old, ok := e.HmapEntryFromListHead(same.PtrListHead()).(MapItem); ok {
 			h._update(old, item.Value())
 		}
 	}

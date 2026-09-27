@@ -141,7 +141,19 @@ func checkLinkBefore(right, center *elist_head.ListHead) error {
 // does not come after center, and left is not a live entry of the key of
 // center, which another store may have linked since center was looked up.
 func canLinkAfter(left, center *MapHead) bool {
-	return left.Empty() || (left.reverse <= center.reverse && !sameKeyLinked(left, center))
+	return left.Empty() || (left.reverse <= center.reverse && linkedSameKey(left, center) == nil)
+}
+
+// linkedSameKey returns the live entry of the key of center among left and
+// the entries before left with the reverse of center, or nil. Entries of one
+// reverse and different conflicts lie in any order.
+func linkedSameKey(left, center *MapHead) *MapHead {
+	for m := left; !m.Empty() && m.reverse == center.reverse; m = mapheadFromLListHead(m.PtrListHead().DirectPrev()) {
+		if sameKeyLinked(m, center) {
+			return m
+		}
+	}
+	return nil
 }
 
 // sameKeyLinked reports whether left is an entry of the key of center that

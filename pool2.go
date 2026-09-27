@@ -295,6 +295,23 @@ func (p *Pool) holdItem(reverse uint64, item MapItem) (*samepleItemPool, bool) {
 	return nil, false
 }
 
+// holdPool counts a link on the pool for reverse as Get does, for a writer
+// that links an item not from the pool next to the items of the pool: an
+// expand of the pool copies the items only after the link. It waits while
+// the pool is being expanded. The writer lowers linking of the pool after
+// the link.
+func (p *Pool) holdPool(reverse uint64) *samepleItemPool {
+	idx := (reverse >> (4 * 15) % cntOfPoolMgr)
+	for {
+		if head := p.itemPool[idx].Next(); !head.Empty() {
+			if sp := samepleItemPoolFromListHead(head); sp.countLinking() {
+				return sp
+			}
+		}
+		runtime.Gosched()
+	}
+}
+
 // countLinking counts an item that Get is about to hand out. It reports false,
 // without counting, when an expand of sp has started: the caller then starts
 // again from the pool list.

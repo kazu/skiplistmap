@@ -346,12 +346,13 @@ func (h *Map) _set(k, conflict uint64, btable *bucket, item MapItem) bool {
 	return ok
 }
 
-// setItem links item as _set does, and reports also whether it linked item
-// and counted it in the length. fromUser tells an item that StoreItem got
-// from its caller, which the map refuses while it is linked and not deleted:
-// it lies in another map. An item from the pool of the map may be a slot
-// reused while it was still linked; it is taken out and linked again.
-func (h *Map) setItem(k, conflict uint64, btable *bucket, item MapItem, fromUser bool) (ok, linked bool) {
+// setItem links item as _set does, and reports also whether it only waited
+// for another store that was linking item. fromUser tells an item that
+// StoreItem got from its caller, which the map refuses while it is linked and
+// not deleted: it lies in another map. An item from the pool of the map may
+// be a slot reused while it was still linked; it is taken out and linked
+// again.
+func (h *Map) setItem(k, conflict uint64, btable *bucket, item MapItem, fromUser bool) (ok, waited bool) {
 
 	if !h.isEmbededItemInBucket {
 		if !atomic.CompareAndSwapUint64(&item.PtrMapHead().reverse, 0, bits.Reverse64(k)) {
@@ -444,12 +445,7 @@ SKIP_FETCH_BUCKET:
 		// that one is
 		stepAt("set.waitLinked", unsafe.Pointer(item.PtrListHead()), nil)
 		item.PtrMapHead().waitLinked()
-		if fromUser {
-			// that store may have linked item into another map; store
-			// item again as if this store came after it
-			return h.StoreItem(item), false
-		}
-		return true, false
+		return true, true
 	}
 	var split *bucket
 	defer func() {
@@ -475,6 +471,7 @@ SKIP_FETCH_BUCKET:
 	}
 	atomic.AndUint32((*uint32)(&item.PtrMapHead().state), ^uint32(mapIsDeleted))
 	item.PtrListHead().Init()
+	var linked bool
 	if addOpt == nil {
 		//btable._validateItemsNear()
 		linked, split = h.add2(tStart, item)
@@ -496,7 +493,7 @@ SKIP_FETCH_BUCKET:
 		h.makeBucket(item.PtrListHead(), int(btable.len())/2)
 	}
 
-	return true, true
+	return true, false
 }
 
 func (h *Map) get(key interface{}) (interface{}, bool) {
@@ -888,30 +885,32 @@ func (h *Map) Set(key, value interface{}) bool {
 // there item is linked but cannot be found.
 func (h *Map) StoreItem(item MapItem) bool {
 	k, conflict := item.KeyHash()
-
-	oitem, bucket, found := h._loadItem(k, conflict, nil)
-	if found {
-		return h.updateStable(oitem, k, conflict, item.Value())
+	if atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&h.pooler))) == nil && !h.isEmbededItemInBucket {
+		UsePool(true)(h)
 	}
+	pooler := (*Pool)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&h.pooler))))
 
-	seq := seqBeforeWrite()
-	ok, linked := h.setItem(k, conflict, bucket, item, true)
-	if linked && writeOverlappedExpand(seq) {
-		// an expand of an item pool ran during the link: item may be linked
-		// only to an array that no pool holds any more. item is lost when a
-		// lookup does not find it and nothing deleted it, which only a
-		// delete that found item can do; then no live node leads to it
-		if stepEnabled {
-			stepAt("set.expandOverlapped", unsafe.Pointer(item.PtrListHead()), nil)
+	for {
+		oitem, bucket, found := h._loadItem(k, conflict, nil)
+		if found {
+			return h.updateStable(oitem, k, conflict, item.Value())
 		}
-		again, _, found := h._loadItem(k, conflict, nil)
-		if (!found || again.PtrListHead() != item.PtrListHead()) && !item.PtrMapHead().IsDeleted() {
-			item.PtrListHead().Init()
-			h.AddLen(-1)
-			return h.StoreItem(item)
+		// item links next to the items of the pool of its key, which an
+		// expand of that pool copies only after the link
+		var sp *samepleItemPool
+		if pooler != nil {
+			sp = pooler.holdPool(bits.Reverse64(k))
 		}
+		ok, waited := h.setItem(k, conflict, bucket, item, true)
+		if sp != nil {
+			sp.linking.Add(-1)
+		}
+		if !waited {
+			return ok
+		}
+		// another store was linking item, maybe into another map; store
+		// item again as if this store came after it
 	}
-	return ok
 }
 
 func (h *Map) eachEntry(start *elist_head.ListHead, fn func(*entryHMap)) {

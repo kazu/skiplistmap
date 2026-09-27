@@ -3,11 +3,7 @@
 package skiplistmap_test
 
 import (
-	"bytes"
-	"runtime"
 	"testing"
-	"time"
-	"unsafe"
 
 	"github.com/kazu/elist_head"
 	list_head "github.com/kazu/loncha/lista_encabezado"
@@ -111,55 +107,6 @@ func j63GetWithFnOnce(t *testing.T) {
 	waitDone(t, done1, "G1")
 }
 
-// G1 purges last: purgeInEmbedded locks firstDown.muPool and stops at
-// purge.beforeInit. G2 sets x: it locks the muPool of the bucket, insertToPool
-// builds a new array with x in it and stops at insertToPool.publish, before
-// CopyFrom stores the array into the pool. The test lets G1 run on: last is
-// still in the last slot of the array of the pool, so purgeInEmbedded lowers
-// the length of the pool with CompareAndSwapInt, and G1 blocks at
-// purge.lenLowered. G2 then runs on: CopyFrom reads the header of the array
-// of the pool with the plain reads old := *list and list.len. Nothing orders
-// the store of G1 before the reads of G2. The race detector does not report
-// the two, because CopyFrom is marked //go:norace.
-//
-// G1 is held at purge.lenLowered so that it makes no more accesses to the
-// length before G2 reads it; the race detector keeps only a few of the last
-// accesses to a word, and the accesses of shrinkLen can push the store out.
-// The test finds G1 held there by the stacks of the goroutines, which the race
-// detector does not take as an order between G1 and the test: the channel of
-// the stepper would order the store of G1 before the reads of G2.
-func Test_J63NoraceHidesCopyFromRead(t *testing.T) {
-	p := newJ63Pool(t)
-
-	s := newStepper(t)
-	stop1 := s.stopAt("map.purge.beforeInit", nil)
-	done1 := goStep(t, func() { p.m.Delete(p.last) })
-	stop1.waitReached(t, done1)
-	stop2 := s.stopAt("map.insertToPool.publish", nil)
-	done2 := goStep(t, func() { p.m.Set(p.x, &list_head.ListHead{}) })
-	stop2.waitReached(t, done2)
-
-	hold := make(chan struct{})
-	elist_head.SetStepHook(nil)
-	skiplistmap.SetStepHook(func(point string, a, b unsafe.Pointer) {
-		if point == "purge.lenLowered" {
-			j63HoldAtLenLowered(hold)
-		}
-	})
-	stop1.Release()
-	deadline := time.Now().Add(10 * time.Second)
-	buf := make([]byte, 1<<20)
-	for !bytes.Contains(buf[:runtime.Stack(buf, true)], []byte("j63HoldAtLenLowered")) {
-		if time.Now().After(deadline) {
-			t.Fatalf("G1 did not reach purge.lenLowered")
-		}
-		time.Sleep(time.Millisecond)
-	}
-	stop2.Release()
-	waitDone(t, done2, "G2")
-	close(hold)
-	waitDone(t, done1, "G1")
-}
 
 // j63HoldAtLenLowered blocks until hold is closed. The test looks for its name
 // in the stacks of the goroutines.

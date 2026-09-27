@@ -929,7 +929,7 @@ func (list *itemSlice) dup() (new *itemSlice) {
 func (list *itemSlice) reverseAt(idx int) (r uint64) {
 
 	const toReverse = unsafe.Offsetof(EmptySampleHMapEntry.reverse)
-	ptr := unsafe.Add(list.data, idx*int(SampleItemSize)+int(toReverse))
+	ptr := unsafe.Add(atomic.LoadPointer(&list.data), idx*int(SampleItemSize)+int(toReverse))
 	r = atomic.LoadUint64((*uint64)(ptr))
 	return r
 }

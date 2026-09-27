@@ -116,7 +116,7 @@ func (b *bucket) len() int32 {
 	if b._itemPool == nil && b.itemPoolFn == nil {
 		return atomic.LoadInt32(&b._len)
 	}
-	return int32(len(b.itemPool().items))
+	return int32(b.itemPool().ptrItems().Len())
 
 }
 

@@ -78,11 +78,11 @@ func (mh *MapHead) waitLinked() {
 }
 
 func (mh *MapHead) IsDummy() bool {
-	return mh.state&mapIsDummy > 0
+	return mapState(atomic.LoadUint32((*uint32)(&mh.state)))&mapIsDummy > 0
 }
 
 func (mh *MapHead) IsDeleted() bool {
-	return mh.state&mapIsDeleted > 0
+	return mapState(atomic.LoadUint32((*uint32)(&mh.state)))&mapIsDeleted > 0
 }
 
 func (mh *MapHead) ConflictInHamp() uint64 {

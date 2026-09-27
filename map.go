@@ -308,37 +308,53 @@ func (h *Map) _update(item MapItem, v interface{}) bool {
 }
 
 // updateStable stores v into item, the entry of the key of k and conflict,
-// as _update does. It holds the item pool of item while it stores, as Delete
-// does, so that an expand of the pool copies item after the store; when an
-// expand moved item, it stores into the entry that the key has after it.
+// as _update does, while it holds the item pool of item (holdEntry). When a
+// delete got the key meanwhile, the store counts as done before the delete.
 func (h *Map) updateStable(item MapItem, k, conflict uint64, v interface{}) bool {
+	item, sp, found := h.holdEntry(item, k, conflict)
+	if !found {
+		return true
+	}
+	ok := h._update(item, v)
+	if sp != nil {
+		sp.linking.Add(-1)
+	}
+	return ok
+}
+
+// holdEntry holds the item pool of item, the entry of the key of k and
+// conflict that a lookup found, for a write to it, so that an expand of the
+// pool copies item after the write. When an expand moved item, it holds the
+// entry that the key has after it. It returns the entry to write to and the
+// pool it holds, which is nil for an item not from a pool; the caller lowers
+// linking of the pool after the write. It reports false when a delete got
+// the key after the move: the item may lie in an array that no pool holds
+// any more, and nothing is held.
+func (h *Map) holdEntry(item MapItem, k, conflict uint64) (MapItem, *samepleItemPool, bool) {
 	pooler := (*Pool)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&h.pooler))))
-	for pooler != nil {
+	if pooler == nil || h.isEmbededItemInBucket {
+		return item, nil, true
+	}
+	for {
 		sp, expanding := pooler.holdItem(item.PtrMapHead().reverse, item)
 		if expanding {
 			runtime.Gosched()
 			continue
 		}
 		if sp != nil {
-			ok := h._update(item, v)
-			sp.linking.Add(-1)
-			return ok
+			return item, sp, true
 		}
 		// no pool holds item now: an expand moved it, or it is not from a
 		// pool
 		again, _, found := h._loadItem(k, conflict, nil)
 		if !found {
-			// a delete got the key after the move; item may lie in an
-			// array that no pool holds any more. The store counts as
-			// done before the delete
-			return true
+			return nil, nil, false
 		}
 		if again.PtrListHead() == item.PtrListHead() {
-			break
+			return item, nil, true
 		}
 		item = again
 	}
-	return h._update(item, v)
 }
 
 func (h *Map) _validateallbucket() {
@@ -1827,55 +1843,34 @@ func (h *Map) _searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketE
 // Delete ... set nil to the key of MapItem. cannot Get entry
 func (h *Map) Delete(key interface{}) bool {
 
-	for {
-		item, ok := h.LoadItem(key)
-		if !ok {
-			return false
-		}
-		if stepEnabled {
-			stepAt("delete.found", unsafe.Pointer(item.PtrListHead()), nil)
-		}
-		// an expand of the item pool of item must copy it after the mark
-		// of the delete; hold the pool while marking
-		var sp *samepleItemPool
-		pooler := (*Pool)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&h.pooler))))
-		if pooler != nil && !h.isEmbededItemInBucket {
-			var expanding bool
-			sp, expanding = pooler.holdItem(item.PtrMapHead().reverse, item)
-			if expanding {
-				runtime.Gosched()
-				continue
-			}
-			if sp == nil {
-				// no pool holds item now: an expand moved it, or it is
-				// not from a pool
-				again, ok := h.LoadItem(key)
-				if !ok {
-					// another delete got the key after the move; item may
-					// lie in an array that no pool holds any more
-					return false
-				}
-				if again.PtrListHead() != item.PtrListHead() {
-					runtime.Gosched()
-					continue
-				}
-			}
-		}
-		claimed := item.PtrMapHead().claimDelete()
-		if claimed {
-			item.Delete()
-		}
-		if sp != nil {
-			sp.linking.Add(-1)
-		}
-		if !claimed {
-			// another delete of the key got there first
-			return false
-		}
-		h.AddLen(-1)
-		return true
+	item, ok := h.LoadItem(key)
+	if !ok {
+		return false
 	}
-
+	if stepEnabled {
+		stepAt("delete.found", unsafe.Pointer(item.PtrListHead()), nil)
+	}
+	// an expand of the item pool of item must copy it after the mark of
+	// the delete; hold the pool while marking
+	k, conflict := KeyToHash(key)
+	item, sp, found := h.holdEntry(item, k, conflict)
+	if !found {
+		// another delete got the key
+		return false
+	}
+	claimed := item.PtrMapHead().claimDelete()
+	if claimed {
+		item.Delete()
+	}
+	if sp != nil {
+		sp.linking.Add(-1)
+	}
+	if !claimed {
+		// another delete of the key got there first
+		return false
+	}
+	h.AddLen(-1)
+	return true
 }
 
 // Purge ... key/value entry from map.

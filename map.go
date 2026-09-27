@@ -741,11 +741,11 @@ func (h *Map) Set(key, value interface{}) bool {
 	var bucket *bucket
 	var found bool
 	var seq uint64
-	var fn func()
+	var held sync.Locker
 	release := func() {
-		if fn != nil {
-			fn()
-			fn = nil
+		if held != nil {
+			held.Unlock()
+			held = nil
 		}
 	}
 
@@ -830,16 +830,12 @@ func (h *Map) Set(key, value interface{}) bool {
 		k, _ := KeyToHash(key)
 		seq = seqBeforeWrite()
 		var wg sync.WaitGroup
-		fn = nil
+		held = nil
 		wg.Add(1)
 		pooler := (*Pool)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&h.pooler))))
 		pooler.Get(bits.Reverse64(k), func(item MapItem, mu sync.Locker) {
 			s = item.(*SampleItem)
-			if mu != nil {
-				fn = func() {
-					mu.Unlock()
-				}
-			}
+			held = mu
 			wg.Done()
 		})
 		defer release()

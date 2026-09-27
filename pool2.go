@@ -140,24 +140,34 @@ type samepleItemPool struct {
 	// items only after the links of all of them are done
 	linking   atomic.Int32
 	expanding atomic.Bool
+	// the Lockers that Get returns with an item, held in the pool so that
+	// Get allocates nothing for them
+	done     linkDone
+	doneLast lastLinkDone
 	list_head.ListHead
 }
 
 // linkDone is the Locker that Get returns with an item: its Unlock tells the
-// pool that the item is linked, and unlocks the lock of the last item when
-// Get took it.
-type linkDone struct {
-	sp *samepleItemPool
-	mu sync.Locker
-}
+// pool that holds it that the item is linked.
+type linkDone struct{ _ byte }
 
 func (d *linkDone) Lock() {}
 
 func (d *linkDone) Unlock() {
-	d.sp.linking.Add(-1)
-	if d.mu != nil {
-		d.mu.Unlock()
-	}
+	sp := (*samepleItemPool)(unsafe.Add(unsafe.Pointer(d), -int(unsafe.Offsetof(EmptysamepleItemPool.done))))
+	sp.linking.Add(-1)
+}
+
+// lastLinkDone is the linkDone of the last item, whose Unlock also unlocks
+// mu of the pool, which Get took for that item.
+type lastLinkDone struct{ _ byte }
+
+func (d *lastLinkDone) Lock() {}
+
+func (d *lastLinkDone) Unlock() {
+	sp := (*samepleItemPool)(unsafe.Add(unsafe.Pointer(d), -int(unsafe.Offsetof(EmptysamepleItemPool.doneLast))))
+	sp.linking.Add(-1)
+	sp.mu.Unlock()
 }
 
 var EmptysamepleItemPool *samepleItemPool = (*samepleItemPool)(unsafe.Pointer(uintptr(0)))
@@ -311,7 +321,7 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker
 		nElm.Delete()
 		if nElm != nil {
 			nElm.Init()
-			return SampleItemFromListHead(nElm), false, &linkDone{sp: sp}
+			return SampleItemFromListHead(nElm), false, &sp.done
 		}
 		sp.linking.Add(-1)
 	}
@@ -356,10 +366,10 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker
 	new2 = (*pItems).at(i)
 	new2.Init()
 	if mu != nil {
-		new, isExpanded, lock = new2, false, &linkDone{sp: sp, mu: mu}
+		new, isExpanded, lock = new2, false, &sp.doneLast
 		return
 	}
-	new, isExpanded, lock = new2, false, &linkDone{sp: sp}
+	new, isExpanded, lock = new2, false, &sp.done
 	return
 
 EXPAND:

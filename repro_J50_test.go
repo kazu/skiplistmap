@@ -4,6 +4,7 @@ package skiplistmap_test
 
 import (
 	"testing"
+	"time"
 
 	list_head "github.com/kazu/loncha/lista_encabezado"
 	"github.com/kazu/skiplistmap"
@@ -34,14 +35,17 @@ func Test_J50SetBetweenCopyAndRepairIsLost(t *testing.T) {
 	st := s.stopAt("map.pool.expand.copied", nil)
 	done := goStep(t, func() { m.Set(keys[n], &list_head.ListHead{}) })
 	st.waitReached(t, done)
-	if !m.Set(k, v2) {
-		t.Fatalf("Set(k, v2) returned false")
-	}
-	if got, _ := m.Get(k); got != v2 {
-		t.Fatalf("Get(k) right after Set(k, v2) does not return v2")
-	}
+	// Set(k, v2) stores v2 between the copy and the repair, and then waits
+	// for the expand to end before it checks where k is
+	var ok2 bool
+	doneV2 := goStep(t, func() { ok2 = m.Set(k, v2) })
+	waitAtMost(doneV2, time.Second)
 	st.Release()
 	waitDone(t, done, "Set of the 65th key")
+	waitDone(t, doneV2, "Set(k, v2)")
+	if !ok2 {
+		t.Fatalf("Set(k, v2) returned false")
+	}
 
 	got, ok := m.Get(k)
 	switch {

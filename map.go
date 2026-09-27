@@ -307,6 +307,21 @@ func (h *Map) _update(item MapItem, v interface{}) bool {
 	return item.SetValue(v)
 }
 
+// updateStable stores v into item, the entry of the key of k and conflict,
+// as _update does. When an expand of an item pool ran meanwhile, it may have
+// copied item before the store, so the store goes again into the entry that
+// the key has after the expand.
+func (h *Map) updateStable(item MapItem, k, conflict uint64, v interface{}) bool {
+	seq := seqBeforeWrite()
+	ok := h._update(item, v)
+	if writeOverlappedExpand(seq) {
+		if again, _, found := h._loadItem(k, conflict, nil); found && again.PtrListHead() != item.PtrListHead() {
+			return h._update(again, v)
+		}
+	}
+	return ok
+}
+
 func (h *Map) _validateallbucket() {
 
 	for bucket := bucketFromListHead(h.headBucket.Next()); bucket != bucket.nextAsB(); bucket = bucket.nextAsB() {
@@ -327,14 +342,16 @@ func (h *Map) TestSet(k, conflict uint64, btable *bucket, item MapItem) bool {
 }
 
 func (h *Map) _set(k, conflict uint64, btable *bucket, item MapItem) bool {
-	return h.setItem(k, conflict, btable, item, false)
+	ok, _ := h.setItem(k, conflict, btable, item, false)
+	return ok
 }
 
-// setItem links item as _set does. fromUser tells an item that StoreItem got
+// setItem links item as _set does, and reports also whether it linked item
+// and counted it in the length. fromUser tells an item that StoreItem got
 // from its caller, which the map refuses while it is linked and not deleted:
 // it lies in another map. An item from the pool of the map may be a slot
 // reused while it was still linked; it is taken out and linked again.
-func (h *Map) setItem(k, conflict uint64, btable *bucket, item MapItem, fromUser bool) bool {
+func (h *Map) setItem(k, conflict uint64, btable *bucket, item MapItem, fromUser bool) (ok, linked bool) {
 
 	if !h.isEmbededItemInBucket {
 		if !atomic.CompareAndSwapUint64(&item.PtrMapHead().reverse, 0, bits.Reverse64(k)) {
@@ -427,14 +444,14 @@ SKIP_FETCH_BUCKET:
 		// that one is
 		stepAt("set.waitLinked", unsafe.Pointer(item.PtrListHead()), nil)
 		item.PtrMapHead().waitLinked()
-		return true
+		return true, false
 	}
 	defer item.PtrMapHead().releaseLink()
 	if !item.PtrListHead().IsSingle() {
 		if fromUser && !item.PtrMapHead().IsDeleted() {
 			// item is linked and not deleted, in another map: one item
 			// cannot be linked twice
-			return false
+			return false, false
 		}
 		// a deleted item stays linked until it is taken out; take it out
 		// before linking it again
@@ -445,7 +462,6 @@ SKIP_FETCH_BUCKET:
 	}
 	atomic.AndUint32((*uint32)(&item.PtrMapHead().state), ^uint32(mapIsDeleted))
 	item.PtrListHead().Init()
-	var linked bool
 	if addOpt == nil {
 		//btable._validateItemsNear()
 		linked = h.add2(tStart, item)
@@ -457,7 +473,7 @@ SKIP_FETCH_BUCKET:
 	}
 	if !linked {
 		// the value went into an entry of the key linked meanwhile
-		return true
+		return true, false
 	}
 	atomic.AddInt64(&h.len, 1)
 	if btable.level() > 0 {
@@ -467,7 +483,7 @@ SKIP_FETCH_BUCKET:
 		h.makeBucket(item.PtrListHead(), int(btable.len())/2)
 	}
 
-	return true
+	return true, true
 }
 
 func (h *Map) get(key interface{}) (interface{}, bool) {
@@ -711,6 +727,14 @@ func (h *Map) Set(key, value interface{}) bool {
 	var item MapItem
 	var bucket *bucket
 	var found bool
+	var seq uint64
+	var fn func()
+	release := func() {
+		if fn != nil {
+			fn()
+			fn = nil
+		}
+	}
 
 	for {
 		item, bucket, found = h._loadItem(0, 0, key)
@@ -718,7 +742,8 @@ func (h *Map) Set(key, value interface{}) bool {
 			break
 		}
 		if !h.isEmbededItemInBucket {
-			return h._update(item, value)
+			k, conflict := KeyToHash(key)
+			return h.updateStable(item, k, conflict, value)
 		}
 		if stepEnabled {
 			stepAt("set.updateFound", unsafe.Pointer(item.PtrListHead()), unsafe.Pointer(bucket))
@@ -790,8 +815,8 @@ func (h *Map) Set(key, value interface{}) bool {
 		}
 	} else {
 		k, _ := KeyToHash(key)
+		seq = seqBeforeWrite()
 		var wg sync.WaitGroup
-		var fn func()
 		fn = nil
 		wg.Add(1)
 		pooler := (*Pool)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&h.pooler))))
@@ -804,9 +829,7 @@ func (h *Map) Set(key, value interface{}) bool {
 			}
 			wg.Done()
 		})
-		if fn != nil {
-			defer fn()
-		}
+		defer release()
 
 		if s != nil && !s.IsSingle() {
 			Log(LogWarn, "get not single entry?")
@@ -843,7 +866,24 @@ func (h *Map) Set(key, value interface{}) bool {
 	if !s.IsSingle() {
 		Log(LogWarn, "is not single")
 	}
-	return h._set(k, conflict, bucket, s)
+	ok, linked := h.setItem(k, conflict, bucket, s, false)
+	// the pool counts s as linked only after this; an expand that waits
+	// for it must not be waited for here
+	release()
+	if linked && writeOverlappedExpand(seq) {
+		// an expand of an item pool ran during this Set: the link of s
+		// may have gone into an array that no pool holds any more. s is
+		// lost when a lookup misses it and nothing deleted it, which only
+		// a delete that found s can do
+		if stepEnabled {
+			stepAt("set.expandOverlapped", unsafe.Pointer(s.PtrListHead()), nil)
+		}
+		if _, _, found := h._loadItem(k, conflict, nil); !found && !s.IsDeleted() {
+			h.AddLen(-1)
+			return h.Set(key, value)
+		}
+	}
+	return ok
 }
 
 // StoreItem ... set key/value item with embedded-linked-list
@@ -863,10 +903,27 @@ func (h *Map) StoreItem(item MapItem) bool {
 
 	oitem, bucket, found := h._loadItem(k, conflict, nil)
 	if found {
-		return h._update(oitem, item.Value())
+		return h.updateStable(oitem, k, conflict, item.Value())
 	}
 
-	return h.setItem(k, conflict, bucket, item, true)
+	seq := seqBeforeWrite()
+	ok, linked := h.setItem(k, conflict, bucket, item, true)
+	if linked && writeOverlappedExpand(seq) {
+		// an expand of an item pool ran during the link: item may be linked
+		// only to an array that no pool holds any more. item is lost when a
+		// lookup does not find it and nothing deleted it, which only a
+		// delete that found item can do; then no live node leads to it
+		if stepEnabled {
+			stepAt("set.expandOverlapped", unsafe.Pointer(item.PtrListHead()), nil)
+		}
+		again, _, found := h._loadItem(k, conflict, nil)
+		if (!found || again.PtrListHead() != item.PtrListHead()) && !item.PtrMapHead().IsDeleted() {
+			item.PtrListHead().Init()
+			h.AddLen(-1)
+			return h.StoreItem(item)
+		}
+	}
+	return ok
 }
 
 func (h *Map) eachEntry(start *elist_head.ListHead, fn func(*entryHMap)) {

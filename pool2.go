@@ -235,6 +235,32 @@ func (sp *samepleItemPool) validateItems() error {
 
 }
 
+// expandSeq counts the starts and ends of the expands of item pools: it is odd
+// while one is copying items into a new array. The expands are of any map.
+var expandSeq atomic.Uint64
+
+// seqBeforeWrite returns expandSeq for a writer to compare with after its
+// write. It does not wait: a Set that holds an item it has not linked yet
+// must not wait for an expand, which waits for that link.
+func seqBeforeWrite() uint64 {
+	return expandSeq.Load()
+}
+
+// writeOverlappedExpand reports whether an expand ran at some time since
+// seqBeforeWrite returned s, and then waits until none runs. A write to an
+// item that such an expand copied may have gone into the old array only; the
+// writer checks it and writes again. When no expand ran, an expand that
+// starts later copies the write. The writer holds no item it has not linked.
+func writeOverlappedExpand(s uint64) bool {
+	if s&1 == 0 && expandSeq.Load() == s {
+		return false
+	}
+	for expandSeq.Load()&1 != 0 {
+		runtime.Gosched()
+	}
+	return true
+}
+
 // countLinking counts an item that Get is about to hand out. It reports false,
 // without counting, when an expand of sp has started: the caller then starts
 // again from the pool list.
@@ -365,6 +391,10 @@ func (sp *samepleItemPool) _expand() (*samepleItemPool, error) {
 	// stop handing out items of sp and wait for the links of the ones
 	// handed out, so that the copy holds every link to them
 	sp.expanding.Store(true)
+	// odd from here until the old array is out of the list; writers that
+	// see it change redo their writes after it (see stableWrite)
+	expandSeq.Add(1)
+	defer expandSeq.Add(1)
 	stepAt("pool.expand.waitLinks", unsafe.Pointer(sp), nil)
 	for sp.linking.Load() != 0 {
 		runtime.Gosched()

@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"testing"
+	"time"
 
 	list_head "github.com/kazu/loncha/lista_encabezado"
 	"github.com/kazu/skiplistmap"
@@ -78,11 +79,17 @@ func Test_Repro_3_1_2_InsertBetweenCopyAndRepairPanics(t *testing.T) {
 	st := s.stopAt("map.pool.expand.copied", nil)
 	done := goStep(t, func() { m.Set(fs[skiplistmap.CntOfPersamepleItemPool], &list_head.ListHead{}) })
 	st.waitReached(t, done)
-	if !m.base.StoreItem(&z[0]) {
-		t.Fatalf("StoreItem(%q) failed", kz)
-	}
+	// StoreItem links z between the copy and the repair, and then waits for
+	// the expand to end before it checks that z is in the map
+	var ok bool
+	doneZ := goStep(t, func() { ok = m.base.StoreItem(&z[0]) })
+	waitAtMost(doneZ, time.Second)
 	st.Release()
 	waitDone(t, done, "Set of the 65th key")
+	waitDone(t, doneZ, "StoreItem(z)")
+	if !ok {
+		t.Fatalf("StoreItem(%q) failed", kz)
+	}
 
 	assertStoredIfLinked(t, m, keys)
 	runtime.KeepAlive(z)

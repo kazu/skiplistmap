@@ -327,9 +327,9 @@ func (h *Map) updateStable(item MapItem, k, conflict uint64, v interface{}) bool
 // pool copies item after the write. When an expand moved item, it holds the
 // entry that the key has after it. It returns the entry to write to and the
 // pool it holds, which is nil for an item not from a pool; the caller lowers
-// linking of the pool after the write. It reports false when a delete got
-// the key after the move: the item may lie in an array that no pool holds
-// any more, and nothing is held.
+// linking of the pool after the write. It reports false, holding nothing,
+// when no pool holds item and the key is not found again: a delete got the
+// key, and item may lie in an array that no pool holds any more.
 func (h *Map) holdEntry(item MapItem, k, conflict uint64) (MapItem, *samepleItemPool, bool) {
 	pooler := (*Pool)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&h.pooler))))
 	if pooler == nil || h.isEmbededItemInBucket {
@@ -921,9 +921,9 @@ func (h *Map) Set(key, value interface{}) bool {
 // is already present, only the value is stored into the existing item, and
 // item is not linked. An item deleted by Delete or Purge can be stored again;
 // an item linked in another map is not linked, and StoreItem returns false.
-// item must be one that the caller allocated: an item that LoadItem,
-// RangeItem or a walk of the list returned lives in the item pool of its
-// map, which moves and reuses it (see LoadItem), and must not be passed.
+// item must be one that the caller allocated, not an item placed in the item
+// pool of a map, as the items stored by Set are, which LoadItem, RangeItem and
+// a walk of the list return: the pool moves and reuses them (see LoadItem).
 // Use StoreItem only on maps without UseEmbeddedPool:
 // there item is linked but cannot be found.
 func (h *Map) StoreItem(item MapItem) bool {

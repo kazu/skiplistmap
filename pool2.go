@@ -142,7 +142,8 @@ type samepleItemPool struct {
 	// linking counts the writers of the pool: the items that Get handed out
 	// and that are not linked yet, and the writes that hold the pool with
 	// holdItem or holdPool. expanding stops more writers from counting:
-	// _expand copies the items only after all of them are done
+	// _expand copies the items only after all of them are done. A new pool
+	// is also expanding from when _expand links it until its repair ends
 	linking   atomic.Int32
 	expanding atomic.Bool
 	// the Lockers that Get returns with an item, held in the pool so that
@@ -286,7 +287,8 @@ func releaseAllPools() {
 // an expand copies item only after the write. It returns nil and false when
 // no pool holds item: the item is not from a pool, or an expand moved it and
 // the writer looks the key up again. It returns nil and true when the pool
-// of item is being expanded, or when an expand ran while it walked the pool
+// of item is being expanded or is the new pool of an expand whose repair has
+// not ended, or when an expand ran while it walked the pool
 // list, which may then have hidden the pool of item; the writer tries again.
 func (p *Pool) holdItem(reverse uint64, item MapItem) (*samepleItemPool, bool) {
 	epoch := expandEpoch.Load()
@@ -336,8 +338,9 @@ func (p *Pool) firstPool(idx uint64) *samepleItemPool {
 
 // countLinking counts a writer of sp: an item that Get is about to hand out,
 // or a write that holds sp with holdItem or holdPool. It reports false,
-// without counting, when an expand of sp has started: the caller then starts
-// again from the pool list.
+// without counting, when an expand of sp has started, or sp is the new pool
+// of an expand whose repair has not ended: the caller then starts again from
+// the pool list.
 func (sp *samepleItemPool) countLinking() bool {
 	sp.linking.Add(1)
 	if sp.expanding.Load() {

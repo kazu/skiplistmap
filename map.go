@@ -1738,6 +1738,10 @@ func (h *Map) Delete(key interface{}) bool {
 	if stepEnabled {
 		stepAt("delete.found", unsafe.Pointer(item.PtrListHead()), nil)
 	}
+	if !item.PtrMapHead().claimDelete() {
+		// another delete of the key got there first
+		return false
+	}
 	item.Delete()
 	h.AddLen(-1)
 	return true

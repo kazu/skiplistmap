@@ -38,6 +38,20 @@ func (mh *MapHead) IsIgnored() bool {
 	return mapState(atomic.LoadUint32((*uint32)(&mh.state)))&(mapIsDummy|mapIsDeleted) > 0
 }
 
+// claimDelete sets mapIsDeleted and reports whether this call set it, so that
+// of two deletes of one entry only one counts it.
+func (mh *MapHead) claimDelete() bool {
+	for {
+		s := atomic.LoadUint32((*uint32)(&mh.state))
+		if mapState(s)&mapIsDeleted != 0 {
+			return false
+		}
+		if atomic.CompareAndSwapUint32((*uint32)(&mh.state), s, s|uint32(mapIsDeleted)) {
+			return true
+		}
+	}
+}
+
 // claimLink takes mapIsLinking for the calling store and reports whether it
 // got it. A store that does not get it waits with waitLinked.
 func (mh *MapHead) claimLink() bool {

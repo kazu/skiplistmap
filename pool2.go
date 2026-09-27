@@ -85,12 +85,10 @@ func (p *Pool) Get(reverse uint64, fn successFn) {
 			if retry > 0 {
 				runtime.Gosched()
 			}
-			head := p.itemPool[idx].Next()
-			if head.Empty() {
-				// the list has no pool; an expand is replacing one
+			p := p.firstPool(idx)
+			if p == nil {
 				continue
 			}
-			p := samepleItemPoolFromListHead(head)
 			stepAt("pool.get.pool", unsafe.Pointer(&p.ListHead), nil)
 			e, _, mu := p.Get()
 			if e == nil {
@@ -319,13 +317,21 @@ func (p *Pool) holdItem(reverse uint64, item MapItem) (*samepleItemPool, bool) {
 func (p *Pool) holdPool(reverse uint64) *samepleItemPool {
 	idx := poolIndex(reverse)
 	for {
-		if head := p.itemPool[idx].Next(); !head.Empty() {
-			if sp := samepleItemPoolFromListHead(head); sp.countLinking() {
-				return sp
-			}
+		if sp := p.firstPool(idx); sp != nil && sp.countLinking() {
+			return sp
 		}
 		runtime.Gosched()
 	}
+}
+
+// firstPool returns the first pool of the pool list idx, the one that hands
+// out items, or nil when the list has none while an expand replaces it.
+func (p *Pool) firstPool(idx uint64) *samepleItemPool {
+	head := p.itemPool[idx].Next()
+	if head.Empty() {
+		return nil
+	}
+	return samepleItemPoolFromListHead(head)
 }
 
 // countLinking counts a writer of sp: an item that Get is about to hand out,

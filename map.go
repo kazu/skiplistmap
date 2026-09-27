@@ -327,6 +327,14 @@ func (h *Map) TestSet(k, conflict uint64, btable *bucket, item MapItem) bool {
 }
 
 func (h *Map) _set(k, conflict uint64, btable *bucket, item MapItem) bool {
+	return h.setItem(k, conflict, btable, item, false)
+}
+
+// setItem links item as _set does. fromUser tells an item that StoreItem got
+// from its caller, which the map refuses while it is linked and not deleted:
+// it lies in another map. An item from the pool of the map may be a slot
+// reused while it was still linked; it is taken out and linked again.
+func (h *Map) setItem(k, conflict uint64, btable *bucket, item MapItem, fromUser bool) bool {
 
 	if !h.isEmbededItemInBucket {
 		if !atomic.CompareAndSwapUint64(&item.PtrMapHead().reverse, 0, bits.Reverse64(k)) {
@@ -422,6 +430,20 @@ SKIP_FETCH_BUCKET:
 		return true
 	}
 	defer item.PtrMapHead().releaseLink()
+	if !item.PtrListHead().IsSingle() {
+		if fromUser && !item.PtrMapHead().IsDeleted() {
+			// item is linked and not deleted, in another map: one item
+			// cannot be linked twice
+			return false
+		}
+		// a deleted item stays linked until it is taken out; take it out
+		// before linking it again
+		item.PtrListHead().MarkForDelete()
+		for ok, _ := item.PtrListHead().IsSafety(); !ok; ok, _ = item.PtrListHead().IsSafety() {
+			runtime.Gosched()
+		}
+	}
+	atomic.AndUint32((*uint32)(&item.PtrMapHead().state), ^uint32(mapIsDeleted))
 	item.PtrListHead().Init()
 	var linked bool
 	if addOpt == nil {
@@ -814,7 +836,9 @@ func (h *Map) Set(key, value interface{}) bool {
 // or Purge, because a deleted item stays linked. Otherwise the map links
 // freed memory (a dangling reference). The map never moves item. If the key
 // is already present, only the value is stored into the existing item, and
-// item is not linked. Use StoreItem only on maps without UseEmbeddedPool:
+// item is not linked. An item deleted by Delete or Purge can be stored again;
+// an item linked in another map is not linked, and StoreItem returns false.
+// Use StoreItem only on maps without UseEmbeddedPool:
 // there item is linked but cannot be found.
 func (h *Map) StoreItem(item MapItem) bool {
 	k, conflict := item.KeyHash()
@@ -824,7 +848,7 @@ func (h *Map) StoreItem(item MapItem) bool {
 		return h._update(oitem, item.Value())
 	}
 
-	return h._set(k, conflict, bucket, item)
+	return h.setItem(k, conflict, bucket, item, true)
 }
 
 func (h *Map) eachEntry(start *elist_head.ListHead, fn func(*entryHMap)) {

@@ -2013,7 +2013,7 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 
 			downLevels := make([]bucket, 1, 16)
 
-			downLevels[0].setLevel(b.level() + 1)
+			downLevels[0].setLevel(b.childLevel())
 			downLevels[0].reverse = b.reverse
 			downLevels[0].Init()
 			downLevels[0].LevelHead.Init()
@@ -2050,7 +2050,7 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 
 			nDownLevel := b.ptrDownLevels()._at(cidx, false)
 			nDownLevel.reverse = b.reverse | (uint64(cidx) << (4 * (16 - l)))
-			nDownLevel.setLevel(b.level() + 1)
+			nDownLevel.setLevel(b.childLevel())
 			atomic.StoreUint32(&nDownLevel.state, bucketStateInit)
 
 			oBucket := b
@@ -2110,7 +2110,7 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 			if l != level {
 				Log(LogWarn, "not collected already inited")
 			}
-			down.setLevel(-(b.level() + 1))
+			down.setLevel(-b.childLevel())
 			down.reverse = b.reverse | (uint64(idx) << (4 * (16 - l)))
 			if onOk != nil {
 				Log(LogWarn, "found old fn ")

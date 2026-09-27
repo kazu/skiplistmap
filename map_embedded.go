@@ -178,7 +178,7 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 				goto SKIP_FIRST_DOWN_INIT
 			}
 			firstDown := downs._at(0, false)
-			firstDown.setLevel(b.level() + 1)
+			firstDown.setLevel(b.childLevel())
 			firstDown.reverse = b.reverse
 			firstDown.Init()
 			firstDown.LevelHead.Init()
@@ -214,7 +214,7 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 			if l != level {
 				Log(LogWarn, "not collected already inited")
 			}
-			if !atomic.CompareAndSwapInt32(&downs.at(idx)._level, 0, -(b.level() + 1)) {
+			if !atomic.CompareAndSwapInt32(&downs.at(idx)._level, 0, -b.childLevel()) {
 				// another split took the element
 				return nil
 			}

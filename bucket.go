@@ -433,6 +433,17 @@ func (b *bucket) level() (prev int32) {
 	return atomic.LoadInt32(&b._level)
 }
 
+// childLevel returns the level of the buckets in the downLevels of b. The
+// level of b is negative while its split is not finished, so it is read as
+// its absolute value.
+func (b *bucket) childLevel() int32 {
+	l := b.level()
+	if l < 0 {
+		l = -l
+	}
+	return l + 1
+}
+
 type bucketSlice struct {
 	data unsafe.Pointer
 	len  int

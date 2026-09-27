@@ -270,10 +270,12 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker
 	var mu *trylock.Mutex
 	var i int
 	var new2 *SampleItem
-	if pItems.Cap() <= pItems.Len() {
+	// read the length once: the CAS below raises it from this value, and
+	// another Get may take the last item between two reads
+	i = pItems.Len()
+	if pItems.Cap() <= i {
 		goto EXPAND
 	}
-	i = pItems.Len()
 	if i+1 == pItems.Cap() {
 		stepAt("pool.lastSlot", unsafe.Pointer(sp), nil)
 		mu = &sp.mu

@@ -497,6 +497,15 @@ NO_DELETE:
 		sp.DumpExpandInfo(&b, outers, "B:rewrite reverse=0x%x\n", &sp.items[0].reverse)
 	}
 
+	// link the new pool after sp before the repair leads the list to its
+	// items, so that a writer that finds one of them finds its pool too and
+	// waits while it is being expanded; Get takes no item of it until then
+	nPool.expanding.Store(true)
+	nPool.Init()
+	if next != nil {
+		next.InsertBefore(&nPool.ListHead)
+	}
+
 	err := elist_head.RepaireSliceAfterCopy(
 		unsafe.Pointer(&sp.items[0]),
 		unsafe.Pointer(&sp.items[len(sp.items)-1]),
@@ -517,12 +526,12 @@ NO_DELETE:
 		fmt.Println(b.String())
 	}
 
-	nPool.Init()
+	stepAt("pool.expand.repaired", unsafe.Pointer(sp), unsafe.Pointer(nPool))
+	nPool.expanding.Store(false)
 
-	// link the new pool after sp before sp leaves the pool list, so that a
-	// Get walking the list always finds a pool there
+	// the new pool is linked after sp, so a Get walking the list always
+	// finds a pool there
 	if next != nil {
-		next.InsertBefore(&nPool.ListHead)
 		e = sp.MarkForDelete()
 		if e != nil {
 			return nil, EPoolAlreadyDeleted

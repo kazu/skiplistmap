@@ -21,7 +21,8 @@ import (
 //   - "bucketFromPool.lenStored" (bucket, nil): the length of the new downLevels of bucket is stored.
 //   - "insertBucket.begin" (bucket, nil): before the dummy of bucket is initialized.
 //   - "insertBucket.dummyLinked" (bucket, nil): the dummy of bucket is linked; before bucket is linked.
-//   - "pool.expand.copied" (pool, new pool): _expand copied the items of pool into new pool; before it repairs the links.
+//   - "pool.expand.copied" (pool, new pool): _expand copied the items of pool into new pool; before it links new pool after pool, still being expanded, and repairs the links.
+//   - "pool.expand.repaired" (pool, new pool): _expand repaired the links to the items of new pool; before it lets writers of new pool count.
 //   - "pool.lastSlot" (pool, nil): Get read the length of pool and is taking its last item; before pool.mu is locked.
 //   - "pool.get.pool" (node, nil): Pool.Get took node, the Next of the head of a pool list, as the list node of the pool to get an item from; before it calls Get of that pool.
 //   - "pool.get.expand" (pool, nil): Get of pool found pool full; before it reads the next of pool to look for a next pool.
@@ -29,7 +30,7 @@ import (
 //   - "pool.expand.begin" (pool, nil): _expand of pool starts; before pool.mu is locked.
 //   - "pool.expand.waitLinks" (pool, nil): _expand stopped handing out items of pool; before it waits for the links of the items handed out.
 //   - "pool.expand.linked" (pool, nil): the items that pool handed out are linked; before _expand copies the items of pool.
-//   - "pool.expand.marked" (pool, nil): _expand linked new pool after pool and marked pool and unlinked it from the pool list; before it asks IsSafety of pool.
+//   - "pool.expand.marked" (pool, nil): _expand marked pool and unlinked it from the pool list, where new pool follows it; before it asks IsSafety of pool.
 //   - "pool.expand.beforeSafety" (pool, new pool): _expand linked new pool into the pool list; before it asks IsSafety of pool whether to run Init on it.
 //   - "loadItem.found" (item, bucket): loadItem found item in bucket; before bucket.muPool is locked.
 //   - "set.updateFound" (item, bucket): Set of a key present in a map with the embedded pool found item in bucket; before it tries to lock bucket.muPool.

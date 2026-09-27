@@ -327,7 +327,13 @@ func (h *Map) updateStable(item MapItem, k, conflict uint64, v interface{}) bool
 		// no pool holds item now: an expand moved it, or it is not from a
 		// pool
 		again, _, found := h._loadItem(k, conflict, nil)
-		if !found || again.PtrListHead() == item.PtrListHead() {
+		if !found {
+			// a delete got the key after the move; item may lie in an
+			// array that no pool holds any more. The store counts as
+			// done before the delete
+			return true
+		}
+		if again.PtrListHead() == item.PtrListHead() {
 			break
 		}
 		item = again
@@ -1843,7 +1849,13 @@ func (h *Map) Delete(key interface{}) bool {
 			if sp == nil {
 				// no pool holds item now: an expand moved it, or it is
 				// not from a pool
-				if again, ok := h.LoadItem(key); ok && again.PtrListHead() != item.PtrListHead() {
+				again, ok := h.LoadItem(key)
+				if !ok {
+					// another delete got the key after the move; item may
+					// lie in an array that no pool holds any more
+					return false
+				}
+				if again.PtrListHead() != item.PtrListHead() {
 					runtime.Gosched()
 					continue
 				}

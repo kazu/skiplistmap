@@ -311,7 +311,10 @@ func lazyUnlock(mu sync.Locker) {
 
 type unlocker func(mu sync.Locker)
 
-func (sp *samepleItemPool) appendLast(mu sync.Locker) (newItem MapItem, nPool *samepleItemPool, fn unlocker) {
+// appendLast takes the slot after the last one for the key of reverse. It
+// writes reverse into the slot before the slot counts in the length, so that
+// a binary search over the slots never meets a slot of reverse 0 there.
+func (sp *samepleItemPool) appendLast(reverse uint64, mu sync.Locker) (newItem MapItem, nPool *samepleItemPool, fn unlocker) {
 
 	if mu != nil {
 		mu.Lock()
@@ -324,13 +327,16 @@ func (sp *samepleItemPool) appendLast(mu sync.Locker) (newItem MapItem, nPool *s
 	if l >= items.Cap() {
 		return nil, nil, fn
 	}
+	// the slot may be one released by purgeInEmbedded: clear its old
+	// identity and give it reverse while it is past the length, where no
+	// reader looks at it yet
+	slot := items._at(l, false, false)
+	atomic.StoreUint32((*uint32)(&slot.PtrMapHead().state), 0)
+	atomic.StoreUint64(&slot.PtrMapHead().conflict, 0)
+	atomic.StoreUint64(&slot.PtrMapHead().reverse, reverse)
 	if atomic_util.CompareAndSwapInt(&items.len, l, l+1) {
 		new = items.at(l)
 		stepAt("appendLast.claimed", unsafe.Pointer(new), nil)
-		// the slot may be one released by purgeInEmbedded: clear its old identity
-		atomic.StoreUint32((*uint32)(&new.PtrMapHead().state), 0)
-		atomic.StoreUint64(&new.PtrMapHead().reverse, 0)
-		atomic.StoreUint64(&new.PtrMapHead().conflict, 0)
 		return new, nil, fn
 	}
 	Log(LogWarn, "retry to fail to expand")
@@ -406,6 +412,9 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem
 			newItems[i+1].ListHead = after
 		}
 		newItems[i].Init()
+		// the new slot has the reverse of its key before the array is
+		// published, so that the slots stay in order for a binary search
+		newItems[i].PtrMapHead().reverse = reverse
 
 		err = prevItem.ReplaceNext(first, &newItems[olen].ListHead, nextItem)
 		if err != nil {
@@ -473,7 +482,7 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu sync.Locker) (new MapIte
 	switch sp.state4get(reverse, olen, ocap) {
 	case getEmpty, getLargest:
 		nmu := mu
-		new, nPool, fn = sp.appendLast(nmu)
+		new, nPool, fn = sp.appendLast(reverse, nmu)
 		if new != nil {
 			return
 		}
@@ -521,7 +530,9 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu sync.Locker) (new MapIte
 		if oState&uint32(mapIsDeleted) == 0 {
 			goto RETRY
 		}
-		if !atomic.CompareAndSwapUint64(&new.PtrMapHead().reverse, oReverse, 0) {
+		// the free slot takes the reverse of the new key at once, so that
+		// the slots stay in order for a binary search
+		if !atomic.CompareAndSwapUint64(&new.PtrMapHead().reverse, oReverse, reverse) {
 			goto RETRY
 		}
 		atomic.StoreUint64(&new.PtrMapHead().conflict, 0)

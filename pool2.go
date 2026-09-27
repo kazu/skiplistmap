@@ -535,6 +535,12 @@ func idxMaagement(ctx context.Context, cancel context.CancelFunc, h *samepleItem
 		switch req.cmd {
 		case CmdGet:
 			e, extend, mu := p.Get()
+			for e == nil {
+				// an expand of p failed; take the pool again, as Pool.Get
+				// does
+				p = samepleItemPoolFromListHead(h.Next())
+				e, extend, mu = p.Get()
+			}
 			if mu != nil {
 				mu.Unlock()
 			}

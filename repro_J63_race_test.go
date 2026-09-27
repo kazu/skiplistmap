@@ -107,7 +107,6 @@ func j63GetWithFnOnce(t *testing.T) {
 	waitDone(t, done1, "G1")
 }
 
-
 // j63HoldAtLenLowered blocks until hold is closed. The test looks for its name
 // in the stacks of the goroutines.
 func j63HoldAtLenLowered(hold <-chan struct{}) {

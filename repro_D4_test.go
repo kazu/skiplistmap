@@ -433,4 +433,3 @@ func d4NibbleKeys(top uint64, n int) []string {
 	}
 	return keys
 }
-

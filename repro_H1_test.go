@@ -129,7 +129,6 @@ func (x *sameItemStores) check(t *testing.T, stored ...string) {
 	}
 }
 
-
 // H1: skiplistmap4 has a scene other than the three that the report lists
 // where the second CAS of an insertion fails: two goroutines storing the same
 // item a at the same time. Keys p < c < b < a, the map holds p.

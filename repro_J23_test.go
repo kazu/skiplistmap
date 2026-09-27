@@ -238,7 +238,6 @@ func j23Probe(h *Map, keys, more []string) error {
 	return nil
 }
 
-
 // Evidence for J23, on the part that keeps the keys: a walk of the list of
 // entries finds the key from the dummy of any bucket. On a map that split its
 // buckets by itself, for every bucket b in the list of buckets and every key

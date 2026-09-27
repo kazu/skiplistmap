@@ -94,7 +94,6 @@ func Test_Repro_3_3_1_SequentialRangeItemKeepsDirect(t *testing.T) {
 	}
 }
 
-
 // One goroutine calls RangeItem once. RangeItem walks the list of entries,
 // an elist list, with Prev and Next given WaitNoMark. elist sets its mode,
 // which is one variable for the whole process, to WaitNoMark on each call and

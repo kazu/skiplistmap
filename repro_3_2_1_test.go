@@ -96,7 +96,6 @@ func (p *sharedPoolMap) expectKeys(drop, add string) []string {
 	return keys
 }
 
-
 // purgeWhileSetReusesSlot runs the schedule of the tests below and reports
 // whether Set(b) finished while Purge(a) was stopped. It waits up to wait
 // for Set(b) before it lets Purge(a) go on.

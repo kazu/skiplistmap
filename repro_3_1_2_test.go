@@ -128,4 +128,3 @@ func Test_Repro_3_1_2_InsertAfterExpandIsLost(t *testing.T) {
 	assertStoredIfLinked(t, m, keys)
 	runtime.KeepAlive(z)
 }
-

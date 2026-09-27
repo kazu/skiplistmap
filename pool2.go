@@ -248,8 +248,10 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker
 	}
 	if !atomic_util.CompareAndSwapInt(&pItems.len, i, i+1) {
 		Log(LogWarn, "fail to increment pItem.len=%d pItem.cap=%d i=%d", pItems.len, pItems.cap, i)
-		if sp.mu.TryLock() {
-			sp.mu.Unlock()
+		// the lock of the last item taken above is this Get's own; the
+		// retry takes it again
+		if mu != nil {
+			mu.Unlock()
 		}
 		new, isExpanded, lock = sp.Get()
 		return

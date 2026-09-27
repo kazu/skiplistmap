@@ -1222,7 +1222,7 @@ RETRY:
 		if h.storeIntoSameKey(nextE.PtrListHead(), e) {
 			return false, nil
 		}
-		if _, err := inserBeforeWithCheck(nextE.PtrListHead(), e.PtrListHead()); err == nil {
+		if err := insertInOrder(nextE.PtrListHead(), e.PtrListHead()); err == nil {
 			return true, nil
 		}
 		// the entry after the dummy of the bucket is not a place for e;
@@ -1242,7 +1242,7 @@ RETRY:
 	if h.storeIntoSameKey(h.tail.Prev(), e) {
 		return false, nil
 	}
-	if _, err := inserBeforeWithCheck(h.tail.Prev(), e.PtrListHead()); err != nil {
+	if err := insertInOrder(h.tail.Prev(), e.PtrListHead()); err != nil {
 		goto RETRY
 	}
 	return true, nil

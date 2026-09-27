@@ -106,19 +106,6 @@ func NilMapEntry() HMapEntry {
 	return (*entryHMap)(nil)
 }
 
-func inserBeforeWithCheck(right *elist_head.ListHead, center *elist_head.ListHead) (*elist_head.ListHead, error) {
-
-	left := right.Prev()
-	if err := checkLinkBefore(right, center); err != nil {
-		return nil, err
-	}
-	if !canLinkAfter(mapheadFromLListHead(left), mapheadFromLListHead(center)) {
-		return nil, NewError(EIItemInvalidAdd, "invalid insert order", nil)
-	}
-
-	return right.InsertBefore(center)
-}
-
 // insertInOrder links center just before right in one attempt, only if the
 // entry that is before right when center is linked does not come after center.
 // It returns an error without linking center otherwise; the caller finds the

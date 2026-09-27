@@ -460,11 +460,56 @@ func (h *Map) _get(k, conflict uint64) (MapItem, bool) {
 		}
 		return nil, false
 	}
-	if e.PtrMapHead().reverse != bits.Reverse64(k) || e.PtrMapHead().conflict != conflict {
+	if stepEnabled {
+		stepAt("get.found", unsafe.Pointer(e.PtrListHead()), nil)
+	}
+	if e = matchConflict(e, bits.Reverse64(k), conflict); e == nil {
 		return nil, false
 	}
 	return e.(MapItem), true
 
+}
+
+// matchConflict returns the entry of reverse and conflict among the entries
+// of reverse next to e, which a lookup found as one end of them. Keys with
+// the same reversed hash differ only in conflict, and they lie next to each
+// other in the order they were linked.
+func matchConflict(e HMapEntry, reverse, conflict uint64) HMapEntry {
+	if atomic.LoadUint64(&e.PtrMapHead().reverse) != reverse {
+		return nil
+	}
+	matches := func(cur *elist_head.ListHead) (HMapEntry, bool) {
+		if cur.DirectNext() == cur || cur.DirectPrev() == cur {
+			return nil, false
+		}
+		c := e.HmapEntryFromListHead(cur)
+		if atomic.LoadUint64(&c.PtrMapHead().reverse) != reverse {
+			return nil, false
+		}
+		if !c.PtrMapHead().IsIgnored() && atomic.LoadUint64(&c.PtrMapHead().conflict) == conflict {
+			return c, true
+		}
+		return nil, true
+	}
+	for cur := e.PtrListHead(); ; cur = cur.DirectNext() {
+		c, same := matches(cur)
+		if c != nil {
+			return c
+		}
+		if !same {
+			break
+		}
+	}
+	for cur := e.PtrListHead().DirectPrev(); ; cur = cur.DirectPrev() {
+		c, same := matches(cur)
+		if c != nil {
+			return c
+		}
+		if !same {
+			break
+		}
+	}
+	return nil
 }
 
 func (h *Map) getWithBucket(k, conflict uint64) (MapItem, *bucket, bool) {
@@ -497,10 +542,7 @@ func (h *Map) getWithBucket(k, conflict uint64) (MapItem, *bucket, bool) {
 		}
 		return nil, bucket, false
 	}
-	if ereverse := atomic.LoadUint64(&e.PtrMapHead().reverse); ereverse != bits.Reverse64(k) {
-		return nil, bucket, false
-	}
-	if econflict := atomic.LoadUint64(&e.PtrMapHead().conflict); econflict != conflict {
+	if e = matchConflict(e, bits.Reverse64(k), conflict); e == nil {
 		return nil, bucket, false
 	}
 

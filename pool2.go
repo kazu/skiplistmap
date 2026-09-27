@@ -245,30 +245,30 @@ func (sp *samepleItemPool) validateItems() error {
 
 }
 
-// expandSeq counts the starts and ends of the expands of item pools: it is odd
-// while one is copying items into a new array. The expands are of any map.
-var expandSeq atomic.Uint64
+// expandsRunning counts the expands of the item pools of every map that run,
+// and writersOfAnyPool the writers that change links next to items of a pool
+// they cannot name, such as the neighbors of an item that StoreItem takes out
+// of the list it was deleted from. An expand copies items only while no such
+// writer runs, and such a writer starts only while no expand runs.
+var expandsRunning, writersOfAnyPool atomic.Int32
 
-// seqBeforeWrite returns expandSeq for a writer to compare with after its
-// write. It does not wait for an expand that runs: the writer checks after
-// its write with writeOverlappedExpand.
-func seqBeforeWrite() uint64 {
-	return expandSeq.Load()
+// holdAllPools waits until no expand runs and counts the caller as a writer
+// of any pool, until releaseAllPools.
+func holdAllPools() {
+	for {
+		writersOfAnyPool.Add(1)
+		if expandsRunning.Load() == 0 {
+			return
+		}
+		writersOfAnyPool.Add(-1)
+		for expandsRunning.Load() != 0 {
+			runtime.Gosched()
+		}
+	}
 }
 
-// writeOverlappedExpand reports whether an expand ran at some time since
-// seqBeforeWrite returned s, and then waits until none runs. A write to an
-// item that such an expand copied may have gone into the old array only; the
-// writer checks it and writes again. When no expand ran, an expand that
-// starts later copies the write. The writer holds no item it has not linked.
-func writeOverlappedExpand(s uint64) bool {
-	if s&1 == 0 && expandSeq.Load() == s {
-		return false
-	}
-	for expandSeq.Load()&1 != 0 {
-		runtime.Gosched()
-	}
-	return true
+func releaseAllPools() {
+	writersOfAnyPool.Add(-1)
 }
 
 // holdItem finds the pool of the Pool whose array holds item, the one for
@@ -442,13 +442,11 @@ func (sp *samepleItemPool) _expand() (*samepleItemPool, error) {
 	// stop handing out items of sp and wait for the links of the ones
 	// handed out, so that the copy holds every link to them
 	sp.expanding.Store(true)
-	// odd from here until the old array is out of the list; writers that
-	// see it change redo their writes after it (see seqBeforeWrite and
-	// writeOverlappedExpand)
-	expandSeq.Add(1)
-	defer expandSeq.Add(1)
+	// and for the writers that may change links next to items of any pool
+	expandsRunning.Add(1)
+	defer expandsRunning.Add(-1)
 	stepAt("pool.expand.waitLinks", unsafe.Pointer(sp), nil)
-	for sp.linking.Load() != 0 {
+	for sp.linking.Load() != 0 || writersOfAnyPool.Load() != 0 {
 		runtime.Gosched()
 	}
 	stepAt("pool.expand.linked", unsafe.Pointer(sp), nil)

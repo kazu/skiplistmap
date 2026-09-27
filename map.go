@@ -308,18 +308,31 @@ func (h *Map) _update(item MapItem, v interface{}) bool {
 }
 
 // updateStable stores v into item, the entry of the key of k and conflict,
-// as _update does. When an expand of an item pool ran meanwhile, it may have
-// copied item before the store, so the store goes again into the entry that
-// the key has after the expand.
+// as _update does. It holds the item pool of item while it stores, as Delete
+// does, so that an expand of the pool copies item after the store; when an
+// expand moved item, it stores into the entry that the key has after it.
 func (h *Map) updateStable(item MapItem, k, conflict uint64, v interface{}) bool {
-	seq := seqBeforeWrite()
-	ok := h._update(item, v)
-	if writeOverlappedExpand(seq) {
-		if again, _, found := h._loadItem(k, conflict, nil); found && again.PtrListHead() != item.PtrListHead() {
-			return h._update(again, v)
+	pooler := (*Pool)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&h.pooler))))
+	for pooler != nil {
+		sp, expanding := pooler.holdItem(item.PtrMapHead().reverse, item)
+		if expanding {
+			runtime.Gosched()
+			continue
 		}
+		if sp != nil {
+			ok := h._update(item, v)
+			sp.linking.Add(-1)
+			return ok
+		}
+		// no pool holds item now: an expand moved it, or it is not from a
+		// pool
+		again, _, found := h._loadItem(k, conflict, nil)
+		if !found || again.PtrListHead() == item.PtrListHead() {
+			break
+		}
+		item = again
 	}
-	return ok
+	return h._update(item, v)
 }
 
 func (h *Map) _validateallbucket() {
@@ -342,17 +355,20 @@ func (h *Map) TestSet(k, conflict uint64, btable *bucket, item MapItem) bool {
 }
 
 func (h *Map) _set(k, conflict uint64, btable *bucket, item MapItem) bool {
-	ok, _ := h.setItem(k, conflict, btable, item, false)
+	ok, _ := h.setItem(k, conflict, btable, item, false, false)
 	return ok
 }
 
-// setItem links item as _set does, and reports also whether it only waited
-// for another store that was linking item. fromUser tells an item that
-// StoreItem got from its caller, which the map refuses while it is linked and
-// not deleted: it lies in another map. An item from the pool of the map may
-// be a slot reused while it was still linked; it is taken out and linked
-// again.
-func (h *Map) setItem(k, conflict uint64, btable *bucket, item MapItem, fromUser bool) (ok, waited bool) {
+// setItem links item as _set does, and reports also whether the caller has to
+// store item again: it only waited for another store that was linking item,
+// or item has to be taken out while the caller does not hold every pool.
+// fromUser tells an item that StoreItem got from its caller, which the map
+// refuses while it is linked and not deleted: it lies in another map. A
+// deleted item is taken out and linked again; anyPool tells that the caller
+// holds every pool (holdAllPools), which taking out an item from the caller
+// needs. An item from the pool of the map may be a slot reused while it was
+// still linked; it is taken out and linked again.
+func (h *Map) setItem(k, conflict uint64, btable *bucket, item MapItem, fromUser, anyPool bool) (ok, again bool) {
 
 	if !h.isEmbededItemInBucket {
 		if !atomic.CompareAndSwapUint64(&item.PtrMapHead().reverse, 0, bits.Reverse64(k)) {
@@ -461,6 +477,11 @@ SKIP_FETCH_BUCKET:
 			// item is linked and not deleted, in another map: one item
 			// cannot be linked twice
 			return false, false
+		}
+		if fromUser && !anyPool {
+			// taking item out changes links next to items of a pool that
+			// this store does not hold; store item again holding them all
+			return true, true
 		}
 		// a deleted item stays linked until it is taken out; take it out
 		// before linking it again
@@ -896,20 +917,27 @@ func (h *Map) StoreItem(item MapItem) bool {
 			return h.updateStable(oitem, k, conflict, item.Value())
 		}
 		// item links next to the items of the pool of its key, which an
-		// expand of that pool copies only after the link
+		// expand of that pool copies only after the link. A linked item is
+		// taken out first, next to items of a pool this store cannot name
 		var sp *samepleItemPool
-		if pooler != nil {
+		anyPool := !item.PtrListHead().IsSingle()
+		if anyPool {
+			holdAllPools()
+		} else if pooler != nil {
 			sp = pooler.holdPool(bits.Reverse64(k))
 		}
-		ok, waited := h.setItem(k, conflict, bucket, item, true)
-		if sp != nil {
+		ok, again := h.setItem(k, conflict, bucket, item, true, anyPool)
+		if anyPool {
+			releaseAllPools()
+		} else if sp != nil {
 			sp.linking.Add(-1)
 		}
-		if !waited {
+		if !again {
 			return ok
 		}
-		// another store was linking item, maybe into another map; store
-		// item again as if this store came after it
+		// another store was linking item, maybe into another map, or item
+		// was linked meanwhile; store item again as if this store came
+		// after it
 	}
 }
 

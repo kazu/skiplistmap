@@ -924,6 +924,9 @@ func (h *Map) Set(key, value interface{}) bool {
 // is already present, only the value is stored into the existing item, and
 // item is not linked. An item deleted by Delete or Purge can be stored again;
 // an item linked in another map is not linked, and StoreItem returns false.
+// item must be one that the caller allocated: an item that LoadItem,
+// RangeItem or a walk of the list returned lives in the item pool of its
+// map, which moves and reuses it (see LoadItem), and must not be passed.
 // Use StoreItem only on maps without UseEmbeddedPool:
 // there item is linked but cannot be found.
 func (h *Map) StoreItem(item MapItem) bool {

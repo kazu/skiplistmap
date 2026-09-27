@@ -27,28 +27,42 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 	// MENTION: should remove 0 slice ?
 	//items := pool.itemSlice(false)
 	items := pool.ptrItems()
-	l := items.Len()
+	// insertToPool may put a new array into the pool while the search reads
+	// the old one; the search starts again when the array changed under it
+	for {
+		data := atomic.LoadPointer(&items.data)
+		l := items.Len()
 
-	idx := sort.Search(l, func(i int) bool {
-		item := items._at(i, true, true)
-		if item == nil {
-			return true
-		}
-		return atomic.LoadUint64(&item.reverse) >= reverseNoMask
-		//return items.reverseAt(i) >= reverseNoMask
-	})
-	stepAt("bsearch.searched", unsafe.Pointer(bucket), nil)
-	// Equal reverses sit next to each other; a purged placeholder may precede
-	// the live entry of the same key, so skip ignored matches.
-	for ; idx < l && items.reverseAt(idx) == reverseNoMask; idx++ {
-		item := items._at(idx, true, false)
-		if item == nil {
+		idx := sort.Search(l, func(i int) bool {
+			item := items._at(i, true, true)
+			if item == nil {
+				return true
+			}
+			return atomic.LoadUint64(&item.reverse) >= reverseNoMask
+			//return items.reverseAt(i) >= reverseNoMask
+		})
+		stepAt("bsearch.searched", unsafe.Pointer(bucket), nil)
+		// Equal reverses sit next to each other; a purged placeholder may
+		// precede the live entry of the same key, so skip ignored matches.
+		var found *SampleItem
+		for ; idx < l && items.reverseAt(idx) == reverseNoMask; idx++ {
+			item := items._at(idx, true, false)
+			if item == nil {
+				break
+			}
+			if ignoreBucketEnry && item.IsIgnored() {
+				continue
+			}
+			found = item
 			break
 		}
-		if ignoreBucketEnry && item.IsIgnored() {
+		if atomic.LoadPointer(&items.data) != data {
 			continue
 		}
-		return item
+		if found != nil {
+			return found
+		}
+		break
 	}
 
 	a := bucket.toBase().prevAsB()

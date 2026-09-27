@@ -26,6 +26,12 @@ const (
 )
 const cntOfPoolMgr = 8
 
+// poolIndex returns the index of the pool list of a Pool that holds the items
+// of the keys of reverse: the keys of one top 4 bits share a pool.
+func poolIndex(reverse uint64) uint64 {
+	return reverse >> (4 * 15) % cntOfPoolMgr
+}
+
 var UseGoroutineInPool bool = false
 
 type successFn func(MapItem, sync.Locker)
@@ -72,7 +78,7 @@ func (p *Pool) startMgr() {
 
 func (p *Pool) Get(reverse uint64, fn successFn) {
 
-	idx := (reverse >> (4 * 15) % cntOfPoolMgr)
+	idx := poolIndex(reverse)
 
 	if !UseGoroutineInPool {
 		for retry := 0; ; retry++ {
@@ -104,7 +110,7 @@ func (p *Pool) Get(reverse uint64, fn successFn) {
 
 func (p *Pool) Put(item MapItem) {
 	reverse := item.PtrMapHead().reverse
-	idx := reverse >> (4 * 15)
+	idx := poolIndex(reverse)
 
 	if !UseGoroutineInPool {
 		p := samepleItemPoolFromListHead(p.itemPool[idx].Next())
@@ -278,7 +284,7 @@ func releaseAllPools() {
 // the writer looks the key up again. It returns nil and true when the pool
 // of item is being expanded; the writer tries again.
 func (p *Pool) holdItem(reverse uint64, item MapItem) (*samepleItemPool, bool) {
-	idx := (reverse >> (4 * 15) % cntOfPoolMgr)
+	idx := poolIndex(reverse)
 	addr := uintptr(unsafe.Pointer(item.PtrListHead()))
 	for cur := p.itemPool[idx].Next(); !cur.Empty(); cur = cur.Next() {
 		sp := samepleItemPoolFromListHead(cur)
@@ -301,7 +307,7 @@ func (p *Pool) holdItem(reverse uint64, item MapItem) (*samepleItemPool, bool) {
 // the pool is being expanded. The writer lowers linking of the pool after
 // the link.
 func (p *Pool) holdPool(reverse uint64) *samepleItemPool {
-	idx := (reverse >> (4 * 15) % cntOfPoolMgr)
+	idx := poolIndex(reverse)
 	for {
 		if head := p.itemPool[idx].Next(); !head.Empty() {
 			if sp := samepleItemPoolFromListHead(head); sp.countLinking() {

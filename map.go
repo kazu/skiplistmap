@@ -662,13 +662,30 @@ func (h *Map) loadItem(k uint64, conflict uint64, key interface{}) (item MapItem
 		if stepEnabled {
 			stepAt("loadItem.found", unsafe.Pointer(item.PtrListHead()), unsafe.Pointer(bucket))
 		}
-		if bucket.muPool.TryLock() {
-			//defer bucket.muPool.Unlock()
-			lock = &bucket.muPool
+		if mu, ok := h.lockFoundItem(key, item, bucket); ok {
+			lock = mu
 			break
 		}
+		runtime.Gosched()
 	}
 	return
+}
+
+// lockFoundItem locks the muPool that guards the pool of bucket, the one of
+// the base bucket, which a Set of a new key locks too. It keeps the lock only
+// when the lookup of key still finds item in the same pool, since the item
+// may be purged and its slot reused before the lock.
+func (h *Map) lockFoundItem(key interface{}, item MapItem, bucket *bucket) (*trylock.Mutex, bool) {
+	mu := &bucket.toBase().muPool
+	if !mu.TryLock() {
+		return nil, false
+	}
+	again, b, found := h._loadItem(0, 0, key)
+	if found && again.PtrListHead() == item.PtrListHead() && b.toBase() == bucket.toBase() {
+		return mu, true
+	}
+	mu.Unlock()
+	return nil, false
 }
 
 func (h *Map) _loadItem(k uint64, conflict uint64, key interface{}) (MapItem, *bucket, bool) {
@@ -706,13 +723,14 @@ func (h *Map) Set(key, value interface{}) bool {
 		if stepEnabled {
 			stepAt("set.updateFound", unsafe.Pointer(item.PtrListHead()), unsafe.Pointer(bucket))
 		}
-		if bucket.muPool.TryLock() {
-			defer bucket.muPool.Unlock()
+		if mu, ok := h.lockFoundItem(key, item, bucket); ok {
+			defer mu.Unlock()
 			if stepEnabled {
 				stepAt("set.updateLocked", unsafe.Pointer(item.PtrListHead()), unsafe.Pointer(bucket))
 			}
 			return h._update(item, value)
 		}
+		runtime.Gosched()
 	}
 
 	var s *SampleItem

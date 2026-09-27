@@ -121,6 +121,8 @@ func Test_Repro_3_2_2_PurgeBesideUnfinishedInsert(t *testing.T) {
 		t.Logf("Purge(%q) finished without reaching Init", p.x)
 	case <-time.After(5 * time.Second):
 		t.Logf("Purge(%q) waited for Set(%q)", p.x, p.n)
+		// it comes to Init after the Set; let it go on there
+		st2.Release()
 	}
 
 	st.Release()

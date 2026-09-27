@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/kazu/elist_head"
@@ -73,11 +75,25 @@ func (p *Pool) Get(reverse uint64, fn successFn) {
 	idx := (reverse >> (4 * 15) % cntOfPoolMgr)
 
 	if !UseGoroutineInPool {
-		p := samepleItemPoolFromListHead(p.itemPool[idx].Next())
-		stepAt("pool.get.pool", unsafe.Pointer(&p.ListHead), nil)
-		e, _, mu := p.Get()
-		fn(e, mu)
-		return
+		for retry := 0; ; retry++ {
+			if retry > 0 {
+				runtime.Gosched()
+			}
+			head := p.itemPool[idx].Next()
+			if head.Empty() {
+				// the list has no pool; an expand is replacing one
+				continue
+			}
+			p := samepleItemPoolFromListHead(head)
+			stepAt("pool.get.pool", unsafe.Pointer(&p.ListHead), nil)
+			e, _, mu := p.Get()
+			if e == nil {
+				// the pool was expanded meanwhile
+				continue
+			}
+			fn(e, mu)
+			return
+		}
 	}
 
 	p.mgrCh[idx] <- poolReq{
@@ -116,6 +132,9 @@ type samepleItemPool struct {
 	freeHead elist_head.ListHead
 	freeTail elist_head.ListHead
 	items    []SampleItem
+	// expanded is set under mu once _expand has replaced the pool, so that
+	// a Get that waited for mu does not expand it again
+	expanded atomic.Bool
 	list_head.ListHead
 }
 
@@ -247,8 +266,8 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker
 EXPAND:
 	stepAt("pool.get.expand", unsafe.Pointer(sp), nil)
 
-	// found next pool
-	if nsp := sp.DirectNext(); nsp.DirectNext() != nsp {
+	// found next pool; the node, not the link with the mark of a delete
+	if nsp := sp.Next(); !nsp.Empty() {
 		stepAt("pool.get.nextPool", unsafe.Pointer(sp), unsafe.Pointer(nsp))
 		return samepleItemPoolFromListHead(nsp).Get()
 	}
@@ -259,7 +278,9 @@ EXPAND:
 	}
 	nPool, err := sp._expand()
 	if err != nil {
-		panic("already deleted")
+		// another Get expanded sp meanwhile; the caller starts again from
+		// the pool list
+		return nil, false, nil
 	}
 	new, _, _ = nPool.Get()
 	return new, isExpanded, nil
@@ -289,6 +310,9 @@ func (sp *samepleItemPool) _expand() (*samepleItemPool, error) {
 	stepAt("pool.expand.begin", unsafe.Pointer(sp), nil)
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
+	if sp.expanded.Load() {
+		return nil, EPoolAlreadyDeleted
+	}
 
 	olen := len(sp.items)
 	empty := elist_head.ListHead{}
@@ -305,11 +329,6 @@ func (sp *samepleItemPool) _expand() (*samepleItemPool, error) {
 		goto NO_DELETE
 	}
 	next = sp.Next()
-	e = sp.MarkForDelete()
-	if e != nil {
-		return nil, EPoolAlreadyDeleted
-	}
-	stepAt("pool.expand.marked", unsafe.Pointer(sp), nil)
 NO_DELETE:
 
 	elist_head.InitAsEmpty(&nPool.freeHead, &nPool.freeTail)
@@ -352,8 +371,16 @@ NO_DELETE:
 
 	nPool.Init()
 
-	//FIXME: check
-	next.InsertBefore(&nPool.ListHead)
+	// link the new pool after sp before sp leaves the pool list, so that a
+	// Get walking the list always finds a pool there
+	if next != nil {
+		next.InsertBefore(&nPool.ListHead)
+		e = sp.MarkForDelete()
+		if e != nil {
+			return nil, EPoolAlreadyDeleted
+		}
+		stepAt("pool.expand.marked", unsafe.Pointer(sp), nil)
+	}
 	stepAt("pool.expand.beforeSafety", unsafe.Pointer(sp), unsafe.Pointer(nPool))
 	if ok, _ := sp.IsSafety(); ok {
 		sp.Init()
@@ -361,6 +388,7 @@ NO_DELETE:
 		sp.IsSafety()
 		Log(LogWarn, "old sampleItem pool is not safety")
 	}
+	sp.expanded.Store(true)
 	return nPool, nil
 }
 

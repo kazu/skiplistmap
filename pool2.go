@@ -148,9 +148,6 @@ func (sp *samepleItemPool) _init(cap int) {
 	elist_head.InitAsEmpty(&sp.freeHead, &sp.freeTail)
 
 	sp.items = make([]SampleItem, 0, cap)
-	if !list_head.MODE_CONCURRENT {
-		list_head.MODE_CONCURRENT = true
-	}
 	//sp.Init()
 }
 
@@ -302,14 +299,12 @@ func (sp *samepleItemPool) _expand() (*samepleItemPool, error) {
 	nPool := &samepleItemPool{}
 	_ = nPool
 	var e error
-	var pOpts []list_head.TravOpt
 	var next *list_head.ListHead
 	a := samepleItemPool{}
 	if sp.ListHead == a.ListHead {
 		goto NO_DELETE
 	}
 	next = sp.Next()
-	pOpts = list_head.DefaultModeTraverse.Option(list_head.WaitNoM())
 	e = sp.MarkForDelete()
 	if e != nil {
 		return nil, EPoolAlreadyDeleted
@@ -359,7 +354,6 @@ NO_DELETE:
 
 	//FIXME: check
 	next.InsertBefore(&nPool.ListHead)
-	list_head.DefaultModeTraverse.Option(pOpts...)
 	stepAt("pool.expand.beforeSafety", unsafe.Pointer(sp), unsafe.Pointer(nPool))
 	if ok, _ := sp.IsSafety(); ok {
 		sp.Init()

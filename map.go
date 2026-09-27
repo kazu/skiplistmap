@@ -161,7 +161,6 @@ func New(opts ...OptHMap) *Map {
 }
 
 func NewHMap(opts ...OptHMap) *Map {
-	list_head.MODE_CONCURRENT = true
 	hmap := &Map{
 		len:          0,
 		maxPerBucket: 32,
@@ -181,9 +180,6 @@ func NewHMap(opts ...OptHMap) *Map {
 	hmap.isEmbededItemInBucket = false
 
 	hmap.Options(opts...)
-
-	// other traverse option is not required if not marking delete.
-	list_head.DefaultModeTraverse.Option(list_head.Direct())
 
 	hmap.initLevels()
 
@@ -1367,10 +1363,8 @@ func (h *Map) findNextLevelBucket(reverse uint64, level int32) (cur *list_head.L
 	if bcur == nil {
 		return nil
 	}
-	prevs := list_head.DefaultModeTraverse.Option(list_head.WaitNoM())
 	front := bcur.LevelHead.Front()
 	stepAt("findNextLevelBucket.front", unsafe.Pointer(front), nil)
-	list_head.DefaultModeTraverse.Option(prevs...)
 	bcur = bucketFromLevelHead(front.DirectPrev().DirectNext())
 
 	cnt := 0
@@ -1479,6 +1473,10 @@ func prevAsE(e HMapEntry) HMapEntry {
 var _sharedSearchOpt atomic.Value
 
 func init() {
+	// lista reads this for every list, so it is set once, before any
+	// goroutine uses a map
+	list_head.MODE_CONCURRENT = true
+
 	o := &searchOpt{}
 	o._ignoreBucketEntry.Store(true)
 
@@ -1753,9 +1751,7 @@ func (h *Map) purgeInEmbedded(key interface{}) bool {
 	item.Delete()
 	h.AddLen(-1)
 
-	pOpts := elist_head.SharedTrav(list_head.WaitNoM())
 	item.PtrListHead().MarkForDelete()
-	elist_head.SharedTrav(pOpts...)
 	if stepEnabled {
 		stepAt("purge.beforeInit", unsafe.Pointer(item.PtrListHead()), nil)
 	}
@@ -1785,10 +1781,10 @@ func (h *Map) purgeInEmbedded(key interface{}) bool {
 // LoadItem.
 func (h *Map) RangeItem(f func(MapItem) bool) {
 
-	oldConfs := list_head.DefaultModeTraverse.Option(list_head.WaitNoM())
-	defer list_head.DefaultModeTraverse.Option(oldConfs...)
-
-	for cur := h.head.Prev(list_head.WaitNoM()).Next(list_head.WaitNoM()); !cur.Empty(); cur = cur.Next(list_head.WaitNoM()) {
+	// walk the links as they are, without a traversal mode shared with other
+	// goroutines: a node being deleted still leads to the next one, and it
+	// is skipped as deleted
+	for cur := h.head.DirectPrev().DirectNext(); !cur.Empty(); cur = cur.DirectNext() {
 		mhead := EmptyMapHead.FromListHead(cur)
 		if mhead.IsIgnored() {
 			continue

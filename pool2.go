@@ -552,9 +552,6 @@ func idxMaagement(ctx context.Context, cancel context.CancelFunc, h *samepleItem
 				p = samepleItemPoolFromListHead(h.Next())
 				e, extend, mu = p.Get()
 			}
-			if mu != nil {
-				mu.Unlock()
-			}
 			LastItem = e
 			// only debug mode
 			if extend {
@@ -562,7 +559,8 @@ func idxMaagement(ctx context.Context, cancel context.CancelFunc, h *samepleItem
 				fmt.Printf("dump: sampleItemPool.items\n%s\nend: sampleItemPool.items\n", p.dump())
 				IsExtended = extend
 			}
-			req.onSuccess(e, nil)
+			// the caller unlocks mu when e is linked, as for Pool.Get
+			req.onSuccess(e, mu)
 			continue
 		case CmdPut:
 			p.Put(req.item)

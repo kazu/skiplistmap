@@ -123,8 +123,9 @@ func Test_Repro_3_2_5_SplitsClaimSameDownLevel(t *testing.T) {
 	down := stop2.a
 	releaseInOrder(t, stop1, stop2, done1, done2)
 
-	if n := s.count("map.bucketFromPoolEmbedded.claim", down); n != 1 {
-		t.Errorf("element 12 of the downLevels of T was seen with level 0 by %d splits, want 1", n)
+	// both splits may see level 0; only one may take the element
+	if n := s.count("map.bucketFromPoolEmbedded.claimed", down); n != 1 {
+		t.Errorf("element 12 of the downLevels of T was taken by %d splits, want 1", n)
 	}
 	finishR325(t, p, s, down)
 }

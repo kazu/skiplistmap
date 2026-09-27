@@ -137,6 +137,7 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 
 func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 
+	claimed := false
 	level := int32(0)
 	for cur := bits.Reverse64(reverse); cur != 0; cur >>= 4 {
 		level++
@@ -190,7 +191,8 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 			Log(LogWarn, "downs.len is updated. retry")
 		}
 
-		// init downLevels[idx]
+		// init downLevels[idx]; of two splits of the same gap, the one that
+		// sets the level of the element takes it
 		if downs.at(idx).level() == 0 {
 			if stepEnabled {
 				stepAt("bucketFromPoolEmbedded.claim", unsafe.Pointer(downs.at(idx)), unsafe.Pointer(b))
@@ -198,16 +200,25 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 			if l != level {
 				Log(LogWarn, "not collected already inited")
 			}
-			downs.at(idx).setLevel(-(b.level() + 1))
+			if !atomic.CompareAndSwapInt32(&downs.at(idx)._level, 0, -(b.level() + 1)) {
+				// another split took the element
+				return nil
+			}
 			downs.at(idx).reverse = b.reverse | (uint64(idx) << (4 * (16 - l)))
 			b = downs.at(idx)
 			stepAt("bucketFromPoolEmbedded.claimed", unsafe.Pointer(b), nil)
 			if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {
 				Log(LogWarn, "already inited")
 			}
+			claimed = true
 			break
 		}
 		b = downs.at(idx)
+	}
+	if !claimed {
+		// the bucket of reverse is made already; a split must not make it
+		// again
+		return nil
 	}
 	if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {
 		h.DumpBucket(logio)

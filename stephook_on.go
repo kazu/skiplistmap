@@ -22,6 +22,7 @@ import (
 //   - "insertBucket.begin" (bucket, nil): before the dummy of bucket is initialized.
 //   - "insertBucket.dummyLinked" (bucket, nil): the dummy of bucket is linked; before bucket is linked.
 //   - "pool.expand.copied" (pool, new pool): _expand copied the items of pool into new pool; before it links new pool after pool, still being expanded, and repairs the links.
+//   - "holdItem.visit" (pool, item): holdItem walking a pool list for item reached pool; before it checks whether pool holds item.
 //   - "pool.expand.repaired" (pool, new pool): _expand repaired the links to the items of new pool; before it lets writers of new pool count.
 //   - "pool.lastSlot" (pool, nil): Get read the length of pool and is taking its last item; before pool.mu is locked.
 //   - "pool.get.pool" (node, nil): Pool.Get took node, the Next of the head of a pool list, as the list node of the pool to get an item from; before it calls Get of that pool.

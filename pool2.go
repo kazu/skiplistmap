@@ -259,6 +259,11 @@ func (sp *samepleItemPool) validateItems() error {
 // writer runs, and such a writer starts only while no expand runs.
 var expandsRunning, writersOfAnyPool atomic.Int32
 
+// expandEpoch goes up when an expand of any map starts and ends: a walk of a
+// pool list that sees it unchanged and no expand running saw the list as it
+// is, since only expands change the pool lists.
+var expandEpoch atomic.Uint64
+
 // holdAllPools waits until no expand runs and counts the caller as a writer
 // of any pool, until releaseAllPools.
 func holdAllPools() {
@@ -283,12 +288,16 @@ func releaseAllPools() {
 // an expand copies item only after the write. It returns nil and false when
 // no pool holds item: the item is not from a pool, or an expand moved it and
 // the writer looks the key up again. It returns nil and true when the pool
-// of item is being expanded; the writer tries again.
+// of item is being expanded, or when an expand ran while it walked the pool
+// list, which may then have hidden the pool of item; the writer tries again.
 func (p *Pool) holdItem(reverse uint64, item MapItem) (*samepleItemPool, bool) {
+	epoch := expandEpoch.Load()
+	running := expandsRunning.Load() != 0
 	idx := poolIndex(reverse)
 	addr := uintptr(unsafe.Pointer(item.PtrListHead()))
 	for cur := p.itemPool[idx].Next(); !cur.Empty(); cur = cur.Next() {
 		sp := samepleItemPoolFromListHead(cur)
+		stepAt("holdItem.visit", unsafe.Pointer(sp), unsafe.Pointer(item.PtrListHead()))
 		items := sp.ptrItems()
 		base := uintptr(atomic.LoadPointer(&items.data))
 		if addr < base || addr >= base+uintptr(items.Cap())*uintptr(SampleItemSize) {
@@ -299,7 +308,7 @@ func (p *Pool) holdItem(reverse uint64, item MapItem) (*samepleItemPool, bool) {
 		}
 		return sp, false
 	}
-	return nil, false
+	return nil, running || expandEpoch.Load() != epoch
 }
 
 // holdPool counts a link on the pool for reverse as Get does, for a writer
@@ -452,7 +461,11 @@ func (sp *samepleItemPool) _expand() (*samepleItemPool, error) {
 	sp.expanding.Store(true)
 	// and for the writers that may change links next to items of any pool
 	expandsRunning.Add(1)
-	defer expandsRunning.Add(-1)
+	expandEpoch.Add(1)
+	defer func() {
+		expandEpoch.Add(1)
+		expandsRunning.Add(-1)
+	}()
 	stepAt("pool.expand.waitLinks", unsafe.Pointer(sp), nil)
 	for sp.linking.Load() != 0 || writersOfAnyPool.Load() != 0 {
 		runtime.Gosched()

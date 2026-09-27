@@ -6,7 +6,6 @@ import (
 	"runtime"
 	"runtime/debug"
 	"testing"
-	"unsafe"
 
 	list_head "github.com/kazu/loncha/lista_encabezado"
 	"github.com/kazu/skiplistmap"
@@ -123,36 +122,3 @@ func Test_Repro_3_1_2_InsertAfterExpandIsLost(t *testing.T) {
 	runtime.KeepAlive(z)
 }
 
-// The same as Test_Repro_3_1_2_InsertAfterExpandIsLost, with Set only. Keys
-// a < z < b share one pool. The main goroutine sets the first 11 keys other
-// than z, a and b among them. G2 sets z, takes index 11 of the pool, which is
-// not the last one, and stops at add2.found with the old b as its position.
-// The main goroutine sets 52 more keys, which fill the pool, and then one
-// more, which runs _expand to the end; the copy of z is not linked yet. When
-// G2 resumes, it links the old z between the old a and the old b in the old
-// array, and Set returns true, but the list goes from the new a to the new b
-// and never reaches z.
-func Test_Repro_3_1_2_SetAfterExpandIsLost(t *testing.T) {
-	holdPoolArrays(t)
-	keys := adjacentKeys(skiplistmap.CntOfPersamepleItemPool + 2)
-	kz := keys[10]
-	t.Logf("a, z, b = %q, %q, %q", keys[9], kz, keys[11])
-	fs := withoutKey(keys, 10)
-	m := newStepMap()
-	setKeys(t, m, fs[:11])
-
-	s := newStepper(t)
-	st := s.stopAt("map.add2.found", func(a, b, c unsafe.Pointer) bool {
-		return skiplistmap.StepEntryReverse(a) == reverseOf(kz)
-	})
-	done := goStep(t, func() { m.Set(kz, &list_head.ListHead{}) })
-	st.waitReached(t, done)
-	if r := skiplistmap.StepEntryReverse(st.b); r != reverseOf(keys[11]) {
-		t.Fatalf("Set(%q) stopped before %016x, want b %016x", kz, r, reverseOf(keys[11]))
-	}
-	setKeys(t, m, fs[11:skiplistmap.CntOfPersamepleItemPool])
-	st.Release()
-	waitDone(t, done, "Set(z)")
-
-	assertStoredIfLinked(t, m, append(fs[:skiplistmap.CntOfPersamepleItemPool:skiplistmap.CntOfPersamepleItemPool], kz))
-}

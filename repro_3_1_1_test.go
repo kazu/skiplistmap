@@ -50,13 +50,22 @@ func setPastExpand(t *testing.T) (m *WrapHMap, k1 string, node unsafe.Pointer) {
 	})
 	done1 := goStep(t, func() { m.Set(k1, &list_head.ListHead{}) })
 	st.waitReached(t, done1)
-	for _, k := range others {
-		if !m.Set(k, &list_head.ListHead{}) {
-			t.Fatalf("Set(%q) failed", k)
+	// the expand waits for the link of G1 when it waits for the links of
+	// the items handed out, so the others run in their own goroutine
+	wl := s.stopAt("map.pool.expand.waitLinks", nil)
+	doneO := goStep(t, func() {
+		for _, k := range others {
+			if !m.Set(k, &list_head.ListHead{}) {
+				t.Errorf("Set(%q) failed", k)
+			}
 		}
+	})
+	if waitFirst(t, "the Sets of the other keys", doneO, wl.reached) == 1 {
+		wl.Release()
 	}
 	st.Release()
 	waitDone(t, done1, "Set(k1)")
+	waitDone(t, doneO, "the Sets of the other keys")
 
 	// Drop every pointer the stepper keeps into the old array.
 	elist_head.SetStepHook(nil)

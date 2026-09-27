@@ -135,7 +135,29 @@ type samepleItemPool struct {
 	// expanded is set under mu once _expand has replaced the pool, so that
 	// a Get that waited for mu does not expand it again
 	expanded atomic.Bool
+	// linking counts the items that Get handed out and that are not linked
+	// yet, and expanding stops Get from handing out more: _expand copies the
+	// items only after the links of all of them are done
+	linking   atomic.Int32
+	expanding atomic.Bool
 	list_head.ListHead
+}
+
+// linkDone is the Locker that Get returns with an item: its Unlock tells the
+// pool that the item is linked, and unlocks the lock of the last item when
+// Get took it.
+type linkDone struct {
+	sp *samepleItemPool
+	mu sync.Locker
+}
+
+func (d *linkDone) Lock() {}
+
+func (d *linkDone) Unlock() {
+	d.sp.linking.Add(-1)
+	if d.mu != nil {
+		d.mu.Unlock()
+	}
 }
 
 var EmptysamepleItemPool *samepleItemPool = (*samepleItemPool)(unsafe.Pointer(uintptr(0)))
@@ -213,6 +235,18 @@ func (sp *samepleItemPool) validateItems() error {
 
 }
 
+// countLinking counts an item that Get is about to hand out. It reports false,
+// without counting, when an expand of sp has started: the caller then starts
+// again from the pool list.
+func (sp *samepleItemPool) countLinking() bool {
+	sp.linking.Add(1)
+	if sp.expanding.Load() {
+		sp.linking.Add(-1)
+		return false
+	}
+	return true
+}
+
 func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker) {
 	if sp.freeHead.DirectNext() == &sp.freeHead {
 		sp.init()
@@ -220,12 +254,16 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker
 
 	// found free item
 	if sp.freeHead.DirectNext() != &sp.freeTail {
+		if !sp.countLinking() {
+			return nil, false, nil
+		}
 		nElm := sp.freeTail.Prev()
 		nElm.Delete()
 		if nElm != nil {
 			nElm.Init()
-			return SampleItemFromListHead(nElm), false, nil
+			return SampleItemFromListHead(nElm), false, &linkDone{sp: sp}
 		}
+		sp.linking.Add(-1)
 	}
 	// not limit pool
 	pItems := sp.ptrItems()
@@ -246,8 +284,15 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker
 			return
 		}
 	}
+	if !sp.countLinking() {
+		if mu != nil {
+			mu.Unlock()
+		}
+		return nil, false, nil
+	}
 	if !atomic_util.CompareAndSwapInt(&pItems.len, i, i+1) {
 		Log(LogWarn, "fail to increment pItem.len=%d pItem.cap=%d i=%d", pItems.len, pItems.cap, i)
+		sp.linking.Add(-1)
 		// the lock of the last item taken above is this Get's own; the
 		// retry takes it again
 		if mu != nil {
@@ -259,10 +304,10 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker
 	new2 = (*pItems).at(i)
 	new2.Init()
 	if mu != nil {
-		new, isExpanded, lock = new2, false, mu
+		new, isExpanded, lock = new2, false, &linkDone{sp: sp, mu: mu}
 		return
 	}
-	new, isExpanded, lock = new2, false, nil
+	new, isExpanded, lock = new2, false, &linkDone{sp: sp}
 	return
 
 EXPAND:
@@ -284,8 +329,8 @@ EXPAND:
 		// the pool list
 		return nil, false, nil
 	}
-	new, _, _ = nPool.Get()
-	return new, isExpanded, nil
+	new, _, lock = nPool.Get()
+	return new, isExpanded, lock
 
 }
 
@@ -315,6 +360,14 @@ func (sp *samepleItemPool) _expand() (*samepleItemPool, error) {
 	if sp.expanded.Load() {
 		return nil, EPoolAlreadyDeleted
 	}
+	// stop handing out items of sp and wait for the links of the ones
+	// handed out, so that the copy holds every link to them
+	sp.expanding.Store(true)
+	stepAt("pool.expand.waitLinks", unsafe.Pointer(sp), nil)
+	for sp.linking.Load() != 0 {
+		runtime.Gosched()
+	}
+	stepAt("pool.expand.linked", unsafe.Pointer(sp), nil)
 
 	olen := len(sp.items)
 	empty := elist_head.ListHead{}
@@ -362,6 +415,8 @@ NO_DELETE:
 		int(SampleItemOffsetOf))
 
 	if err != nil {
+		// sp stays the pool; let Get hand out its items again
+		sp.expanding.Store(false)
 		return nil, EPoolExpandFail
 	}
 

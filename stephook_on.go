@@ -54,7 +54,6 @@ import (
 //   - "bsearch.begin" (bucket, nil): bsearchBybucket was called with bucket; before it reads the item pool of bucket and its length.
 //   - "set.newKeyLock" (bucket, mutex): Set of a key not present in a map with the embedded pool found bucket and is about to lock mutex, the muPool that guards the insertion; before it locks mutex.
 //   - "makeBucket2.added" (new bucket, bucket): makeBucket2 of bucket returned from addBucket of new bucket; before it turns a negative level of new bucket positive.
-//   - "addBucket.orderBroken" (bucket, next bucket): addBucket linked bucket before next bucket and found the reverse of bucket not above that of next bucket; before it logs "brokne relation bucket".
 //   - "findNextLevelBucket.front" (front, nil): findNextLevelBucket set the traversal mode of lista to WaitNoMark and Front of the level list returned front; before it puts the mode back.
 //   - "set.slotTaken" (item, bucket): Set of a key not present in a map with the embedded pool took item, a slot of the pool of bucket, from getWithFn; before it stores the reverse and the conflict of the key into item.
 //   - "get.found" (item, nil): _get found item by searchKey; before it compares the reverse and the conflict of item with the key.

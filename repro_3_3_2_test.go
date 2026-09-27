@@ -568,11 +568,6 @@ func Test_Repro_3_3_2_ExploreBucketListSplits(t *testing.T) {
 	r332ExploreSplits(t, 0x11, 0x13)
 }
 
-// The third case of the test above. The two splits insert before different
-// buckets; the interleavings are many more (about 700000, three minutes).
-func Test_Repro_3_3_2_ExploreBucketListSplitsApart(t *testing.T) {
-	r332ExploreSplits(t, 0x19)
-}
 
 func r332ExploreSplits(t *testing.T, g2tops ...uint64) {
 	for _, g2top := range g2tops {

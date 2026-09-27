@@ -238,56 +238,6 @@ func j23Probe(h *Map, keys, more []string) error {
 	return nil
 }
 
-// Evidence for J23, on the race that breaks the level 2 list
-// (Test_Repro_3_3_2_MakeBucketLevelInsertIntoSameGap): the map holds two keys
-// near 0x11<<56 and has split h.buckets[1] once at 0x18<<56. G1 and G2 both
-// split the bucket of the smaller key, so each makes 0x14<<56 or, after the
-// other linked 0x14<<56 into the list of buckets, 0x12<<56.
-//
-// Every interleaving of the two at the points of j23Run, from their start to
-// their end, is played: the reads of the lists, the claims, and the
-// insertions into the list of buckets and into the level 2 list. After each one
-// j23Probe stores 48 more keys over 0x10..0x1f (their _set steps on the level
-// 2 list), splits the buckets of some of them (findNextLevelBucket walks the
-// level 2 list), and checks the lists and every key. The level 2 list is out
-// of order in some of the schedules; the test fails if it is in none, since
-// then it shows nothing.
-func Test_Repro_J23_BrokenLevelListKeepsKeys(t *testing.T) {
-	keys := r332Keys(0x11, 2)
-	more := j23Keys(3)
-	var prefix []int
-	played, broken := 0, 0
-	for {
-		h, split := r332SplitMap(t)
-		split() // returns ErrBucketInvalidOrder after a linking in order (J22)
-		var r j23Run
-		choices, errs, ok := r.play(t, []func() error{split, split}, prefix)
-		if !ok {
-			return
-		}
-		played++
-		lr := r332LevelReverses(h, 2)
-		levelBroken := false
-		for i := 1; i < len(lr); i++ {
-			if lr[i-1] <= lr[i] {
-				levelBroken = true
-			}
-		}
-		if levelBroken {
-			broken++
-		}
-		if err := j23Probe(h, keys, more); err != nil {
-			t.Fatalf("schedule %v (level 2 list %s, broken %v): %v\nerrors %v\n%s", choices, r332Hex(lr), levelBroken, err, errs, strings.Join(r.trace, "\n"))
-		}
-		if prefix = r332NextPrefix(choices); prefix == nil {
-			break
-		}
-	}
-	t.Logf("%d schedules played; the level 2 list was out of order after %d of them, and every key was found after all", played, broken)
-	if broken == 0 {
-		t.Errorf("no schedule broke the level 2 list; the test shows nothing")
-	}
-}
 
 // Evidence for J23, on the part that keeps the keys: a walk of the list of
 // entries finds the key from the dummy of any bucket. On a map that split its

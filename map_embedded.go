@@ -116,27 +116,11 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 	atomic_util.StoreInt(&spItems.len, idx)
 	atomic_util.StoreInt(&spItems.cap, idx)
 
-	nextLevel := h.findNextLevelBucket(b.reverse, b.level())
-
 	if b.LevelHead.DirectNext() == &b.LevelHead {
 		Log(LogWarn, "bucket.LevelHead is pointed to self")
 	}
 
-	if nextLevel != nil {
-
-		nextLevelBucket := bucketFromLevelHead(nextLevel)
-		if nextLevelBucket.reverse < b.reverse {
-			nextLevel.InsertBefore(&b.LevelHead)
-		} else if nextLevelBucket.reverse != b.reverse {
-
-			nextnextBucket := bucketFromLevelHead(nextLevel.Next())
-			_ = nextnextBucket
-			nextLevel.DirectNext().InsertBefore(&b.LevelHead)
-		}
-
-	} else {
-		Log(LogWarn, "not found level bucket.")
-	}
+	h.insertOnLevel(b, b.level(), "makeBucket2.levelFound", unsafe.Pointer(b))
 	if b.LevelHead.Next() == &b.LevelHead {
 		Log(LogWarn, "bucket.LevelHead is pointed to self")
 	}
@@ -189,20 +173,7 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 				b.setItemPool(p)
 			}
 
-			lCur := h.levelBucket(l)
-			if lCur.LevelHead.Empty() {
-				lCur = bucketFromLevelHead(lCur.LevelHead.DirectPrev().DirectNext())
-			}
-			for ; lCur != lCur.NextOnLevel(); lCur = lCur.NextOnLevel() {
-				if lCur.LevelHead.Empty() {
-					break
-				}
-				if lCur.reverse < b.reverse {
-					break
-				}
-			}
-			stepAt("bucketFromPoolEmbedded.levelFound", unsafe.Pointer(b), unsafe.Pointer(lCur))
-			lCur.LevelHead.InsertBefore(&firstDown.LevelHead)
+			h.insertOnLevel(firstDown, l, "bucketFromPoolEmbedded.levelFound", unsafe.Pointer(b))
 			if !atomic_util.CompareAndSwapInt(&downs.len, 0, 1) {
 				panic("this must not be reached")
 			}

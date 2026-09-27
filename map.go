@@ -10,6 +10,7 @@ import (
 	"math/bits"
 	"os"
 	"os/signal"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -977,37 +978,11 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 		b.setLevel(-l)
 	}
 
-	nextLevel := h.findNextLevelBucket(b.reverse, b.level())
-	stepAt("makeBucket.levelFound", unsafe.Pointer(b), unsafe.Pointer(nextLevel))
-
 	if b.LevelHead.DirectNext() == &b.LevelHead {
 		Log(LogWarn, "bucket.LevelHead is pointed to self")
 	}
 
-	if nextLevel != nil {
-
-		nextLevelBucket := bucketFromLevelHead(nextLevel)
-		if nextLevelBucket.reverse < b.reverse {
-			nextLevel.InsertBefore(&b.LevelHead)
-		} else if nextLevelBucket.reverse != b.reverse {
-
-			nextnextBucket := bucketFromLevelHead(nextLevel.Next())
-			_ = nextnextBucket
-			nextLevel.DirectNext().InsertBefore(&b.LevelHead)
-		}
-
-		var nNext, nPrev *bucket
-		if !b.LevelHead.DirectPrev().Empty() {
-			nPrev = bucketFromLevelHead(b.LevelHead.Prev())
-		}
-		if !b.LevelHead.DirectNext().Empty() {
-			nNext = bucketFromLevelHead(b.LevelHead.Next())
-		}
-		_, _ = nNext, nPrev
-
-	} else {
-		Log(LogWarn, "not found level bucket.")
-	}
+	h.insertOnLevel(b, b.level(), "makeBucket.levelFound", unsafe.Pointer(b))
 	if b.LevelHead.Next() == &b.LevelHead {
 		Log(LogWarn, "bucket.LevelHead is pointed to self")
 	}
@@ -1322,16 +1297,10 @@ func (h *Map) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket) {
 		Log(LogWarn, "fail register dummy of bucket")
 	}
 
-	tBucket := bucketFromListHead(tBtable)
-	if IsDebug() {
-		h.validateBucket(tBucket)
-	}
-
 	// add bucket
-	tBtable.InsertBefore(&nBtable.ListHead)
+	h.linkBucket(tBtable, nBtable)
 
 	if IsDebug() {
-		h.validateBucket((tBucket))
 		h.validateBucket((nBtable))
 	}
 
@@ -1339,22 +1308,80 @@ func (h *Map) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket) {
 
 func (h *Map) addBucket(nBtable *bucket) error {
 
-	for bcur := h.headBucket.Prev().Next(); !bcur.Empty(); bcur = bcur.Next() {
-		cBtable := bucketFromListHead(bcur)
-		if cBtable.reverse == nBtable.reverse {
-			return ErrBucketAlreadyExit
-		}
+	pos := h.bucketInsertPos(nBtable.reverse)
+	if !pos.Empty() && bucketFromListHead(pos).reverse == nBtable.reverse {
+		return ErrBucketAlreadyExit
+	}
+	h._InsertBefore(pos, nBtable)
+	return nil
+}
 
-		if cBtable.reverse < nBtable.reverse {
-			h._InsertBefore(&cBtable.ListHead, nBtable)
-			if nBtable.reverse <= cBtable.reverse {
-				stepAt("addBucket.orderBroken", unsafe.Pointer(nBtable), unsafe.Pointer(cBtable))
-				Log(LogError, "brokne relation bucket")
-			}
-			return ErrBucketInvalidOrder
+// bucketInsertPos returns the node of the list of buckets, which is in
+// descending order of reverse, that a bucket of reverse goes before: the
+// first bucket whose reverse is not larger, or the end of the list.
+func (h *Map) bucketInsertPos(reverse uint64) *list_head.ListHead {
+	pos := h.headBucket.Prev().Next()
+	for !pos.Empty() && bucketFromListHead(pos).reverse > reverse {
+		pos = pos.Next()
+	}
+	return pos
+}
+
+// linkBucket links nBtable into the list of buckets before pos. It links it
+// only while the bucket before pos is larger, and finds the place again when
+// another bucket was linked there meanwhile; it leaves the list as it is when
+// a bucket of the same reverse is linked by then.
+func (h *Map) linkBucket(pos *list_head.ListHead, nBtable *bucket) {
+	for retry := 0; ; retry++ {
+		if retry > 0 {
+			runtime.Gosched()
+			pos = h.bucketInsertPos(nBtable.reverse)
+		}
+		if !pos.Empty() && bucketFromListHead(pos).reverse == nBtable.reverse {
+			return
+		}
+		err := pos.TryInsertBefore(&nBtable.ListHead, func(prev *list_head.ListHead) bool {
+			return prev.Empty() || bucketFromListHead(prev).reverse > nBtable.reverse
+		})
+		if err == nil {
+			return
 		}
 	}
-	return nil
+}
+
+// insertOnLevel links b into the list of level, which is in descending order
+// of reverse: just before the first bucket with a smaller reverse, or at the
+// end. It links b only while the bucket before that place is larger, and
+// finds the place again when another bucket was linked there meanwhile.
+// point names the step point just before the link, and at is its first
+// argument.
+func (h *Map) insertOnLevel(b *bucket, level int32, point string, at unsafe.Pointer) {
+	for retry := 0; ; retry++ {
+		if retry > 0 {
+			runtime.Gosched()
+		}
+		pos := h.levelBucket(level).LevelHead.Next()
+		for !pos.Empty() && bucketFromLevelHead(pos).reverse > b.reverse {
+			pos = pos.Next()
+		}
+		if !pos.Empty() && bucketFromLevelHead(pos).reverse == b.reverse {
+			// a bucket of the same reverse is on the level already
+			return
+		}
+		if stepEnabled {
+			var found *list_head.ListHead
+			if !pos.Empty() {
+				found = pos
+			}
+			stepAt(point, at, unsafe.Pointer(found))
+		}
+		err := pos.TryInsertBefore(&b.LevelHead, func(prev *list_head.ListHead) bool {
+			return prev.Empty() || bucketFromLevelHead(prev).reverse > b.reverse
+		})
+		if err == nil {
+			return
+		}
+	}
 }
 
 func (h *Map) findNextLevelBucket(reverse uint64, level int32) (cur *list_head.ListHead) {
@@ -1949,20 +1976,7 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 				b.setItemPool(p)
 			}
 
-			lCur := h.levelBucket(l)
-			if lCur.LevelHead.Empty() {
-				lCur = bucketFromLevelHead(lCur.LevelHead.DirectPrev().DirectNext())
-			}
-			for ; lCur != lCur.NextOnLevel(); lCur = lCur.NextOnLevel() {
-				if lCur.LevelHead.Empty() {
-					break
-				}
-				if lCur.reverse < b.reverse {
-					break
-				}
-			}
-			stepAt("bucketFromPool.levelFound", unsafe.Pointer(b), unsafe.Pointer(lCur))
-			lCur.LevelHead.InsertBefore(&downLevels[0].LevelHead)
+			h.insertOnLevel(&downLevels[0], l, "bucketFromPool.levelFound", unsafe.Pointer(b))
 			downLevels[0].state = bucketStateInit
 			// if idx != 0 && !h.isEmbededItemInBucket {
 			// 	h.add2(b.head(), &b.downLevels[0].dummy)
@@ -2137,19 +2151,10 @@ func (h *Map) setupBcukets(buckets []*bucket) {
 		}
 
 		if !b.LevelHead.IsSingle() {
-			nextLevel := h.findNextLevelBucket(b.reverse, b.level())
-
 			if b.LevelHead.DirectNext() == &b.LevelHead {
 				Log(LogWarn, "bucket.LevelHead is pointed to self")
 			}
-			if nextLevel != nil {
-				nextLevelBucket := bucketFromLevelHead(nextLevel)
-				if nextLevelBucket.reverse < b.reverse {
-					nextLevel.InsertBefore(&b.LevelHead)
-				} else if nextLevelBucket.reverse != b.reverse {
-					nextLevel.DirectNext().InsertBefore(&b.LevelHead)
-				}
-			}
+			h.insertOnLevel(b, b.level(), "makeBucket.levelFound", unsafe.Pointer(b))
 		}
 	}
 

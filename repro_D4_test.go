@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"sort"
 	"testing"
-	"unsafe"
 
 	list_head "github.com/kazu/loncha/lista_encabezado"
 )
@@ -436,75 +435,3 @@ func d4NibbleKeys(top uint64, n int) []string {
 	return keys
 }
 
-// Concurrent, the interleaving of 3.3.2 through Set. Set of keys of the top
-// nibble 1 splits h.buckets[1]: its first downLevels D1 (1<<60) and the new
-// bucket 0x18<<56 make the level 2 list [0x18, D1]. G3 sets keys of the top
-// nibble 3 until one splits h.buckets[3]; G3 stops at
-// "bucketFromPoolEmbedded.levelFound" with 0x18 as the position to insert D3
-// (3<<60) before, holding the muPool of h.buckets[3]. Then Set of keys of the
-// top nibble 2 splits h.buckets[2]: D2 goes before 0x18 and 0x28 before D2:
-// [0x28, D2, 0x18, D1]. G3 goes on, links D3 before 0x18 and its new bucket
-// 0x38 before the first smaller, 0x28: [0x38, 0x28, D2, D3, 0x18, D1], with D3
-// after D2. The lookups stay right on this map, and after 2000 more Sets
-// that link new buckets into the broken list.
-func Test_Repro_D4_LookupsAfterSameGapFirstDownLevels(t *testing.T) {
-	h := New(UseEmbeddedPool(true), MaxPefBucket(4))
-	has := func(r uint64) bool { return r332Has(r332LevelReverses(h, 2), r) }
-	// setUntil sets keys in order until done returns true and returns the
-	// keys it set.
-	setUntil := func(keys []string, done func() bool) (set []string) {
-		for _, k := range keys {
-			if done() {
-				break
-			}
-			if !h.Set(k, "v-"+k) {
-				t.Errorf("Set(%q) failed", k)
-			}
-			set = append(set, k)
-		}
-		return set
-	}
-	set1 := setUntil(d4NibbleKeys(1, 4), func() bool { return has(1 << 60) })
-	if !has(1 << 60) {
-		t.Fatalf("no split of h.buckets[1]: level 2 list = %s", r332Hex(r332LevelReverses(h, 2)))
-	}
-
-	reached, release := r332StopAt(t, "bucketFromPoolEmbedded.levelFound", func(a, _ unsafe.Pointer) bool {
-		return StepBucketReverse(a) == 3<<60
-	})
-	var set3 []string
-	g3 := r332Go(func() {
-		set3 = setUntil(d4NibbleKeys(3, 4), func() bool {
-			select {
-			case <-reached:
-				return true
-			default:
-				return false
-			}
-		})
-	})
-	r332Wait(t, reached, "G3 at bucketFromPoolEmbedded.levelFound")
-	set2 := setUntil(d4NibbleKeys(2, 4), func() bool { return has(2 << 60) })
-	release()
-	r332Wait(t, g3, "G3 to finish")
-	SetStepHook(nil)
-
-	broken := []uint64{0x38 << 56, 0x28 << 56, 0x20 << 56, 0x30 << 56, 0x18 << 56, 0x10 << 56}
-	if got := r332LevelReverses(h, 2); fmt.Sprint(got) != fmt.Sprint(broken) {
-		t.Fatalf("level 2 list = %s, want %s", r332Hex(got), r332Hex(broken))
-	}
-	want := map[string]string{}
-	for _, k := range append(append(append([]string(nil), set1...), set2...), set3...) {
-		want[k] = "v-" + k
-	}
-	if err := d4Check(h, want, nil); err != nil {
-		t.Fatalf("with D3 after D2 in the level 2 list: %v", err)
-	}
-	d4SetMore(t, h, want, 0, 2000)
-	if err := d4Check(h, want, nil); err != nil {
-		t.Fatalf("after 2000 Sets on the broken level 2 list: %v", err)
-	}
-	if err := StepCheckLists(h); err != nil {
-		t.Fatal(err)
-	}
-}

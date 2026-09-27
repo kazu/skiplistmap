@@ -75,7 +75,19 @@ func Test_StepJ64LevelListCapInsertsOutOfOrder(t *testing.T) {
 	}
 	skiplistmap.SetStepHook(nil)
 	if !found {
-		t.Fatalf("no split got a level bucket above the new bucket")
+		// no split found its place after a bucket above the one it links;
+		// every level list must then be in descending order
+		for l := int32(1); l <= 16; l++ {
+			rs := skiplistmap.StepM27LevelReverses(h, l)
+			for i := 1; i < len(rs); i++ {
+				if rs[i] >= rs[i-1] {
+					t.Errorf("level %d list out of order: bucket %d (%016x) is not below bucket %d (%016x)",
+						l, i+1, rs[i], i, rs[i-1])
+					break
+				}
+			}
+		}
+		return
 	}
 	t.Logf("level %d: findNextLevelBucket returned bucket %d of %d (%016x) for bucket %016x",
 		level, pIdx+1, listed, pRev, bRev)

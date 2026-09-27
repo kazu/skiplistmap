@@ -1493,37 +1493,6 @@ func (h *Map) insertOnLevel(b *bucket, level int32, point string, at unsafe.Poin
 	}
 }
 
-func (h *Map) findNextLevelBucket(reverse uint64, level int32) (cur *list_head.ListHead) {
-
-	bcur := h.levelBucket(level)
-	if bcur == nil {
-		return nil
-	}
-	front := bcur.LevelHead.Front()
-	stepAt("findNextLevelBucket.front", unsafe.Pointer(front), nil)
-	bcur = bucketFromLevelHead(front.DirectPrev().DirectNext())
-
-	cnt := 0
-	for cur := bcur; cur != cur.NextOnLevel(); cur = cur.NextOnLevel() {
-		cnt++
-		if cnt > 1000 {
-			return &cur.LevelHead
-		}
-		if reverse > cur.reverse {
-			return &cur.LevelHead
-		}
-
-	}
-	if bcur.Empty() {
-		return &bcur.LevelHead
-	}
-	if bcur.NextOnLevel() == bcur {
-		return &bcur.LevelHead
-	}
-	nCur := bcur.NextOnLevel()
-	return &nCur.LevelHead
-}
-
 func (h *Map) initLevels() {
 
 	h.mu.Lock()

@@ -28,7 +28,7 @@ import (
 //   - _set steps on the level list (NextOnLevel) to a bucket whose reverse is
 //     not above the key, or takes searchBucket if it finds none, and find
 //     walks forward from its dummy to the first entry not below the key.
-//   - makeBucket uses the level list (findNextLevelBucket) only for the
+//   - makeBucket uses the level list (insertOnLevel) only for the
 //     position of the new bucket in that level list.
 // So as long as the list of entries is in order, the start does not change
 // what the walk finds.

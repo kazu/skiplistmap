@@ -94,7 +94,7 @@ func Test_N2InsertToPoolArrayRace(t *testing.T) {
 // 9. G1 sets a fourth key of the bucket, whose second digit is a, and stops at
 // add2.found. The test releases G1 with the hooks removed, and G1 runs to its
 // end alone on the only P: it splits the bucket at 0x38, and makeBucket2
-// calls Empty of lista (in bucketFromPoolEmbedded and findNextLevelBucket),
+// calls Empty of lista (in bucketFromPoolEmbedded and insertOnLevel),
 // which reads list_head.MODE_CONCURRENT. The test then
 // makes another map with NewHMap, which writes true to MODE_CONCURRENT with a
 // plain write. The test does not wait for G1 before NewHMap, so nothing

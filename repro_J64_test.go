@@ -12,6 +12,8 @@ import (
 
 // Test_StepJ64LevelListCapInsertsOutOfOrder replays, in one goroutine, the
 // split that findNextLevelBucket answers from its limit of 1000 buckets.
+// makeBucket now links a bucket with insertOnLevel, and findNextLevelBucket is
+// removed; the steps below are those of the code before.
 //
 // A level list is kept in descending order of reverse. makeBucket asks
 // findNextLevelBucket for the first bucket on the level list of the new
@@ -52,7 +54,7 @@ func Test_StepJ64LevelListCapInsertsOutOfOrder(t *testing.T) {
 		if pr <= br {
 			return
 		}
-		// p is above b: findNextLevelBucket returned without comparing.
+		// p is above b: the walk of the level list returned without comparing.
 		rs := skiplistmap.StepM27LevelReverses(h, l)
 		for i, r := range rs {
 			if r != pr {
@@ -89,7 +91,7 @@ func Test_StepJ64LevelListCapInsertsOutOfOrder(t *testing.T) {
 		}
 		return
 	}
-	t.Logf("level %d: findNextLevelBucket returned bucket %d of %d (%016x) for bucket %016x",
+	t.Logf("level %d: makeBucket.levelFound reported bucket %d of %d (%016x) for bucket %016x",
 		level, pIdx+1, listed, pRev, bRev)
 	if pIdx != 1000 {
 		t.Errorf("the bucket above the new bucket is bucket %d of the level list, not the 1001st", pIdx+1)

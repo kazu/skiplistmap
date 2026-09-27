@@ -20,7 +20,7 @@ import (
 // find a bucket through the downLevels arrays (_findBucket) and the list of
 // buckets (bsearchBybucket), and walk the list of entries (RangeItem). Only
 // the insertion of a bucket into a level list (bucketFromPoolEmbedded and
-// makeBucket2 through findNextLevelBucket) reads a level list.
+// makeBucket2 through insertOnLevel) reads a level list.
 
 // d4Map returns a map with embedded item pools that splits a bucket over 4
 // items, holding n keys, and the keys with their values.
@@ -238,7 +238,7 @@ func d4SetMore(t *testing.T, h *Map, want map[string]string, start, n int) {
 
 // The trap of the tests below. With the LevelHeads cleared by d4Poison, every
 // reader of a level list panics: the walk from the head of a level list,
-// isEmptyBylevel, findNextLevelBucket (makeBucket2), NextOnLevel and
+// isEmptyBylevel, NextOnLevel and
 // PrevOnLevel (_set without a bucket, _searchBybucket, bucketFromPool,
 // bucketFromPoolEmbedded), and so Set of new keys once it splits a bucket.
 func Test_Repro_D4_PoisonedLevelListsTrapReaders(t *testing.T) {
@@ -254,7 +254,6 @@ func Test_Repro_D4_PoisonedLevelListsTrapReaders(t *testing.T) {
 			_ = head.LevelHead.DirectPrev().DirectNext().DirectNext()
 		}},
 		{"isEmptyBylevel(2)", func() { h.isEmptyBylevel(2) }},
-		{"findNextLevelBucket(0x55<<56, 2)", func() { h.findNextLevelBucket(0x55<<56, 2) }},
 		{"NextOnLevel of the bucket of 0x55<<56", func() { b.NextOnLevel() }},
 		{"PrevOnLevel of the bucket of 0x55<<56", func() { b.PrevOnLevel() }},
 		{"NextOnLevel of h.buckets[5]", func() { h.buckets[5].NextOnLevel() }},

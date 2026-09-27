@@ -43,7 +43,8 @@ import (
 //   - "makeBucket.pairFound" (bucket, next bucket): makeBucket found the bucket of the entry before the split point and the next bucket above it, and computed the reverse of the new bucket from them; before it claims the new bucket from the pool.
 //   - "bucketFromPool.levelFound" (bucket, pos): bucketFromPool walked the level list for the first downLevels of bucket and found pos to insert it before; before it inserts.
 //   - "bucketFromPoolEmbedded.levelFound" (bucket, pos): the same as "bucketFromPool.levelFound", in bucketFromPoolEmbedded.
-//   - "makeBucket.levelFound" (bucket, pos): findNextLevelBucket returned pos, the LevelHead to insert bucket around in its level list; before makeBucket inserts.
+//   - "makeBucket.levelFound" (bucket, pos): makeBucket walked the level list of bucket and found pos, the first LevelHead with a smaller reverse, or nil at the end, to insert bucket before; before it inserts.
+//   - "makeBucket2.levelFound" (bucket, pos): the same as "makeBucket.levelFound", in makeBucket2.
 //   - "makeBucket.pairWalk" (bucket, bucket found so far): makeBucket walks the list of buckets backward to the bucket above the split point; called at the head of each step with the bucket of the step and the highest bucket not above the entry so far.
 //   - "makeBucket.beforeInit" (bucket, nil): makeBucket found the dummy of bucket empty; before it runs Init on bucket and on its LevelHead.
 //   - "makeBucket.added" (bucket, nil): makeBucket linked bucket and its dummy by addBucket; before it turns a negative level of bucket positive.
@@ -56,7 +57,6 @@ import (
 //   - "bsearch.begin" (bucket, nil): bsearchBybucket was called with bucket; before it reads the item pool of bucket and its length.
 //   - "set.newKeyLock" (bucket, mutex): Set of a key not present in a map with the embedded pool found bucket and is about to lock mutex, the muPool that guards the insertion; before it locks mutex.
 //   - "makeBucket2.added" (new bucket, bucket): makeBucket2 of bucket returned from addBucket of new bucket; before it turns a negative level of new bucket positive.
-//   - "findNextLevelBucket.front" (front, nil): findNextLevelBucket set the traversal mode of lista to WaitNoMark and Front of the level list returned front; before it puts the mode back.
 //   - "set.slotTaken" (item, bucket): Set of a key not present in a map with the embedded pool took item, a slot of the pool of bucket, from getWithFn; before it stores the reverse and the conflict of the key into item.
 //   - "get.found" (item, nil): _get found item by searchKey; before it compares the reverse and the conflict of item with the key.
 //   - "delete.found" (item, nil): Delete found item by LoadItem; before it runs Delete on item.

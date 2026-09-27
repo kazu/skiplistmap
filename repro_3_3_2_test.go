@@ -18,9 +18,10 @@ import (
 
 // The level lists and the list of buckets are kept in descending order of
 // reverse: the level 1 list is built so by initBeforeSet, addBucket inserts a
-// bucket before the first smaller one, and findNextLevelBucket returns the
-// first smaller one. Every insertion walks the list once and then inserts at
-// the position it found; the insertion does not check the order again.
+// bucket before the first smaller one, and findNextLevelBucket, which
+// insertOnLevel replaced, returned the first smaller one. Before the fix, every
+// insertion walked the list once and then inserted at the position it found;
+// the insertion did not check the order again.
 
 // r332LevelReverses returns the reverses of the buckets in the level list of
 // level, walked forward from its head.
@@ -189,11 +190,11 @@ func Test_Repro_3_3_2_FirstDownLevelAscendingParents(t *testing.T) {
 
 // Sequential. The first downLevels of h.buckets[1..4] are claimed in the
 // order that keeps the level 2 list in order: [D4, D3, D2, D1]. A split in
-// h.buckets[1] then makes the bucket 0x18<<56. findNextLevelBucket walks the
-// list without comparing 0x18<<56 with any bucket above it and, after the
-// loop, returns the second bucket of the list, D3, not the last one.
-// makeBucket inserts before the next bucket of D3, D2: [D4, D3, 0x18, D2,
-// D1].
+// h.buckets[1] then makes the bucket 0x18<<56. Before the fix,
+// findNextLevelBucket walked the list without comparing 0x18<<56 with any
+// bucket above it and, after the loop, returned the second bucket of the list,
+// D3, not the last one. makeBucket inserted before the next bucket of D3, D2:
+// [D4, D3, 0x18, D2, D1].
 func Test_Repro_3_3_2_FindNextLevelBucketReturnsSecond(t *testing.T) {
 	h, split := r332SplitMap(t)
 	r332Claim(t, h, 0x1f<<56)
@@ -286,7 +287,7 @@ func Test_Repro_3_3_2_EmbeddedFirstDownLevelsInsertIntoSameGap(t *testing.T) {
 // Concurrent, makeBucket against makeBucket. A first split of h.buckets[1]
 // (P1) makes 0x18<<56: the level 2 list is [0x18, D1]. G1 splits the gap
 // between P1 and 0x18: it makes 0x14<<56, links it into the list of buckets,
-// gets D1 from findNextLevelBucket and stops at "makeBucket.levelFound"
+// finds D1 on the level list and stops at "makeBucket.levelFound"
 // before it inserts 0x14 before D1. G2 then splits the gap between P1 and
 // 0x14 to the end: it makes 0x12<<56, gets D1 too, because 0x14 is not in the
 // level list yet, and links 0x12 before D1: [0x18, 0x12, D1]. When G1

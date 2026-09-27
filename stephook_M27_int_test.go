@@ -12,9 +12,8 @@ import (
 // have, so that the J64 test builds there too.
 
 // StepM27LevelReverses returns the reverses of the buckets on the level list
-// of level, from its front to its last bucket, starting where
-// findNextLevelBucket starts. Unlike findNextLevelBucket it has no limit on
-// the number of buckets and includes the last bucket.
+// of level, from its front to its last bucket, with no limit on the number of
+// buckets.
 func StepM27LevelReverses(h *Map, level int32) []uint64 {
 	head := h.levelBucket(level)
 	prevs := list_head.DefaultModeTraverse.Option(list_head.WaitNoM())

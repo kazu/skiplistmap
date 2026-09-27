@@ -258,11 +258,6 @@ func (sp *samepleItemPool) validateItems() error {
 // writer runs, and such a writer starts only while no expand runs.
 var expandsRunning, writersOfAnyPool atomic.Int32
 
-// expandEpoch goes up when an expand of any map starts and ends: a walk of a
-// pool list that sees it unchanged and no expand running saw the list as it
-// is, since only expands change the pool lists.
-var expandEpoch atomic.Uint64
-
 // holdAllPools waits until no expand runs and counts the caller as a writer
 // of any pool, until releaseAllPools.
 func holdAllPools() {
@@ -288,10 +283,12 @@ func releaseAllPools() {
 // no pool holds item: the item is not from a pool, or an expand moved it and
 // the writer looks the key up again. It returns nil and true when the pool
 // of item is being expanded or is the new pool of an expand whose repair has
-// not ended, or when an expand ran while it walked the pool
-// list, which may then have hidden the pool of item; the writer tries again.
+// not ended, or when it finds no pool while an expand ran when it started:
+// that expand may unlink and Init the old pool that the walk stands on, which
+// ends the walk before the new pool behind it. The new pool is the only one
+// behind another, and its items exist only since that expand started, which
+// was before the caller looked item up. The writer tries again.
 func (p *Pool) holdItem(reverse uint64, item MapItem) (*samepleItemPool, bool) {
-	epoch := expandEpoch.Load()
 	running := expandsRunning.Load() != 0
 	idx := poolIndex(reverse)
 	addr := uintptr(unsafe.Pointer(item.PtrListHead()))
@@ -308,7 +305,7 @@ func (p *Pool) holdItem(reverse uint64, item MapItem) (*samepleItemPool, bool) {
 		}
 		return sp, false
 	}
-	return nil, running || expandEpoch.Load() != epoch
+	return nil, running
 }
 
 // holdPool counts a link on the pool for reverse as Get does, for a writer
@@ -470,11 +467,7 @@ func (sp *samepleItemPool) _expand() (*samepleItemPool, error) {
 	sp.expanding.Store(true)
 	// and for the writers that may change links next to items of any pool
 	expandsRunning.Add(1)
-	expandEpoch.Add(1)
-	defer func() {
-		expandEpoch.Add(1)
-		expandsRunning.Add(-1)
-	}()
+	defer expandsRunning.Add(-1)
 	stepAt("pool.expand.waitLinks", unsafe.Pointer(sp), nil)
 	for sp.linking.Load() != 0 || writersOfAnyPool.Load() != 0 {
 		runtime.Gosched()

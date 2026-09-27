@@ -497,9 +497,10 @@ NO_DELETE:
 		int(SampleItemOffsetOf))
 
 	if err != nil {
-		// sp stays the pool; let Get hand out its items again
-		sp.expanding.Store(false)
-		return nil, EPoolExpandFail
+		// a writer changed links next to the items while it did not hold
+		// the pool: the links moved so far stay moved and the list is
+		// broken, so no Get may go on
+		panic(fmt.Sprintf("skiplistmap: repair of an expanded item pool: %v", err))
 	}
 
 	// for debugging

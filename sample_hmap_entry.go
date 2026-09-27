@@ -81,7 +81,7 @@ func (s *SampleItem) PtrMapHead() *MapHead {
 }
 
 func (s *SampleItem) Delete() {
-	s.state |= mapIsDeleted
+	atomic.OrUint32((*uint32)(&s.state), uint32(mapIsDeleted))
 }
 
 func (s *SampleItem) KeyHash() (uint64, uint64) {

@@ -6,6 +6,7 @@
 package skiplistmap
 
 import (
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/kazu/elist_head"
@@ -149,7 +150,18 @@ func checkLinkBefore(right, center *elist_head.ListHead) error {
 	return nil
 }
 
-// canLinkAfter reports whether center may be linked just after left.
+// canLinkAfter reports whether center may be linked just after left: left
+// does not come after center, and left is not a live entry of the key of
+// center, which another store may have linked since center was looked up.
 func canLinkAfter(left, center *MapHead) bool {
-	return left.Empty() || left.reverse <= center.reverse
+	return left.Empty() || (left.reverse <= center.reverse && !sameKeyLinked(left, center))
+}
+
+// sameKeyLinked reports whether left is an entry of the key of center that
+// is not deleted.
+func sameKeyLinked(left, center *MapHead) bool {
+	return !left.Empty() && !left.IsIgnored() && left != center &&
+		left.reverse == center.reverse &&
+		atomic.LoadUint64(&left.conflict) == atomic.LoadUint64(&center.conflict) &&
+		!left.PtrListHead().IsMarked()
 }

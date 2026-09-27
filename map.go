@@ -416,15 +416,29 @@ SKIP_FETCH_BUCKET:
 		tStart = btable.head()
 	}
 
+	stepAt("set.beforeInit", unsafe.Pointer(item.PtrListHead()), unsafe.Pointer(tStart))
+	if !item.PtrMapHead().claimLink() {
+		// another store of item is linking it; this store is done when
+		// that one is
+		stepAt("set.waitLinked", unsafe.Pointer(item.PtrListHead()), nil)
+		item.PtrMapHead().waitLinked()
+		return true
+	}
+	defer item.PtrMapHead().releaseLink()
 	item.PtrListHead().Init()
+	var linked bool
 	if addOpt == nil {
 		//btable._validateItemsNear()
-		h.add2(tStart, item)
+		linked = h.add2(tStart, item)
 		//btable._validateItemsNear()
 	} else {
 		//btable._validateItemsNear()
-		h.add2(tStart, item, addOpt)
+		linked = h.add2(tStart, item, addOpt)
 		//btable._validateItemsNear()
+	}
+	if !linked {
+		// the value went into an entry of the key linked meanwhile
+		return true
 	}
 	atomic.AddInt64(&h.len, 1)
 	if btable.level() > 0 {
@@ -1089,6 +1103,9 @@ RETRY:
 			e.PtrListHead().Init()
 		}
 
+		if h.storeIntoSameKey(pos.PtrListHead(), e) {
+			return false
+		}
 		if err := insertInOrder(pos.PtrListHead(), e.PtrListHead()); err != nil {
 			goto RETRY
 		}
@@ -1121,22 +1138,49 @@ RETRY:
 			nextE = opt.bucket.prevAsB().entry(h)
 		}
 
-		_, err := inserBeforeWithCheck(nextE.PtrListHead(), e.PtrListHead())
-		if err != nil {
-			pos, _ = h.find(start, func(ehead HMapEntry) bool {
-				return e.PtrMapHead().reverse < ehead.PtrMapHead().reverse
-			})
-			nextE := nextAsE(opt.bucket.entry(h))
-			_ = nextE
+		stepAt("add2.bucketInsert", unsafe.Pointer(e.PtrListHead()), unsafe.Pointer(nextE.PtrListHead()))
+		if h.storeIntoSameKey(nextE.PtrListHead(), e) {
+			return false
 		}
-		return true
+		if _, err := inserBeforeWithCheck(nextE.PtrListHead(), e.PtrListHead()); err == nil {
+			return true
+		}
+		// the entry after the dummy of the bucket is not a place for e;
+		// no entry comes after e, so e goes just before the last one
 	}
 	pos, _ = h.find(start, func(ehead HMapEntry) bool {
 		cnt++
 		return e.PtrMapHead().reverse < ehead.PtrMapHead().reverse
 	})
+	if pos != nil {
+		goto RETRY
+	}
 
-	inserBeforeWithCheck(h.tail.Prev(), e.PtrListHead())
+	if stepEnabled {
+		stepAt("add2.tailInsert", unsafe.Pointer(e.PtrListHead()), unsafe.Pointer(h.tail.Prev()))
+	}
+	if h.storeIntoSameKey(h.tail.Prev(), e) {
+		return false
+	}
+	if _, err := inserBeforeWithCheck(h.tail.Prev(), e.PtrListHead()); err != nil {
+		goto RETRY
+	}
+	return true
+}
+
+// storeIntoSameKey stores the value of e into the entry just before right
+// when that entry is a live entry of the key of e, which another store
+// linked after the lookup of e missed the key. It reports whether it did.
+func (h *Map) storeIntoSameKey(right *elist_head.ListHead, e HMapEntry) bool {
+	left := right.DirectPrev()
+	if left == right || !sameKeyLinked(mapheadFromLListHead(left), e.PtrMapHead()) {
+		return false
+	}
+	if item, ok := e.(MapItem); ok {
+		if old, ok := e.HmapEntryFromListHead(left).(MapItem); ok {
+			h._update(old, item.Value())
+		}
+	}
 	return true
 }
 

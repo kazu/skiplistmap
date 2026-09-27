@@ -5,7 +5,6 @@ package skiplistmap_test
 import (
 	"testing"
 
-	list_head "github.com/kazu/loncha/lista_encabezado"
 	"github.com/kazu/skiplistmap"
 )
 
@@ -30,40 +29,6 @@ func assertLenMatchesKey(t *testing.T, m *WrapHMap, key string) {
 	if got := m.base.Len(); got != want {
 		t.Fatalf("Len() = %d, want %d", got, want)
 	}
-}
-
-// Test_SetRecheckAfterExpandCountsADeletedKey replays this order:
-//
-//  1. G1: Set(k) takes a slot s of the item pool and stops at
-//     map.set.beforeInit.
-//  2. The item pool of another map expands.
-//  3. G1 links s, counts it in the length and stops at
-//     map.set.expandOverlapped: the expand overlapped the Set.
-//  4. Delete(k) removes s and lowers the length to 0.
-//  5. G1 looks k up again and misses it. s was deleted, not lost to the
-//     expand, so the Set must not lower the length and store k again.
-func Test_SetRecheckAfterExpandCountsADeletedKey(t *testing.T) {
-	holdPoolArrays(t)
-	m := newStepMap()
-	k := "review-2-set"
-
-	s := newStepper(t)
-	beforeInit := s.stopAt("map.set.beforeInit", nil)
-	done := goStep(t, func() { m.base.Set(k, &list_head.ListHead{}) })
-	beforeInit.waitReached(t, done)
-	node, _ := s.args("map.set.beforeInit")
-	overlapped := s.stopAt("map.set.expandOverlapped", isNode(node))
-
-	expandAnotherPool(t)
-	beforeInit.Release()
-	overlapped.waitReached(t, done)
-	if !m.base.Delete(k) {
-		t.Fatalf("Delete(k) did not find k")
-	}
-	overlapped.Release()
-	waitDone(t, done, "Set(k)")
-
-	assertLenMatchesKey(t, m, k)
 }
 
 // Test_StoreItemRecheckAfterExpandKeepsAReplacedItem replays this order:

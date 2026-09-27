@@ -250,8 +250,8 @@ func (sp *samepleItemPool) validateItems() error {
 var expandSeq atomic.Uint64
 
 // seqBeforeWrite returns expandSeq for a writer to compare with after its
-// write. It does not wait: a Set that holds an item it has not linked yet
-// must not wait for an expand, which waits for that link.
+// write. It does not wait for an expand that runs: the writer checks after
+// its write with writeOverlappedExpand.
 func seqBeforeWrite() uint64 {
 	return expandSeq.Load()
 }

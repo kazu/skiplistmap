@@ -740,14 +740,6 @@ func (h *Map) Set(key, value interface{}) bool {
 	var item MapItem
 	var bucket *bucket
 	var found bool
-	var seq uint64
-	var held sync.Locker
-	release := func() {
-		if held != nil {
-			held.Unlock()
-			held = nil
-		}
-	}
 
 	for {
 		item, bucket, found = h._loadItem(0, 0, key)
@@ -828,9 +820,8 @@ func (h *Map) Set(key, value interface{}) bool {
 		}
 	} else {
 		k, _ := KeyToHash(key)
-		seq = seqBeforeWrite()
 		var wg sync.WaitGroup
-		held = nil
+		var held sync.Locker
 		wg.Add(1)
 		pooler := (*Pool)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&h.pooler))))
 		pooler.Get(bits.Reverse64(k), func(item MapItem, mu sync.Locker) {
@@ -838,7 +829,12 @@ func (h *Map) Set(key, value interface{}) bool {
 			held = mu
 			wg.Done()
 		})
-		defer release()
+		// held is set when the pool hands out s, maybe after this line
+		defer func() {
+			if held != nil {
+				held.Unlock()
+			}
+		}()
 
 		if s != nil && !s.IsSingle() {
 			Log(LogWarn, "get not single entry?")
@@ -875,24 +871,7 @@ func (h *Map) Set(key, value interface{}) bool {
 	if !s.IsSingle() {
 		Log(LogWarn, "is not single")
 	}
-	ok, linked := h.setItem(k, conflict, bucket, s, false)
-	// the pool counts s as linked only after this; an expand that waits
-	// for it must not be waited for here
-	release()
-	if linked && writeOverlappedExpand(seq) {
-		// an expand of an item pool ran during this Set: the link of s
-		// may have gone into an array that no pool holds any more. s is
-		// lost when a lookup misses it and nothing deleted it, which only
-		// a delete that found s can do
-		if stepEnabled {
-			stepAt("set.expandOverlapped", unsafe.Pointer(s.PtrListHead()), nil)
-		}
-		if _, _, found := h._loadItem(k, conflict, nil); !found && !s.IsDeleted() {
-			h.AddLen(-1)
-			return h.Set(key, value)
-		}
-	}
-	return ok
+	return h._set(k, conflict, bucket, s)
 }
 
 // StoreItem ... set key/value item with embedded-linked-list

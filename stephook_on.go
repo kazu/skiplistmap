@@ -54,7 +54,7 @@ import (
 //   - "add2.tailInsert" (item, right): add2 found no position for item and was given no bucket with an entry, and took right, the node before the tail, as the entry to link item before; the same as "add2.bucketInsert" from here.
 //   - "set.beforeInit" (item, start): _set chose start, the node to find the position of item from; before it runs Init on the list node of item.
 //   - "set.waitLinked" (item, nil): another store of item is linking it; before _set waits for that store.
-//   - "set.expandOverlapped" (item, nil): Set or StoreItem linked item while an expand of an item pool ran; before it looks the key of item up again.
+//   - "set.expandOverlapped" (item, nil): StoreItem linked item while an expand of an item pool ran; before it looks the key of item up again.
 //   - "find.begin" (start, nil): find starts to walk the list of entries from start; before it reads start.
 //   - "bsearch.begin" (bucket, nil): bsearchBybucket was called with bucket; before it reads the item pool of bucket and its length.
 //   - "set.newKeyLock" (bucket, mutex): Set of a key not present in a map with the embedded pool found bucket and is about to lock mutex, the muPool that guards the insertion; before it locks mutex.

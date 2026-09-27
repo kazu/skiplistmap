@@ -18,6 +18,7 @@ import (
 
 func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
 
+	stepAt("bsearch.begin", unsafe.Pointer(bucket), nil)
 	pool := bucket.toBase().itemPool()
 	// FIXME: why fail to get
 	if pool == nil {
@@ -36,6 +37,7 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 		return atomic.LoadUint64(&item.reverse) >= reverseNoMask
 		//return items.reverseAt(i) >= reverseNoMask
 	})
+	stepAt("bsearch.searched", unsafe.Pointer(bucket), nil)
 	// Equal reverses sit next to each other; a purged placeholder may precede
 	// the live entry of the same key, so skip ignored matches.
 	for ; idx < l && items.reverseAt(idx) == reverseNoMask; idx++ {
@@ -87,6 +89,7 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 	if b == nil {
 		return ErrBucketAllocatedFail
 	}
+	stepAt("makeBucket2.got", unsafe.Pointer(b), unsafe.Pointer(bucket))
 
 	if b.reverse == 0 && b.level() > 1 {
 		err = NewError(EBucketInvalid, "bucket.reverse = 0. but level 1= 1", nil)
@@ -105,6 +108,7 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 	atomic.StoreInt32(&b._len, int32(olen-idx))
 
 	h.addBucket(b)
+	stepAt("makeBucket2.added", unsafe.Pointer(b), unsafe.Pointer(bucket))
 	if l := b.level(); l < 0 {
 		b.setLevel(-l)
 	}
@@ -137,6 +141,7 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 		Log(LogWarn, "bucket.LevelHead is pointed to self")
 	}
 
+	stepAt("makeBucket2.recurse", unsafe.Pointer(bucket), unsafe.Pointer(b))
 	if int(b.len()) > h.maxPerBucket {
 		h.makeBucket2(b)
 	} else if int(bucket.len()) > h.maxPerBucket {
@@ -196,6 +201,7 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 					break
 				}
 			}
+			stepAt("bucketFromPoolEmbedded.levelFound", unsafe.Pointer(b), unsafe.Pointer(lCur))
 			lCur.LevelHead.InsertBefore(&firstDown.LevelHead)
 			if !atomic_util.CompareAndSwapInt(&downs.len, 0, 1) {
 				panic("this must not be reached")
@@ -215,12 +221,16 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 
 		// init downLevels[idx]
 		if downs.at(idx).level() == 0 {
+			if stepEnabled {
+				stepAt("bucketFromPoolEmbedded.claim", unsafe.Pointer(downs.at(idx)), unsafe.Pointer(b))
+			}
 			if l != level {
 				Log(LogWarn, "not collected already inited")
 			}
 			downs.at(idx).setLevel(-(b.level() + 1))
 			downs.at(idx).reverse = b.reverse | (uint64(idx) << (4 * (16 - l)))
 			b = downs.at(idx)
+			stepAt("bucketFromPoolEmbedded.claimed", unsafe.Pointer(b), nil)
 			if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {
 				Log(LogWarn, "already inited")
 			}
@@ -334,6 +344,7 @@ func (sp *samepleItemPool) appendLast(mu sync.Locker) (newItem MapItem, nPool *s
 	}
 	if atomic_util.CompareAndSwapInt(&items.len, l, l+1) {
 		new = items.at(l)
+		stepAt("appendLast.claimed", unsafe.Pointer(new), nil)
 		// the slot may be one released by purgeInEmbedded: clear its old identity
 		atomic.StoreUint32((*uint32)(&new.PtrMapHead().state), 0)
 		atomic.StoreUint64(&new.PtrMapHead().reverse, 0)
@@ -422,6 +433,7 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem
 		oldItems := sp.ptrItems().dup()
 		spItems := sp.ptrItems()
 		newItemSlice := toItemSlice(newItems)
+		stepAt("insertToPool.publish", unsafe.Pointer(sp), nil)
 		spItems.CopyFrom(&newItemSlice, 0, newItemSlice.Len())
 
 		// for debug

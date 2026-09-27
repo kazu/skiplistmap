@@ -74,6 +74,7 @@ func (p *Pool) Get(reverse uint64, fn successFn) {
 
 	if !UseGoroutineInPool {
 		p := samepleItemPoolFromListHead(p.itemPool[idx].Next())
+		stepAt("pool.get.pool", unsafe.Pointer(&p.ListHead), nil)
 		e, _, mu := p.Get()
 		fn(e, mu)
 		return
@@ -220,6 +221,7 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker
 	}
 	i = pItems.Len()
 	if i+1 == pItems.Cap() {
+		stepAt("pool.lastSlot", unsafe.Pointer(sp), nil)
 		mu = &sp.mu
 		mu.Lock()
 		if i+1 != pItems.Cap() {
@@ -246,9 +248,11 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker
 	return
 
 EXPAND:
+	stepAt("pool.get.expand", unsafe.Pointer(sp), nil)
 
 	// found next pool
 	if nsp := sp.DirectNext(); nsp.DirectNext() != nsp {
+		stepAt("pool.get.nextPool", unsafe.Pointer(sp), unsafe.Pointer(nsp))
 		return samepleItemPoolFromListHead(nsp).Get()
 	}
 
@@ -285,6 +289,7 @@ func (sp *samepleItemPool) DumpExpandInfo(w io.Writer, outers []unsafe.Pointer, 
 
 func (sp *samepleItemPool) _expand() (*samepleItemPool, error) {
 
+	stepAt("pool.expand.begin", unsafe.Pointer(sp), nil)
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
 
@@ -309,6 +314,7 @@ func (sp *samepleItemPool) _expand() (*samepleItemPool, error) {
 	if e != nil {
 		return nil, EPoolAlreadyDeleted
 	}
+	stepAt("pool.expand.marked", unsafe.Pointer(sp), nil)
 NO_DELETE:
 
 	elist_head.InitAsEmpty(&nPool.freeHead, &nPool.freeTail)
@@ -317,6 +323,7 @@ NO_DELETE:
 
 	nPool.items = make([]SampleItem, 0, nCap)
 	nPool.items = append(nPool.items, sp.items...)
+	stepAt("pool.expand.copied", unsafe.Pointer(sp), unsafe.Pointer(nPool))
 
 	// for debugging
 	var outers []unsafe.Pointer
@@ -353,6 +360,7 @@ NO_DELETE:
 	//FIXME: check
 	next.InsertBefore(&nPool.ListHead)
 	list_head.DefaultModeTraverse.Option(pOpts...)
+	stepAt("pool.expand.beforeSafety", unsafe.Pointer(sp), unsafe.Pointer(nPool))
 	if ok, _ := sp.IsSafety(); ok {
 		sp.Init()
 	} else {

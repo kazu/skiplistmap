@@ -27,7 +27,9 @@ import (
 //   - "pool.get.expand" (pool, nil): Get of pool found pool full; before it reads the next of pool to look for a next pool.
 //   - "pool.get.nextPool" (pool, node): Get of pool found pool full and took node, the next of pool, as the list node of a next pool; before it calls Get of that pool.
 //   - "pool.expand.begin" (pool, nil): _expand of pool starts; before pool.mu is locked.
-//   - "pool.expand.marked" (pool, nil): _expand marked pool and unlinked it from the pool list; before it copies the items of pool.
+//   - "pool.expand.waitLinks" (pool, nil): _expand stopped handing out items of pool; before it waits for the links of the items handed out.
+//   - "pool.expand.linked" (pool, nil): the items that pool handed out are linked; before _expand copies the items of pool.
+//   - "pool.expand.marked" (pool, nil): _expand linked new pool after pool and marked pool and unlinked it from the pool list; before it asks IsSafety of pool.
 //   - "pool.expand.beforeSafety" (pool, new pool): _expand linked new pool into the pool list; before it asks IsSafety of pool whether to run Init on it.
 //   - "loadItem.found" (item, bucket): loadItem found item in bucket; before bucket.muPool is locked.
 //   - "set.updateFound" (item, bucket): Set of a key present in a map with the embedded pool found item in bucket; before it tries to lock bucket.muPool.
@@ -43,13 +45,13 @@ import (
 //   - "makeBucket.pairFound" (bucket, next bucket): makeBucket found the bucket of the entry before the split point and the next bucket above it, and computed the reverse of the new bucket from them; before it claims the new bucket from the pool.
 //   - "bucketFromPool.levelFound" (bucket, pos): bucketFromPool walked the level list for the first downLevels of bucket and found pos to insert it before; before it inserts.
 //   - "bucketFromPoolEmbedded.levelFound" (bucket, pos): the same as "bucketFromPool.levelFound", in bucketFromPoolEmbedded.
-//   - "makeBucket.levelFound" (bucket, pos): makeBucket walked the level list of bucket and found pos, the first LevelHead with a smaller reverse, or nil at the end, to insert bucket before; before it inserts.
+//   - "makeBucket.levelFound" (bucket, pos): makeBucket, or setupBcukets, walked the level list of bucket and found pos, the first LevelHead with a smaller reverse, or nil at the end, to insert bucket before; before it inserts.
 //   - "makeBucket2.levelFound" (bucket, pos): the same as "makeBucket.levelFound", in makeBucket2.
 //   - "makeBucket.pairWalk" (bucket, bucket found so far): makeBucket walks the list of buckets backward to the bucket above the split point; called at the head of each step with the bucket of the step and the highest bucket not above the entry so far.
 //   - "makeBucket.beforeInit" (bucket, nil): makeBucket found the dummy of bucket empty; before it runs Init on bucket and on its LevelHead.
 //   - "makeBucket.added" (bucket, nil): makeBucket linked bucket and its dummy by addBucket; before it turns a negative level of bucket positive.
-//   - "add2.bucketInsert" (item, right):add2 found no position for item and took right, from the bucket given to it, as the entry to link item before; before inserBeforeWithCheck(right, item).
-//   - "add2.tailInsert" (item, right): add2 found no position for item and was given no bucket with an entry, and took right, the node before the tail, as the entry to link item before; before inserBeforeWithCheck(right, item).
+//   - "add2.bucketInsert" (item, right):add2 found no position for item and took right, from the bucket given to it, as the entry to link item before; before it looks for a live entry of the key of item before right and links item with insertInOrder(right, item).
+//   - "add2.tailInsert" (item, right): add2 found no position for item and was given no bucket with an entry, and took right, the node before the tail, as the entry to link item before; the same as "add2.bucketInsert" from here.
 //   - "set.beforeInit" (item, start): _set chose start, the node to find the position of item from; before it runs Init on the list node of item.
 //   - "set.waitLinked" (item, nil): another store of item is linking it; before _set waits for that store.
 //   - "set.expandOverlapped" (item, nil): Set or StoreItem linked item while an expand of an item pool ran; before it looks the key of item up again.

@@ -426,7 +426,8 @@ func (sp *samepleItemPool) _expand() (*samepleItemPool, error) {
 	// handed out, so that the copy holds every link to them
 	sp.expanding.Store(true)
 	// odd from here until the old array is out of the list; writers that
-	// see it change redo their writes after it (see stableWrite)
+	// see it change redo their writes after it (see seqBeforeWrite and
+	// writeOverlappedExpand)
 	expandSeq.Add(1)
 	defer expandSeq.Add(1)
 	stepAt("pool.expand.waitLinks", unsafe.Pointer(sp), nil)

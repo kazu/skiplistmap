@@ -28,7 +28,7 @@ import (
 // find set the option to false and saved false, the value G1 set. G1 runs to
 // the end: its first find returns and puts back true. G2 resumes with the
 // option true: find skips dummy(3) and dummy(4) and returns k3 as the
-// position of k2, and inserBeforeWithCheck rejects k2 before k3 because the
+// position of k2, and the order check of add2 rejects k2 before k3 because the
 // entry before k3, dummy(4), is above k2. add2 drops k2 and StoreItem
 // returns true. After the fix find takes no option and returns dummy(4).
 func Test_ReproJ8FindSkipsDummyByOptionOfOtherFind(t *testing.T) {

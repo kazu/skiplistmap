@@ -42,8 +42,8 @@ func newA8Item(key string, r, c uint64) *a8Item {
 //     entry whose reverse is larger than ^uint64(0), finds none, and takes the
 //     path for a position that is not found. With a bucket given, it takes the
 //     entry after the dummy of the bucket, A, as the entry to link M before.
-//     inserBeforeWithCheck(A, M) (map.add2.bucketInsert with M and A) fails
-//     with "invalid insert order" because A comes before M. add2 drops the
+//     The order check of the link of M before A (map.add2.bucketInsert with M
+//     and A) fails with "invalid insert order" because A comes before M. add2 drops the
 //     error and returns true, and _set adds 1 to the length.
 //
 // M is not linked: LoadItemByHash does not find M, while StoreItem(M)
@@ -93,7 +93,7 @@ func Test_ReproA8StoreNotFoundPositionCountsFailedInsert(t *testing.T) {
 //  1. GM: StoreItem(M). add2 finds no position for M and, with the bucket
 //     0xf0.. given, takes L, the entry after the dummy D of the bucket, as the
 //     entry to link M before (map.add2.bucketInsert with M and L).
-//     inserBeforeWithCheck(L, M) passes its checks (D <= M <= L). GM stops at
+//     The order check of the link of M before L passes (D <= M <= L). GM stops at
 //     elist insert.begin(M, L) of InsertBefore, before its first CAS.
 //  2. GX: StoreItem(X). add2 finds L as the position of X, and insertInOrder
 //     links X between D and L. GX stops at elist add.cas2 of X: D.next is X,

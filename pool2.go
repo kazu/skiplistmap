@@ -141,9 +141,10 @@ type samepleItemPool struct {
 	// expanded is set under mu once _expand has replaced the pool, so that
 	// a Get that waited for mu does not expand it again
 	expanded atomic.Bool
-	// linking counts the items that Get handed out and that are not linked
-	// yet, and expanding stops Get from handing out more: _expand copies the
-	// items only after the links of all of them are done
+	// linking counts the writers of the pool: the items that Get handed out
+	// and that are not linked yet, and the writes that hold the pool with
+	// holdItem or holdPool. expanding stops more writers from counting:
+	// _expand copies the items only after all of them are done
 	linking   atomic.Int32
 	expanding atomic.Bool
 	// the Lockers that Get returns with an item, held in the pool so that
@@ -318,7 +319,8 @@ func (p *Pool) holdPool(reverse uint64) *samepleItemPool {
 	}
 }
 
-// countLinking counts an item that Get is about to hand out. It reports false,
+// countLinking counts a writer of sp: an item that Get is about to hand out,
+// or a write that holds sp with holdItem or holdPool. It reports false,
 // without counting, when an expand of sp has started: the caller then starts
 // again from the pool list.
 func (sp *samepleItemPool) countLinking() bool {

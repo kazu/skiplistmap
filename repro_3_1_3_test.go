@@ -68,11 +68,12 @@ func fillFirstPool(t *testing.T, m *WrapHMap) []string {
 // pool nPool, nPool is linked into the pool list, and sp.Init() links sp to a
 // fresh start and end of its own. When G_c resumes, the next of sp is that
 // fresh end, whose next is itself, so G_c takes it as "no next pool" and
-// calls _expand on sp once more. _expand has no check for a pool already
-// expanded: it copies the old array again, and RepaireSliceAfterCopy fails at
-// the first outside neighbor, which already points into the array of nPool.
-// _expand returns EPoolExpandFail and the Get of G_c panics with
-// "already deleted".
+// calls _expand on sp once more. Before the fix, _expand had no check for a
+// pool already expanded: it copied the old array again, and
+// RepaireSliceAfterCopy failed at the first outside neighbor, which already
+// pointed into the array of nPool; _expand returned EPoolExpandFail and the
+// Get of G_c panicked with "already deleted". _expand now sees that sp was
+// expanded and does not expand it again.
 func Test_Repro_3_1_3_GetExpandsAPoolExpandedMeanwhile(t *testing.T) {
 	putBackTraverseMode(t)
 	m := newStepMap()

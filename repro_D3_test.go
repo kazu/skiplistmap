@@ -11,11 +11,12 @@ import (
 // at point, after it found a not linked; G2 stores a into m2, or into m1 too
 // when same is set, and returns. When G1 goes on, it must return false, as
 // it does when it runs after G2: a is linked by G2, and one item is linked
-// into one list only. It returned true instead: at map.set.checked, the Init
-// of a cut a out of the list of G2; at map.add2.found, add2 took a out of
-// that list and linked it again; at elist.insert.begin, the insert took the
-// links that G2 wrote as its own and relinked a, leaving the neighbors of a
-// in that list leading to it.
+// into one list only. It returned true instead: at map.storeItem.checked,
+// the lookup of the key found a itself and stored the value of a into it; at
+// map.set.checked, the Init of a cut a out of the list of G2; at
+// map.add2.found, add2 took a out of that list and linked it again; at
+// elist.insert.begin, the insert took the links that G2 wrote as its own and
+// relinked a, leaving the neighbors of a in that list leading to it.
 func testD3StoreItemAtOnce(t *testing.T, point string, same bool) {
 	keys := adjacentKeys(2)
 	items := newStepItems(keys[:1])
@@ -60,6 +61,10 @@ func Test_D3StoreItemIntoTwoMapsAfterTheFind(t *testing.T) {
 
 func Test_D3StoreItemIntoTwoMapsBeforeTheLink(t *testing.T) {
 	testD3StoreItemAtOnce(t, "elist.insert.begin", false)
+}
+
+func Test_D3StoreItemTwiceIntoOneMapBeforeTheLookup(t *testing.T) {
+	testD3StoreItemAtOnce(t, "map.storeItem.checked", true)
 }
 
 func Test_D3StoreItemTwiceIntoOneMapAfterTheCheck(t *testing.T) {

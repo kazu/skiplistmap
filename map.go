@@ -889,10 +889,15 @@ func (h *Map) StoreItem(item MapItem) bool {
 	if !item.PtrListHead().IsSingle() {
 		return false
 	}
+	stepAt("storeItem.checked", unsafe.Pointer(item.PtrListHead()), nil)
 	k, conflict := item.KeyHash()
 
 	oitem, bucket, found := h._loadItem(k, conflict, nil)
 	if found {
+		if oitem.PtrListHead() == item.PtrListHead() {
+			// another StoreItem of item linked it meanwhile
+			return false
+		}
 		return h._update(oitem, item.Value())
 	}
 	return h.setItem(k, conflict, bucket, item, true)
@@ -1307,8 +1312,7 @@ func (h *Map) storeIntoSameKey(right *elist_head.ListHead, e HMapEntry) bool {
 		return false
 	}
 	same := linkedSameKey(mapheadFromLListHead(left), e.PtrMapHead())
-	// e itself is linked by another StoreItem of it: the insert of e fails
-	if same == nil || same == e.PtrMapHead() {
+	if same == nil {
 		return false
 	}
 	if item, ok := e.(MapItem); ok {

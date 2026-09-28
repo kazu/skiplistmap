@@ -139,6 +139,95 @@ func Test_D2OriginStaysUntilTheCopyIsDeleted(t *testing.T) {
 	assertStoredInOrder(t, m, withoutKey(keys, 5))
 }
 
+// A Delete that lost its claim must not touch an item stored again: GB finds
+// u, an item of StoreItem, and stops; a Purge of the key of u returns true,
+// and GB then loses its claim on u; StoreItem stores u again, and GB goes on.
+// GB marked u deleted before it returned false, and the key of u, linked
+// again, was not found.
+func Test_D2LostDeleteLeavesAnItemStoredAgain(t *testing.T) {
+	keys := adjacentKeys(2)
+	items := newStepItems(keys[:1])
+	u := &items[0]
+	m := newStepMap()
+	setKeys(t, m, keys[1:])
+	if !m.base.StoreItem(u) {
+		t.Fatalf("StoreItem(u) returned false")
+	}
+
+	s := newStepper(t)
+	found := s.stopAt("map.delete.found", isNode(nodeOf(u)))
+	var okB bool
+	doneB := goStep(t, func() { okB = m.base.Delete(keys[0]) })
+	found.waitReached(t, doneB)
+	if !m.base.Purge(keys[0]) {
+		t.Fatalf("Purge(u) returned false")
+	}
+	claimed := s.stopAt("map.delete.claimed", isNode(nodeOf(u)))
+	found.Release()
+	claimed.waitReached(t, doneB)
+	if !m.base.StoreItem(u) {
+		t.Fatalf("StoreItem(u) after Purge(u) returned false")
+	}
+	claimed.Release()
+	waitDone(t, doneB, "Delete(u) of GB")
+
+	if okB {
+		t.Errorf("Delete(u) of GB returned true, but Purge(u) deleted u before")
+	}
+	assertStoredInOrder(t, m, keys)
+	runtime.KeepAlive(items)
+}
+
+// D2 and the GC over two expands: GB finds k in the first copy x1 and stops
+// before its claim. The pool grows again, and GA deletes k from the second
+// copy x2, claiming the origin x in the first array. A GC then takes the
+// first array, and GB claims x1, the oldest node of the line still kept: GA
+// marked it deleted before it let x go, and GB must return false. GA used to
+// mark only x2, and GB returned true too.
+func Test_D2DeleteOfAMiddleCopyAfterTheOriginIsGone(t *testing.T) {
+	holdPoolArrays(t)
+	n := skiplistmap.CntOfPersamepleItemPool
+	keys := adjacentKeys(2*n + 2)
+	m := newStepMap()
+	setKeys(t, m, keys[:n+1])
+	k := keys[5]
+	item, ok := m.base.LoadItem(k)
+	if !ok {
+		t.Fatalf("LoadItem(k) not found")
+	}
+	x1 := nodeOf(item.(*skiplistmap.SampleItem))
+
+	s := newStepper(t)
+	stB := s.stopAt("map.delete.found", isNode(x1))
+	var okB bool
+	doneB := goStep(t, func() { okB = m.base.Delete(k) })
+	stB.waitReached(t, doneB)
+	setKeys(t, m, keys[n+1:])
+	item, ok = m.base.LoadItem(k)
+	if !ok {
+		t.Fatalf("LoadItem(k) not found after the second expand")
+	}
+	x2 := (*elist_head.ListHead)(nodeOf(item.(*skiplistmap.SampleItem)))
+	if elist_head.FindOrigin(x2) == x2 {
+		t.Fatalf("the moves of k are not known")
+	}
+	okA := m.base.Delete(k)
+	for i := 0; i < 20 && elist_head.FindOrigin(x2) != (*elist_head.ListHead)(x1); i++ {
+		runtime.GC()
+		time.Sleep(time.Millisecond)
+	}
+	if elist_head.FindOrigin(x2) != (*elist_head.ListHead)(x1) {
+		t.Fatalf("the first array is still kept after the GC")
+	}
+	stB.Release()
+	waitDone(t, doneB, "Delete(k) of GB")
+
+	if okA == okB {
+		t.Errorf("Delete(k) of GA = %v and of GB = %v, want one true", okA, okB)
+	}
+	assertStoredInOrder(t, m, withoutKey(keys, 5))
+}
+
 // D2 over two expands: GA finds k in the first array and stops before it
 // claims it. The pool grows twice, and the second expand leads the entry of
 // the first one to the last array. GB deletes k from the last array; GA must

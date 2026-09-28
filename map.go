@@ -1932,18 +1932,29 @@ func (h *Map) deleteItem(key interface{}) (MapItem, *bucket, bool) {
 	origin := elist_head.FindOrigin(item.PtrListHead())
 	won := mapheadFromLListHead(origin).claimDelete()
 	stepAt("delete.claimed", unsafe.Pointer(item.PtrListHead()), nil)
+	if !won && origin == item.PtrListHead() {
+		// another delete of the key got there first
+		return nil, nil, false
+	}
+	if won {
+		// a delete that finds another node of the line of the item once
+		// origin is gone claims that node
+		elist_head.EachOfLine(item.PtrListHead(), func(n *elist_head.ListHead) {
+			atomic.OrUint32((*uint32)(&mapheadFromLListHead(n).state), uint32(mapIsDeleted))
+		})
+	}
 	item.Delete()
 	// the item pool may have copied the item before it was deleted: the
 	// copy is deleted too, also by a delete that another delete of the key
-	// got ahead of, before it returns
+	// got ahead of on the origin, before it returns
 	for head := item.PtrListHead(); elist_head.IsMoved(head); {
 		if head = elist_head.MovedTo(head); head == nil {
 			break
 		}
 		atomic.OrUint32((*uint32)(&mapheadFromLListHead(head).state), uint32(mapIsDeleted))
 	}
-	// a delete that finds the item meanwhile claims origin as long as origin
-	// is kept, and the item after it is deleted
+	// a delete that finds a node of the line meanwhile claims origin as long
+	// as origin is kept, and that node after it is deleted
 	runtime.KeepAlive(origin)
 	if !won {
 		// another delete of the key got there first

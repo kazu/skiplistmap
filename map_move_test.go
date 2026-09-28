@@ -7,6 +7,7 @@ import (
 	"time"
 
 	list_head "github.com/kazu/loncha/lista_encabezado"
+	"github.com/kazu/skiplistmap"
 )
 
 // growWhile sets new keys from growers goroutines until stop is closed, so
@@ -116,6 +117,35 @@ func Test_StoreItemRefusesAnItemOfThePool(t *testing.T) {
 	}
 	if _, ok := m.Get("k"); ok {
 		t.Errorf("the map holds the key after Purge")
+	}
+}
+
+// StoreItem refuses an item still linked also when the key of the item is
+// present in the map, where it would store the value of the item into the
+// item found: a second StoreItem of the same item, and a StoreItem into
+// another map that holds the key.
+func Test_StoreItemRefusesALinkedItemOfAKeyPresent(t *testing.T) {
+	m, other := newPoolMap(16), newPoolMap(16)
+	va, vb := &list_head.ListHead{}, &list_head.ListHead{}
+	a := skiplistmap.NewSampleItem("k", va)
+	if !m.base.StoreItem(a) {
+		t.Fatalf("StoreItem(a) = false")
+	}
+	if m.base.StoreItem(a) {
+		t.Errorf("a second StoreItem of a, which is linked, = true")
+	}
+	b := skiplistmap.NewSampleItem("k", vb)
+	if !other.base.StoreItem(b) {
+		t.Fatalf("StoreItem(b) into the other map = false")
+	}
+	if other.base.StoreItem(a) {
+		t.Errorf("StoreItem of a, which is linked in the first map, into the other map = true")
+	}
+	if got, ok := other.Get("k"); !ok || got != vb {
+		t.Errorf("the other map holds %p, %v for k, want the value of b %p", got, ok, vb)
+	}
+	if got, ok := m.Get("k"); !ok || got != va {
+		t.Errorf("the map holds %p, %v for k, want the value of a %p", got, ok, va)
 	}
 }
 

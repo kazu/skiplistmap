@@ -851,13 +851,15 @@ func (h *Map) Set(key, value interface{}) bool {
 //
 // StoreItem links item itself into the map and does not copy it. The map
 // holds only offsets to item, which the GC does not follow, so the caller
-// must keep item reachable until it stops using the map, even after Delete,
-// because a deleted item stays linked, and until Purge of its key returns.
+// must keep item reachable while it is linked: until Purge of its key
+// returns, or until the caller stops using the map. Delete leaves item
+// linked, and a Purge after Delete does not find it, so an item that Delete
+// removed stays linked as long as the map is used.
 // Otherwise the map links freed memory (a dangling reference). The map never
 // moves item. If the key is already present, only the value is stored into
 // the existing item, and item is not linked. StoreItem returns false for an
-// item still linked, in this map or in another: an item is stored again after
-// Purge of its key from the map that holds it. It returns false also for an
+// item still linked, in this map or in another: an item that Purge took out
+// of the map that holds it is stored again. It returns false also for an
 // item that the item pool of a map handed out, as the items stored by Set
 // are, which LoadItem, RangeItem and a walk of the list return: the pool
 // moves and reuses them (see LoadItem).
@@ -865,6 +867,11 @@ func (h *Map) Set(key, value interface{}) bool {
 // there item is linked but cannot be found.
 func (h *Map) StoreItem(item MapItem) bool {
 	if item.PtrMapHead().isPoolItem() {
+		return false
+	}
+	// an item still linked is refused also when its key is present, where
+	// the value would go into the item found
+	if !item.PtrListHead().IsSingle() {
 		return false
 	}
 	k, conflict := item.KeyHash()
@@ -1522,6 +1529,13 @@ func (h *Map) nextOnLevelOf(b *bucket, level int32) *list_head.ListHead {
 		}
 		for down := next; down != nil && down != b; down = down.ptrDownLevels().at(0) {
 			if l := down.level(); l == level {
+				// a split puts its bucket on the list of buckets before it
+				// links the LevelHead, which lies between sentinels of its
+				// own until then; the start of the list of level is the
+				// only sentinel before a LevelHead on that list
+				if p := down.LevelHead.DirectPrev(); p.Empty() && p != &h.levelBucket(level).LevelHead {
+					return nil
+				}
 				return &down.LevelHead
 			} else if l <= 0 || l > level {
 				break

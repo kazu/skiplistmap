@@ -177,6 +177,57 @@ func Test_D2LostDeleteLeavesAnItemStoredAgain(t *testing.T) {
 	assertStoredInOrder(t, m, keys)
 }
 
+// A Delete that lost its claim on the origin still deletes the copies of the
+// item it found: GL finds k in the old array, x, and stops; the pool grows;
+// GW finds the copy x', claims the origin x, which is the item of GL, and
+// stops before it marks the line; GL loses its claim and returns false.
+// Get(k) must not find k then. GL returned at once as its item was the
+// origin, and Get found x'.
+func Test_D2LostDeleteDeletesTheCopiesOfItsItem(t *testing.T) {
+	holdPoolArrays(t)
+	n := skiplistmap.CntOfPersamepleItemPool
+	keys := adjacentKeys(n + 1)
+	m := newStepMap()
+	setKeys(t, m, keys[:n])
+	k := keys[5]
+	item, ok := m.base.LoadItem(k)
+	if !ok {
+		t.Fatalf("LoadItem(k) not found")
+	}
+	x := nodeOf(item.(*skiplistmap.SampleItem))
+
+	s := newStepper(t)
+	found := s.stopAt("map.delete.found", isNode(x))
+	var okL bool
+	doneL := goStep(t, func() { okL = m.base.Delete(k) })
+	found.waitReached(t, doneL)
+	m.Set(keys[n], &list_head.ListHead{})
+	item, ok = m.base.LoadItem(k)
+	if !ok {
+		t.Fatalf("LoadItem(k) not found after the expand")
+	}
+	xc := nodeOf(item.(*skiplistmap.SampleItem))
+	claimed := s.stopAt("map.delete.claimed", isNode(xc))
+	var okW bool
+	doneW := goStep(t, func() { okW = m.base.Delete(k) })
+	claimed.waitReached(t, doneW)
+	found.Release()
+	waitDone(t, doneL, "Delete(k) of GL")
+
+	if okL {
+		t.Errorf("Delete(k) of GL returned true, but GW claimed k first")
+	}
+	if _, ok := m.Get(k); ok {
+		t.Errorf("Get(k) found after Delete(k) of GL returned false")
+	}
+	claimed.Release()
+	waitDone(t, doneW, "Delete(k) of GW")
+	if !okW {
+		t.Errorf("Delete(k) of GW returned false")
+	}
+	assertStoredInOrder(t, m, withoutKey(keys, 5))
+}
+
 // D2 and the GC over two expands: GB finds k in the first copy x1 and stops
 // before its claim. The pool grows again, and GA deletes k from the second
 // copy x2, claiming the origin x in the first array. A GC then takes the

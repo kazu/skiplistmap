@@ -1932,8 +1932,9 @@ func (h *Map) deleteItem(key interface{}) (MapItem, *bucket, bool) {
 	origin := elist_head.FindOrigin(item.PtrListHead())
 	won := mapheadFromLListHead(origin).claimDelete()
 	stepAt("delete.claimed", unsafe.Pointer(item.PtrListHead()), nil)
-	if !won && origin == item.PtrListHead() {
-		// another delete of the key got there first
+	if !won && origin == item.PtrListHead() && !elist_head.IsMoved(item.PtrListHead()) {
+		// another delete of the key got there first, and item has no copies
+		// to delete: a StoreItem may have linked item again since
 		return nil, nil, false
 	}
 	if won {

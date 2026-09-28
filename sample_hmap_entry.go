@@ -84,6 +84,19 @@ func (s *SampleItem) Delete() {
 	atomic.OrUint32((*uint32)(&s.state), uint32(mapIsDeleted))
 }
 
+// copyFrom copies the key, the value and the state of src, and not its
+// links. s is a copy that the list does not lead to yet, so nobody else reads
+// or writes it, and it is written without atomic stores.
+func (s *SampleItem) copyFrom(src *SampleItem) {
+	s.K = src.K
+	if v := src.V.Load(); v != nil {
+		*(*interface{})(unsafe.Pointer(&s.V)) = v
+	}
+	s.state = mapState(atomic.LoadUint32((*uint32)(&src.state)))
+	s.conflict = atomic.LoadUint64(&src.conflict)
+	s.reverse = atomic.LoadUint64(&src.reverse)
+}
+
 func (s *SampleItem) KeyHash() (uint64, uint64) {
 	return MemHashString(s.K), xxhash.Sum64String(s.K)
 }

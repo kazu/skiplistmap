@@ -141,11 +141,6 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 
 	stepAt("makeBucket2.recurse", unsafe.Pointer(bucket), unsafe.Pointer(b))
 	if int(b.len()) > h.maxPerBucket {
-		// b is published: a Set of its keys locks the muPool of b now. b
-		// was claimed from a downLevels slot other than the first, so it
-		// has no parent and does not share the muPool held here
-		b.muPool.Lock()
-		defer b.muPool.Unlock()
 		h.makeBucket2(b)
 	} else if int(bucket.len()) > h.maxPerBucket {
 		h.makeBucket2(bucket)

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"math/bits"
-	"runtime"
 	"sync/atomic"
 	"unsafe"
 
@@ -16,9 +15,9 @@ type mapState uint32
 const (
 	mapIsDummy mapState = 1 << iota
 	mapIsDeleted
-	// mapIsLinking is held by the one store that links the entry, so that
-	// another store of the same item does not Init it in the middle
-	mapIsLinking
+	// mapIsPoolItem marks an item that the item pool of a map handed out to
+	// Set, which StoreItem refuses
+	mapIsPoolItem
 )
 
 type MapHead struct {
@@ -52,29 +51,8 @@ func (mh *MapHead) claimDelete() bool {
 	}
 }
 
-// claimLink takes mapIsLinking for the calling store and reports whether it
-// got it. A store that does not get it waits with waitLinked.
-func (mh *MapHead) claimLink() bool {
-	for {
-		s := atomic.LoadUint32((*uint32)(&mh.state))
-		if mapState(s)&mapIsLinking != 0 {
-			return false
-		}
-		if atomic.CompareAndSwapUint32((*uint32)(&mh.state), s, s|uint32(mapIsLinking)) {
-			return true
-		}
-	}
-}
-
-func (mh *MapHead) releaseLink() {
-	atomic.AndUint32((*uint32)(&mh.state), ^uint32(mapIsLinking))
-}
-
-// waitLinked waits until the store holding mapIsLinking is done.
-func (mh *MapHead) waitLinked() {
-	for mapState(atomic.LoadUint32((*uint32)(&mh.state)))&mapIsLinking != 0 {
-		runtime.Gosched()
-	}
+func (mh *MapHead) isPoolItem() bool {
+	return mapState(atomic.LoadUint32((*uint32)(&mh.state)))&mapIsPoolItem > 0
 }
 
 func (mh *MapHead) IsDummy() bool {

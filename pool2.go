@@ -85,10 +85,12 @@ func (p *Pool) Get(reverse uint64, fn successFn) {
 			if retry > 0 {
 				runtime.Gosched()
 			}
-			p := p.firstPool(idx)
-			if p == nil {
+			head := p.itemPool[idx].Next()
+			if head.Empty() {
+				// the list has no pool; an expand is replacing one
 				continue
 			}
+			p := samepleItemPoolFromListHead(head)
 			stepAt("pool.get.pool", unsafe.Pointer(&p.ListHead), nil)
 			e, _, mu := p.Get()
 			if e == nil {
@@ -139,41 +141,7 @@ type samepleItemPool struct {
 	// expanded is set under mu once _expand has replaced the pool, so that
 	// a Get that waited for mu does not expand it again
 	expanded atomic.Bool
-	// linking counts the writers of the pool: the items that Get handed out
-	// and that are not linked yet, and the writes that hold the pool with
-	// holdItem or holdPool. expanding stops more writers from counting:
-	// _expand copies the items only after all of them are done. A new pool
-	// is also expanding from when _expand links it until its repair ends
-	linking   atomic.Int32
-	expanding atomic.Bool
-	// the Lockers that Get returns with an item, held in the pool so that
-	// Get allocates nothing for them
-	done     linkDone
-	doneLast lastLinkDone
 	list_head.ListHead
-}
-
-// linkDone is the Locker that Get returns with an item: its Unlock tells the
-// pool that holds it that the item is linked.
-type linkDone struct{ _ byte }
-
-func (d *linkDone) Lock() {}
-
-func (d *linkDone) Unlock() {
-	sp := (*samepleItemPool)(unsafe.Add(unsafe.Pointer(d), -int(unsafe.Offsetof(EmptysamepleItemPool.done))))
-	sp.linking.Add(-1)
-}
-
-// lastLinkDone is the linkDone of the last item, whose Unlock also unlocks
-// mu of the pool, which Get took for that item.
-type lastLinkDone struct{ _ byte }
-
-func (d *lastLinkDone) Lock() {}
-
-func (d *lastLinkDone) Unlock() {
-	sp := (*samepleItemPool)(unsafe.Add(unsafe.Pointer(d), -int(unsafe.Offsetof(EmptysamepleItemPool.doneLast))))
-	sp.linking.Add(-1)
-	sp.mu.Unlock()
 }
 
 var EmptysamepleItemPool *samepleItemPool = (*samepleItemPool)(unsafe.Pointer(uintptr(0)))
@@ -251,102 +219,6 @@ func (sp *samepleItemPool) validateItems() error {
 
 }
 
-// expandsRunning counts the expands of the item pools of every map that run,
-// and writersOfAnyPool the writers that change links next to items of a pool
-// they cannot name, such as the neighbors of an item that StoreItem takes out
-// of the list it was deleted from. An expand copies items only while no such
-// writer runs, and such a writer starts only while no expand runs.
-var expandsRunning, writersOfAnyPool atomic.Int32
-
-// holdAllPools waits until no expand runs and counts the caller as a writer
-// of any pool, until releaseAllPools.
-func holdAllPools() {
-	for {
-		writersOfAnyPool.Add(1)
-		if expandsRunning.Load() == 0 {
-			return
-		}
-		writersOfAnyPool.Add(-1)
-		for expandsRunning.Load() != 0 {
-			runtime.Gosched()
-		}
-	}
-}
-
-func releaseAllPools() {
-	writersOfAnyPool.Add(-1)
-}
-
-// holdItem finds the pool of the Pool whose array holds item, the one for
-// reverse, and counts a write to item on it as countLinking does, so that
-// an expand copies item only after the write. It returns nil and false when
-// no pool holds item: the item is not from a pool, or an expand moved it and
-// the writer looks the key up again. It returns nil and true when the pool
-// of item is being expanded or is the new pool of an expand whose repair has
-// not ended, or when it finds no pool while an expand ran when it started:
-// that expand may unlink and Init the old pool that the walk stands on, which
-// ends the walk before the new pool behind it. The new pool is the only one
-// behind another, and its items exist only since that expand started, which
-// was before the caller looked item up. The writer tries again.
-func (p *Pool) holdItem(reverse uint64, item MapItem) (*samepleItemPool, bool) {
-	running := expandsRunning.Load() != 0
-	idx := poolIndex(reverse)
-	addr := uintptr(unsafe.Pointer(item.PtrListHead()))
-	for cur := p.itemPool[idx].Next(); !cur.Empty(); cur = cur.Next() {
-		sp := samepleItemPoolFromListHead(cur)
-		stepAt("holdItem.visit", unsafe.Pointer(sp), unsafe.Pointer(item.PtrListHead()))
-		items := sp.ptrItems()
-		base := uintptr(atomic.LoadPointer(&items.data))
-		if addr < base || addr >= base+uintptr(items.Cap())*uintptr(SampleItemSize) {
-			continue
-		}
-		if !sp.countLinking() {
-			return nil, true
-		}
-		return sp, false
-	}
-	return nil, running
-}
-
-// holdPool counts a link on the pool for reverse as Get does, for a writer
-// that links an item not from the pool next to the items of the pool: an
-// expand of the pool copies the items only after the link. It waits while
-// the pool is being expanded. The writer lowers linking of the pool after
-// the link.
-func (p *Pool) holdPool(reverse uint64) *samepleItemPool {
-	idx := poolIndex(reverse)
-	for {
-		if sp := p.firstPool(idx); sp != nil && sp.countLinking() {
-			return sp
-		}
-		runtime.Gosched()
-	}
-}
-
-// firstPool returns the first pool of the pool list idx, the one that hands
-// out items, or nil when the list has none while an expand replaces it.
-func (p *Pool) firstPool(idx uint64) *samepleItemPool {
-	head := p.itemPool[idx].Next()
-	if head.Empty() {
-		return nil
-	}
-	return samepleItemPoolFromListHead(head)
-}
-
-// countLinking counts a writer of sp: an item that Get is about to hand out,
-// or a write that holds sp with holdItem or holdPool. It reports false,
-// without counting, when an expand of sp has started, or sp is the new pool
-// of an expand whose repair has not ended: the caller then starts again from
-// the pool list.
-func (sp *samepleItemPool) countLinking() bool {
-	sp.linking.Add(1)
-	if sp.expanding.Load() {
-		sp.linking.Add(-1)
-		return false
-	}
-	return true
-}
-
 func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker) {
 	if sp.freeHead.DirectNext() == &sp.freeHead {
 		sp.init()
@@ -354,16 +226,12 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker
 
 	// found free item
 	if sp.freeHead.DirectNext() != &sp.freeTail {
-		if !sp.countLinking() {
-			return nil, false, nil
-		}
 		nElm := sp.freeTail.Prev()
 		nElm.Delete()
 		if nElm != nil {
 			nElm.Init()
-			return SampleItemFromListHead(nElm), false, &sp.done
+			return SampleItemFromListHead(nElm), false, nil
 		}
-		sp.linking.Add(-1)
 	}
 	// not limit pool
 	pItems := sp.ptrItems()
@@ -386,15 +254,8 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker
 			return
 		}
 	}
-	if !sp.countLinking() {
-		if mu != nil {
-			mu.Unlock()
-		}
-		return nil, false, nil
-	}
 	if !atomic_util.CompareAndSwapInt(&pItems.len, i, i+1) {
 		Log(LogWarn, "fail to increment pItem.len=%d pItem.cap=%d i=%d", pItems.Len(), pItems.Cap(), i)
-		sp.linking.Add(-1)
 		// the lock of the last item taken above is this Get's own; the
 		// retry takes it again
 		if mu != nil {
@@ -404,12 +265,13 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker
 		return
 	}
 	new2 = (*pItems).at(i)
-	new2.Init()
+	// an expand that started after the CAS above may have marked the item
+	new2.InitUnmarked()
 	if mu != nil {
-		new, isExpanded, lock = new2, false, &sp.doneLast
+		new, isExpanded, lock = new2, false, mu
 		return
 	}
-	new, isExpanded, lock = new2, false, &sp.done
+	new, isExpanded, lock = new2, false, nil
 	return
 
 EXPAND:
@@ -462,17 +324,6 @@ func (sp *samepleItemPool) _expand() (*samepleItemPool, error) {
 	if sp.expanded.Load() {
 		return nil, EPoolAlreadyDeleted
 	}
-	// stop handing out items of sp and wait for the links of the ones
-	// handed out, so that the copy holds every link to them
-	sp.expanding.Store(true)
-	// and for the writers that may change links next to items of any pool
-	expandsRunning.Add(1)
-	defer expandsRunning.Add(-1)
-	stepAt("pool.expand.waitLinks", unsafe.Pointer(sp), nil)
-	for sp.linking.Load() != 0 || writersOfAnyPool.Load() != 0 {
-		runtime.Gosched()
-	}
-	stepAt("pool.expand.linked", unsafe.Pointer(sp), nil)
 
 	olen := len(sp.items)
 	empty := elist_head.ListHead{}
@@ -495,8 +346,21 @@ NO_DELETE:
 
 	nCap := PoolCap(len(sp.items))
 
-	nPool.items = make([]SampleItem, 0, nCap)
-	nPool.items = append(nPool.items, sp.items...)
+	nPool.items = make([]SampleItem, len(sp.items), nCap)
+	// the old items get the mark of a delete and the copies their links.
+	// The items that are linked are copied after that: their Set wrote
+	// them before it linked them
+	move := elist_head.FreezeSlice(
+		unsafe.Pointer(&sp.items[0]),
+		unsafe.Pointer(&sp.items[len(sp.items)-1]),
+		unsafe.Pointer(&nPool.items[0]),
+		int(SampleItemSize),
+		int(SampleItemOffsetOf))
+	for i := range sp.items {
+		if move.Linked(i) {
+			nPool.items[i].copyFrom(&sp.items[i])
+		}
+	}
 	stepAt("pool.expand.copied", unsafe.Pointer(sp), unsafe.Pointer(nPool))
 
 	// for debugging
@@ -512,28 +376,7 @@ NO_DELETE:
 		sp.DumpExpandInfo(&b, outers, "B:rewrite reverse=0x%x\n", &sp.items[0].reverse)
 	}
 
-	// link the new pool after sp before the repair leads the list to its
-	// items, so that a writer that finds one of them finds its pool too and
-	// waits while it is being expanded; Get takes no item of it until then
-	nPool.expanding.Store(true)
-	nPool.Init()
-	if next != nil {
-		next.InsertBefore(&nPool.ListHead)
-	}
-
-	err := elist_head.RepaireSliceAfterCopy(
-		unsafe.Pointer(&sp.items[0]),
-		unsafe.Pointer(&sp.items[len(sp.items)-1]),
-		unsafe.Pointer(&nPool.items[0]),
-		int(SampleItemSize),
-		int(SampleItemOffsetOf))
-
-	if err != nil {
-		// a writer changed links next to the items while it did not hold
-		// the pool: the links moved so far stay moved and the list is
-		// broken, so no Get may go on
-		panic(fmt.Sprintf("skiplistmap: repair of an expanded item pool: %v", err))
-	}
+	move.Relink()
 
 	// for debugging
 	if IsDebug() {
@@ -541,12 +384,12 @@ NO_DELETE:
 		fmt.Println(b.String())
 	}
 
-	stepAt("pool.expand.repaired", unsafe.Pointer(sp), unsafe.Pointer(nPool))
-	nPool.expanding.Store(false)
+	nPool.Init()
 
-	// the new pool is linked after sp, so a Get walking the list always
-	// finds a pool there
+	// link the new pool after sp before sp leaves the pool list, so that a
+	// Get walking the list always finds a pool there
 	if next != nil {
+		next.InsertBefore(&nPool.ListHead)
 		e = sp.MarkForDelete()
 		if e != nil {
 			return nil, EPoolAlreadyDeleted
@@ -594,6 +437,9 @@ func idxMaagement(ctx context.Context, cancel context.CancelFunc, h *samepleItem
 		switch req.cmd {
 		case CmdGet:
 			e, extend, mu := p.Get()
+			if mu != nil {
+				mu.Unlock()
+			}
 			LastItem = e
 			// only debug mode
 			if extend {
@@ -601,8 +447,7 @@ func idxMaagement(ctx context.Context, cancel context.CancelFunc, h *samepleItem
 				fmt.Printf("dump: sampleItemPool.items\n%s\nend: sampleItemPool.items\n", p.dump())
 				IsExtended = extend
 			}
-			// the caller unlocks mu when e is linked, as for Pool.Get
-			req.onSuccess(e, mu)
+			req.onSuccess(e, nil)
 			continue
 		case CmdPut:
 			p.Put(req.item)

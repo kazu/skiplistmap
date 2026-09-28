@@ -63,8 +63,9 @@ func assertStoredIfLinked(t *testing.T, m *WrapHMap, keys []string) {
 // old a pointed out of the array to z, moved z.prev to the new a, and then
 // found that the new a, copied before z was linked, still pointed to b, not
 // to z. It returned an error, _expand returned EPoolExpandFail, and the Get of
-// G3 panicked with "already deleted". StoreItem now counts its link on the
-// pool, and must not link z until the expand ends.
+// G3 panicked with "already deleted". _expand now marks the old a and b
+// before it copies them, so StoreItem does not link z between them: its insert
+// fails on the marks until the expand ends, and links z between the copies.
 func Test_Repro_3_1_2_InsertBetweenCopyAndRepairPanics(t *testing.T) {
 	holdPoolArrays(t)
 	keys := adjacentKeys(skiplistmap.CntOfPersamepleItemPool + 2)
@@ -79,12 +80,12 @@ func Test_Repro_3_1_2_InsertBetweenCopyAndRepairPanics(t *testing.T) {
 	st := s.stopAt("map.pool.expand.copied", nil)
 	done := goStep(t, func() { m.Set(fs[skiplistmap.CntOfPersamepleItemPool], &list_head.ListHead{}) })
 	st.waitReached(t, done)
-	// StoreItem counts its link on the pool, and waits for the expand
+	// the insert of z fails on the marks of the old a and b, and StoreItem
+	// finds its position again until the expand ends
 	var ok bool
 	doneZ := goStep(t, func() { ok = m.base.StoreItem(&z[0]) })
-	waitAtMost(doneZ, time.Second)
-	if n := s.count("map.set.beforeInit", nodeOf(&z[0])); n != 0 {
-		t.Errorf("StoreItem(%q) went to link z while the pool was being expanded", kz)
+	if waitAtMost(doneZ, time.Second) {
+		t.Errorf("StoreItem(%q) returned while the pool was being expanded", kz)
 	}
 	st.Release()
 	waitDone(t, done, "Set of the 65th key")
@@ -106,8 +107,9 @@ func Test_Repro_3_1_2_InsertBetweenCopyAndRepairPanics(t *testing.T) {
 // went from the new a to the new b. When G2 resumed, it read the old a as the
 // previous node of the old b and its two CASes succeeded on the old array:
 // StoreItem returned true and the length counted z, but no node of the list
-// pointed to z. StoreItem now counts its link on the pool, and _expand waits
-// for it.
+// pointed to z. _expand now marks the old a and b before it copies them: the
+// insert of G2 fails on the mark of the old b, and G2 finds its position
+// again among the copies.
 func Test_Repro_3_1_2_InsertAfterExpandIsLost(t *testing.T) {
 	holdPoolArrays(t)
 	keys := adjacentKeys(skiplistmap.CntOfPersamepleItemPool + 2)
@@ -125,15 +127,11 @@ func Test_Repro_3_1_2_InsertAfterExpandIsLost(t *testing.T) {
 	if r := skiplistmap.StepEntryReverse(st.b); r != reverseOf(keys[11]) {
 		t.Fatalf("StoreItem(%q) stopped before %016x, want b %016x", kz, r, reverseOf(keys[11]))
 	}
-	// the expand waits for the link of z, which it copies after the link
+	// the expand marks the old a and b and runs to the end
 	doneSet := goStep(t, func() { setKeys(t, m, fs[skiplistmap.CntOfPersamepleItemPool:]) })
-	waitAtMost(doneSet, 200*time.Millisecond)
-	if s.total("map.pool.expand.linked") != 0 {
-		t.Errorf("_expand went past the wait for the links while StoreItem(%q) was linking z", kz)
-	}
+	waitDone(t, doneSet, "Set of the 65th key")
 	st.Release()
 	waitDone(t, done, "StoreItem(z)")
-	waitDone(t, doneSet, "Set of the 65th key")
 
 	assertStoredIfLinked(t, m, keys)
 	runtime.KeepAlive(z)

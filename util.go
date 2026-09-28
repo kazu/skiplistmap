@@ -48,15 +48,13 @@ func ElementOf(head unsafe.Pointer, offset uintptr) unsafe.Pointer {
 
 func PoolCap(len int) int {
 	min := minCapItem()
-	threshold := thresholdCapItem()
 
 	if len < min {
 		return min
 	}
 
-	if len >= threshold {
-		return threshold / 4 * (1 + len/(threshold/4))
-	}
+	// the capacity doubles: an expand moves every item, so that a fixed
+	// step would move them again every few inserts
 	for i := 0; i < 60; i++ {
 		if (len >> i) == 0 {
 			return intPow(2, i)

@@ -36,7 +36,8 @@ func topKeys(top uint64, n int) []string {
 // 1 to 63, and the 64th finds the pool full and runs _expand. _expand copies
 // the items into a new array while G1's item is still unlinked, so the copy
 // is unlinked too, and the new pool replaces the old one in the pool list.
-// Then G1 resumes and links its item, which lies in the old array.
+// Then G1 resumes. Before the fix it linked its item, which lies in the old
+// array; it links the copy of its item in the new array now.
 func setPastExpand(t *testing.T) (m *WrapHMap, k1 string, node unsafe.Pointer) {
 	t.Helper()
 	m = newStepMap()
@@ -50,9 +51,6 @@ func setPastExpand(t *testing.T) (m *WrapHMap, k1 string, node unsafe.Pointer) {
 	})
 	done1 := goStep(t, func() { m.Set(k1, &list_head.ListHead{}) })
 	st.waitReached(t, done1)
-	// the expand waits for the link of G1 when it waits for the links of
-	// the items handed out, so the others run in their own goroutine
-	wl := s.stopAt("map.pool.expand.waitLinks", nil)
 	doneO := goStep(t, func() {
 		for _, k := range others {
 			if !m.Set(k, &list_head.ListHead{}) {
@@ -60,12 +58,9 @@ func setPastExpand(t *testing.T) (m *WrapHMap, k1 string, node unsafe.Pointer) {
 			}
 		}
 	})
-	if waitFirst(t, "the Sets of the other keys", doneO, wl.reached) == 1 {
-		wl.Release()
-	}
+	waitDone(t, doneO, "the Sets of the other keys")
 	st.Release()
 	waitDone(t, done1, "Set(k1)")
-	waitDone(t, doneO, "the Sets of the other keys")
 
 	// Drop every pointer the stepper keeps into the old array.
 	elist_head.SetStepHook(nil)
@@ -109,12 +104,14 @@ func weakAlive(wp weak.Pointer[skiplistmap.SampleItem]) bool {
 
 var reuseSink [][]skiplistmap.SampleItem
 
-// After the interleaving of setPastExpand, the old array is referenced only
-// by the offsets of the list of entries, which the GC does not follow. After
-// two GCs the weak pointer to the item of k1 is nil, so the old array was
-// freed, while the list of entries still reaches the item. Allocating arrays
-// of the same size then reuses the freed memory and zeroes the item: the list
-// of entries stops at a self-linked node, and Get(k1) no longer finds k1.
+// Before the fix, after the interleaving of setPastExpand the old array was
+// referenced only by the offsets of the list of entries, which the GC does
+// not follow. After two GCs the weak pointer to the item of k1 was nil, so
+// the old array was freed, while the list of entries still reached the item.
+// Allocating arrays of the same size then reused the freed memory and zeroed
+// the item: the list of entries stopped at a self-linked node, and Get(k1) no
+// longer found k1. The list reaches the copy of the item in the new array
+// now, and the old array is free to go.
 func Test_Repro_3_1_1_LinkedItemFreed(t *testing.T) {
 	m, k1, node := setPastExpand(t)
 	wp, addr := weakItem(node)
@@ -128,8 +125,9 @@ func Test_Repro_3_1_1_LinkedItemFreed(t *testing.T) {
 	if wp.Value() != nil {
 		return
 	}
-	linked := skiplistmap.StepEntryLinked(m.base, addr)
-	t.Errorf("the array of the item of %q (%#x) was freed; the list of entries still reaches it: %v", k1, addr, linked)
+	if skiplistmap.StepEntryLinked(m.base, addr) {
+		t.Errorf("the array of the item of %q (%#x) was freed; the list of entries still reaches it", k1, addr)
+	}
 
 	reuseSink = nil
 	defer func() { reuseSink = nil }()

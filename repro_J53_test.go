@@ -12,9 +12,10 @@ import (
 
 // Keys a < k < k2 < c in a map with the embedded pool and at most 16 items
 // per bucket, so that the four keys stay in one pool; the pool holds a, k
-// and c. G2 sets k to v2: the lookup finds the
-// item of k, and Set stops at set.updateFound, before it locks the muPool of
-// the bucket and stores the value into that item. The main goroutine deletes
+// and c. G2 sets k to v2, and Set stops at set.newKeyLock, before it locks
+// the muPool of the bucket and looks the key up. Before the fix the lookup
+// came before the lock, and the value went into the item that it had found.
+// The main goroutine deletes
 // k, which marks the item of k deleted and leaves it in the pool, and then
 // sets k2 to v3: the pool finds the deleted slot of k in the place of k2
 // (foundFree) and reuses it for k2 under the muPool, which it releases when
@@ -28,12 +29,16 @@ func Test_J53SetOfKeyPresentWritesSlotReusedAfterDelete(t *testing.T) {
 	setKeys(t, m, []string{a, k, c})
 
 	v2, v3 := &list_head.ListHead{}, &list_head.ListHead{}
+	itemK, ok := m.base.LoadItem(k)
+	if !ok {
+		t.Fatalf("LoadItem(k) not found")
+	}
+	item := unsafe.Pointer(itemK.PtrListHead())
 	s := newStepper(t)
-	st := s.stopAt("map.set.updateFound", nil)
+	st := s.stopAt("map.set.newKeyLock", nil)
 	var ok2 bool
 	done := goStep(t, func() { ok2 = m.Set(k, v2) })
 	st.waitReached(t, done)
-	item := st.a
 	if !m.Delete(k) {
 		t.Fatalf("Delete(k) = false")
 	}

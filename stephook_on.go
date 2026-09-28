@@ -21,24 +21,19 @@ import (
 //   - "bucketFromPool.lenStored" (bucket, nil): the length of the new downLevels of bucket is stored.
 //   - "insertBucket.begin" (bucket, nil): before the dummy of bucket is initialized.
 //   - "insertBucket.dummyLinked" (bucket, nil): the dummy of bucket is linked; before bucket is linked.
-//   - "pool.expand.copied" (pool, new pool): _expand copied the items of pool into new pool; before it links new pool after pool, still being expanded, and repairs the links.
-//   - "holdItem.visit" (pool, item): holdItem walking a pool list for item reached pool; before it checks whether pool holds item.
-//   - "pool.expand.repaired" (pool, new pool): _expand repaired the links to the items of new pool; before it lets writers of new pool count.
+//   - "pool.expand.copied" (pool, new pool): _expand marked the items of pool and copied the linked ones into new pool; before it leads the list to the copies.
 //   - "pool.lastSlot" (pool, nil): Get read the length of pool and is taking its last item; before pool.mu is locked.
 //   - "pool.get.pool" (node, nil): Pool.Get took node, the Next of the head of a pool list, as the list node of the pool to get an item from; before it calls Get of that pool.
 //   - "pool.get.expand" (pool, nil): Get of pool found pool full; before it reads the next of pool to look for a next pool.
 //   - "pool.get.nextPool" (pool, node): Get of pool found pool full and took node, the next of pool, as the list node of a next pool; before it calls Get of that pool.
 //   - "pool.expand.begin" (pool, nil): _expand of pool starts; before pool.mu is locked.
-//   - "pool.expand.waitLinks" (pool, nil): _expand stopped handing out items of pool; before it waits for the links of the items handed out.
-//   - "pool.expand.linked" (pool, nil): the items that pool handed out are linked; before _expand copies the items of pool.
 //   - "pool.expand.marked" (pool, nil): _expand marked pool and unlinked it from the pool list, where new pool follows it; before it asks IsSafety of pool.
 //   - "pool.expand.beforeSafety" (pool, new pool): _expand linked new pool into the pool list; before it asks IsSafety of pool whether to run Init on it.
 //   - "loadItem.found" (item, bucket): loadItem found item in bucket; before bucket.muPool is locked.
-//   - "set.updateFound" (item, bucket): Set of a key present in a map with the embedded pool found item in bucket; before it tries to lock bucket.muPool.
-//   - "set.updateLocked" (item, bucket): Set of a key present locked bucket.muPool; before it stores the value into item.
+//   - "set.updateLocked" (item, bucket): Set of a key present in a map with the embedded pool locked the muPool that guards the pool of bucket and found item; before it stores the value into item.
 //   - "purge.beforeInit" (item, nil): purgeInEmbedded returned from MarkForDelete of item; before it runs Init on item.
 //   - "makeBucket2.got" (new bucket, bucket): makeBucket2 of bucket got new bucket from bucketFromPoolEmbedded; before it runs Init on new bucket.
-//   - "makeBucket2.recurse" (bucket, new bucket): makeBucket2 of bucket published new bucket; before it checks whether new bucket is over the limit and, holding the muPool of new bucket, splits it.
+//   - "makeBucket2.recurse" (bucket, new bucket): makeBucket2 of bucket published new bucket; before it checks whether new bucket is over the limit and splits it.
 //   - "bucketFromPoolEmbedded.claim" (down, bucket): down, an element of the downLevels of bucket, has level 0; before its level is set.
 //   - "bucketFromPoolEmbedded.claimed" (down, nil): the level and the reverse of down are set; before it is returned.
 //   - "appendLast.claimed" (item, nil): appendLast raised the length of the pool over item, its last slot; before it clears the state of item.
@@ -55,10 +50,9 @@ import (
 //   - "add2.bucketInsert" (item, right):add2 found no position for item and took right, from the bucket given to it, as the entry to link item before; before it looks for a live entry of the key of item before right and links item with insertInOrder(right, item).
 //   - "add2.tailInsert" (item, right): add2 found no position for item and was given no bucket with an entry, and took right, the node before the tail, as the entry to link item before; the same as "add2.bucketInsert" from here.
 //   - "set.beforeInit" (item, start): _set chose start, the node to find the position of item from; before it runs Init on the list node of item.
-//   - "set.waitLinked" (item, nil): another store of item is linking it; before _set waits for that store.
 //   - "find.begin" (start, nil): find starts to walk the list of entries from start; before it reads start.
 //   - "bsearch.begin" (bucket, nil): bsearchBybucket was called with bucket; before it reads the item pool of bucket and its length.
-//   - "set.newKeyLock" (bucket, mutex): Set of a key not present in a map with the embedded pool found bucket and is about to lock mutex, the muPool that guards the insertion; before it locks mutex.
+//   - "set.newKeyLock" (bucket, mutex): Set in a map with the embedded pool found bucket and is about to lock mutex, the muPool that guards the pool; before it locks mutex and looks the key up.
 //   - "makeBucket2.added" (new bucket, bucket): makeBucket2 of bucket returned from addBucket of new bucket; before it turns a negative level of new bucket positive.
 //   - "set.slotTaken" (item, bucket): Set of a key not present in a map with the embedded pool took item, a slot of the pool of bucket, from getWithFn; before it stores the reverse and the conflict of the key into item.
 //   - "get.found" (item, nil): _get found item by searchKey; before it compares the reverse and the conflict of item with the key.
@@ -203,13 +197,6 @@ func StepEntryLinked(h *Map, p uintptr) bool {
 		}
 	}
 	return false
-}
-
-// StepIsLinking reports whether the item that h holds for key is still marked
-// as being linked by a store.
-func StepIsLinking(h *Map, key string) bool {
-	item, ok := h.LoadItem(key)
-	return ok && mapState(atomic.LoadUint32((*uint32)(&item.PtrMapHead().state)))&mapIsLinking != 0
 }
 
 // StepIsLinkedPool reports whether p, a list node that a StepHook point of the

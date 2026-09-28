@@ -175,7 +175,6 @@ func Test_D2LostDeleteLeavesAnItemStoredAgain(t *testing.T) {
 		t.Errorf("Delete(u) of GB returned true, but Purge(u) deleted u before")
 	}
 	assertStoredInOrder(t, m, keys)
-	runtime.KeepAlive(items)
 }
 
 // D2 and the GC over two expands: GB finds k in the first copy x1 and stops

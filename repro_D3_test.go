@@ -3,7 +3,6 @@
 package skiplistmap_test
 
 import (
-	"runtime"
 	"testing"
 )
 
@@ -48,7 +47,6 @@ func testD3StoreItemAtOnce(t *testing.T, point string, same bool) {
 		}
 		assertStoredInOrder(t, m1, keys[1:])
 	}
-	runtime.KeepAlive(items)
 }
 
 func Test_D3StoreItemIntoTwoMapsAfterTheCheck(t *testing.T) {
@@ -114,7 +112,6 @@ func Test_D3StoreItemWhileTheOtherMapPurgesIt(t *testing.T) {
 	} else {
 		assertStoredInOrder(t, m1, keys[1:])
 	}
-	runtime.KeepAlive(items)
 }
 
 // D3: G1 stores a into m1 and stops after it found a not linked. G2 stores a
@@ -148,5 +145,4 @@ func Test_D3StoreItemAfterTheCheckKeepsADeleteOfTheOtherMap(t *testing.T) {
 	if _, ok := m2.Get(keys[0]); ok {
 		t.Errorf("m2.Get(a) found after m2.Delete(a) returned true")
 	}
-	runtime.KeepAlive(items)
 }

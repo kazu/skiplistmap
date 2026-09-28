@@ -3,7 +3,6 @@
 package skiplistmap_test
 
 import (
-	"runtime"
 	"testing"
 	"time"
 
@@ -50,5 +49,4 @@ func Test_D1PurgeAcrossAnExpandLeavesTheOldArrayLinked(t *testing.T) {
 		t.Errorf("Get(u) found after Purge(u)")
 	}
 	assertStoredInOrder(t, m, keys[1:])
-	runtime.KeepAlive(items)
 }

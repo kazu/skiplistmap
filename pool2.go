@@ -325,12 +325,6 @@ func (sp *samepleItemPool) _expand() (*samepleItemPool, error) {
 		return nil, EPoolAlreadyDeleted
 	}
 
-	olen := len(sp.items)
-	empty := elist_head.ListHead{}
-	if sp.items[olen-1].ListHead == empty {
-		Log(LogError, "last item must not be empty")
-	}
-
 	nPool := &samepleItemPool{}
 	_ = nPool
 	var e error

@@ -874,7 +874,7 @@ func (h *Map) Set(key, value interface{}) bool {
 // the existing item, and item is not linked. StoreItem returns false for an
 // item still linked, in this map or in another: an item that Purge took out
 // of the map that holds it is stored again. Of StoreItem calls of one item at
-// once, one links it and the others return false. It returns false also for an
+// once, at most one links it. It returns false also for an
 // item that the item pool of a map handed out, as the items stored by Set
 // are, which LoadItem, RangeItem and a walk of the list return: the pool
 // moves and reuses them (see LoadItem).

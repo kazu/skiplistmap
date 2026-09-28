@@ -438,14 +438,28 @@ SKIP_FETCH_BUCKET:
 		// that map before storing it
 		return false
 	}
-	atomic.AndUint32((*uint32)(&item.PtrMapHead().state), ^uint32(mapIsDeleted))
+	stepAt("set.checked", unsafe.Pointer(item.PtrListHead()), unsafe.Pointer(tStart))
+	if !fromUser {
+		atomic.AndUint32((*uint32)(&item.PtrMapHead().state), ^uint32(mapIsDeleted))
+	}
 	// the marks of an item that the item pool moves stay; add2 links its
-	// copy
-	if !item.PtrListHead().InitUnmarked() && elist_head.MovedTo(item.PtrListHead()) == nil {
+	// copy. An item of StoreItem is not cleared: another StoreItem of it
+	// may have linked it since the check above
+	if !fromUser && !item.PtrListHead().InitUnmarked() && elist_head.MovedTo(item.PtrListHead()) == nil {
 		item.PtrListHead().Init()
 	}
 	var linked bool
-	if addOpt == nil {
+	if fromUser {
+		var userLinked bool
+		if addOpt == nil {
+			linked = h.add2(tStart, item, refuseLinked(&userLinked))
+		} else {
+			linked = h.add2(tStart, item, addOpt, refuseLinked(&userLinked))
+		}
+		if userLinked {
+			return false
+		}
+	} else if addOpt == nil {
 		//btable._validateItemsNear()
 		linked = h.add2(tStart, item)
 		//btable._validateItemsNear()
@@ -859,7 +873,8 @@ func (h *Map) Set(key, value interface{}) bool {
 // moves item. If the key is already present, only the value is stored into
 // the existing item, and item is not linked. StoreItem returns false for an
 // item still linked, in this map or in another: an item that Purge took out
-// of the map that holds it is stored again. It returns false also for an
+// of the map that holds it is stored again. Of StoreItem calls of one item at
+// once, one links it and the others return false. It returns false also for an
 // item that the item pool of a map handed out, as the items stored by Set
 // are, which LoadItem, RangeItem and a walk of the list return: the pool
 // moves and reuses them (see LoadItem).
@@ -1058,6 +1073,10 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 
 type hmapMethod struct {
 	bucket *bucket
+	// userLinked is set for an item of StoreItem: add2 does not take it out
+	// of the list that another StoreItem linked it into, and sets
+	// *userLinked instead
+	userLinked *bool
 }
 
 type HMethodOpt func(*hmapMethod)
@@ -1066,6 +1085,14 @@ func WithBucket(b *bucket) func(*hmapMethod) {
 
 	return func(conf *hmapMethod) {
 		conf.bucket = b
+	}
+}
+
+// refuseLinked makes add2 refuse an item of StoreItem that another StoreItem
+// links meanwhile, and set *linked.
+func refuseLinked(linked *bool) HMethodOpt {
+	return func(conf *hmapMethod) {
+		conf.userLinked = linked
 	}
 }
 
@@ -1095,10 +1122,25 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 
 	}()
 
+	// an item of StoreItem is taken by one StoreItem only, which clears the
+	// delete that a Purge left before the item is linked
+	var took func()
+	if opt != nil && opt.userLinked != nil {
+		// the item pool does not move an item of StoreItem: e stays it
+		state := (*uint32)(&e.PtrMapHead().state)
+		took = func() {
+			atomic.AndUint32(state, ^uint32(mapIsDeleted))
+		}
+	}
+
 RETRY:
 	// the item pool moves e to a larger array before e is linked: the copy
 	// is linked instead
 	e = movedEntry(e)
+	if opt != nil && opt.userLinked != nil && !e.PtrListHead().IsSingle() {
+		*opt.userLinked = true
+		return false
+	}
 	if start.IsMarked() || start.Empty() {
 		// start was deleted, taken out by Purge, or replaced by its copy
 		// by an expand of its pool; find the position from the dummy of
@@ -1135,6 +1177,9 @@ RETRY:
 
 	if pos != nil {
 		if !e.PtrListHead().IsSingle() {
+			if opt != nil && opt.userLinked != nil {
+				goto RETRY
+			}
 			Log(LogWarn, "add2: element for insertion  is not single ")
 			err := e.PtrListHead().MarkForDelete()
 			if err == elist_head.ErrMoved {
@@ -1152,7 +1197,7 @@ RETRY:
 		if h.storeIntoSameKey(pos.PtrListHead(), e) {
 			return false
 		}
-		if err := insertInOrder(pos.PtrListHead(), e.PtrListHead()); err != nil {
+		if err := insertInOrder(pos.PtrListHead(), e.PtrListHead(), took); err != nil {
 			runtime.Gosched()
 			goto RETRY
 		}
@@ -1189,7 +1234,7 @@ RETRY:
 		if h.storeIntoSameKey(nextE.PtrListHead(), e) {
 			return false
 		}
-		if err := insertInOrder(nextE.PtrListHead(), e.PtrListHead()); err == nil {
+		if err := insertInOrder(nextE.PtrListHead(), e.PtrListHead(), took); err == nil {
 			return true
 		}
 		// the entry after the dummy of the bucket is not a place for e;
@@ -1209,7 +1254,7 @@ RETRY:
 	if h.storeIntoSameKey(h.tail.Prev(), e) {
 		return false
 	}
-	if err := insertInOrder(h.tail.Prev(), e.PtrListHead()); err != nil {
+	if err := insertInOrder(h.tail.Prev(), e.PtrListHead(), took); err != nil {
 		runtime.Gosched()
 		goto RETRY
 	}
@@ -1262,7 +1307,8 @@ func (h *Map) storeIntoSameKey(right *elist_head.ListHead, e HMapEntry) bool {
 		return false
 	}
 	same := linkedSameKey(mapheadFromLListHead(left), e.PtrMapHead())
-	if same == nil {
+	// e itself is linked by another StoreItem of it: the insert of e fails
+	if same == nil || same == e.PtrMapHead() {
 		return false
 	}
 	if item, ok := e.(MapItem); ok {

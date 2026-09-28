@@ -11,7 +11,9 @@ import "testing"
 //
 // After the steps of startSameItemStores, b is stopped before the rollback
 // CAS, with p.next == b, b.next == a, and a unlinked by the Init of the late
-// StoreItem(a).
+// StoreItem(a). Since the fix of D3 the late StoreItem(a) returns false
+// without the Init and b is linked: the steps below do not happen, and the
+// test checks that the list stays whole.
 //
 //  6. I3 resumes: the rollback CAS moves p.next from b back to a, which is no
 //     longer linked. rollback(b) zeroes the links of b. add2 of b retries from

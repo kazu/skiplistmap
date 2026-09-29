@@ -14,11 +14,8 @@ import (
 // item z of the key after it, which is in the array of the pool. G1 purges u
 // and stops between its two relinks: the dummy x before u leads to z, and z
 // still leads back to u. G2 sets the 65th key, and the pool moves its full
-// array. When the move took u as the node before z and ended before G1 went
-// on, it led only u to the copy of z: x kept leading to z in the old array,
-// and G1 relinked the copy of z back to x and returned true. The move now
-// waits for G1, which gives way and tries again while the move relinks u to
-// the copies; G1 then must not lead x past the copies either.
+// array. The move waits for G1, which gives way and tries again while the
+// move relinks u to the copies; G1 then must not lead x past the copies.
 func Test_D1PurgeAcrossAnExpandLeavesTheOldArrayLinked(t *testing.T) {
 	holdPoolArrays(t)
 	n := skiplistmap.CntOfPersamepleItemPool

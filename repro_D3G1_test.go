@@ -8,7 +8,7 @@ import (
 	"github.com/kazu/skiplistmap"
 )
 
-// D3-G1, what its fix leaves: two StoreItem calls of one item u run at once,
+// D3-G1: two StoreItem calls of one item u run at once,
 // and a Delete finds u between the two CASes of the insert of one of them.
 // Keys x < k < z, where k is the key of u; the map m holds x and z.
 //
@@ -30,11 +30,7 @@ import (
 // the only item of k, and each Delete that returns true removes k; so the
 // number of StoreItem calls that return true, less the Deletes that return
 // true, is 1 when k is found at the end and 0 otherwise, and m.Len() is that
-// number. Before the flag, S2 stopped at elist.insert.begin before it took u,
-// GD returned true, and S2 went on after step 8: its insert before z failed,
-// and it took u again and linked it, clearing the delete of GD. S1 found u
-// linked and returned false, S2 returned true, and u stayed linked and found
-// while Len did not count it.
+// number.
 func Test_D3G1DeleteBetweenTheCASesAndTheOtherStoreItemAreRefused(t *testing.T) {
 	keys := adjacentKeys(3)
 	items := newStepItems(keys[1:2])

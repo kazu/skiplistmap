@@ -14,19 +14,18 @@ import (
 //  1. GD: m.Delete(k) finds u and stops at map.delete.found, before it
 //     claims u.
 //  2. m.Purge(k) claims u, takes it out of the list and returns true.
-//  3. GS: m.StoreItem(u) takes u for the place between x and z, and stops at
-//     elist.add.cas1, before it links u from x.
+//  3. GS: m.StoreItem(u) clears the delete that the Purge left on u, finds the
+//     place between x and z, and stops at elist.add.cas1, before it links u
+//     from x.
 //  4. m.StoreItem(v) links v between x and z and returns true.
-//  5. GS goes on: its CAS of x.next fails on v, it puts u back, and returns.
-//  6. GD goes on and returns.
+//  5. GS goes on: its CAS of x.next fails on v, it puts u back, finds v with
+//     the key k, stores the value of u into v, and returns true.
+//  6. GD goes on: it claims u, which no list holds, and returns false.
 //
 // The result must be linearizable. GD deletes k only while m holds it: after
 // the store that links k first, and before the other one. So if GD returns
 // true, the item of k at the end is u with the value of u, or v with the value
-// of v. m.Len() counts the keys that m holds at the end. Before the fix, the
-// take of u by GS cleared the delete that the Purge left, and GS stored the
-// value of u into v and returned true; GD then claimed u, which no list held,
-// returned true and counted k out, while m held v with the value of u.
+// of v. m.Len() counts the keys that m holds at the end.
 func Test_G3DeleteStoppedAfterItsLookupLeavesTheItemOfItsKeyStoredMeanwhile(t *testing.T) {
 	keys := adjacentKeys(3)
 	items := newStepItems([]string{keys[1], keys[1]})

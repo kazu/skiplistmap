@@ -58,6 +58,10 @@ import (
 //   - "get.found" (item, nil): _get found item by searchKey; before it compares the reverse and the conflict of item with the key.
 //   - "delete.found" (item, nil): Delete found item by LoadItem; before it runs Delete on item.
 //   - "purge.lenLowered" (item, pool): purgeInEmbedded found item in the last slot of pool and lowered the length of pool over it; before it runs shrinkLen.
+//   - "update.found" (item, nil): _update was given item, the item of the key that Set, StoreItem or storeIntoSameKey found; before it stores the value into item.
+//   - "storeItem.checked" (item, nil): StoreItem found item not linked; before it takes the mapIsBusy of item.
+//   - "delete.claimed" (item, nil): deleteItem, of Delete or Purge, ran claimDelete on the node that FindOrigin returned for item; before it reads the result.
+//   - "item.copy.read" (copy, item): copyFrom read the value and the state of item, whose array the item pool moves to a larger one, to copy them into copy; before it stores them into copy.
 type StepHook func(point string, a, b unsafe.Pointer)
 
 const stepEnabled = true

@@ -11,9 +11,7 @@ import (
 )
 
 // sameItemStores holds a map in which two goroutines stored the same item a
-// at the same time, and a third goroutine storing b, which the Init that the
-// late store of a ran on the linked a stopped between its two CASes before
-// the fix of D3.
+// at the same time, and a third goroutine storing b.
 type sameItemStores struct {
 	m     *WrapHMap
 	s     *stepper
@@ -28,23 +26,16 @@ type sameItemStores struct {
 }
 
 // startSameItemStores runs the steps shared by the tests of H1 and H2 on keys
-// p < c < b < a in a map that holds p, and returns with b stopped at
-// elist.add.rollback, or, since the fix of D3, with b linked.
+// p < c < b < a in a map that holds p, and returns with b linked, or with b
+// stopped at elist.add.rollback when its second CAS fails.
 //
 //  1. G2: StoreItem(a) finds a not linked and stops at map.storeItem.checked,
-//     before it takes the mapIsBusy of a. Before the flag, it stopped at
-//     map.set.beforeInit, after it chose p as the node to find the position
-//     from, before a.Init(); since the flag, G1 returns false there.
+//     before it takes the mapIsBusy of a, so that G1 can take it.
 //  2. G1: StoreItem(a) runs to the end: p -> a -> tail.
 //  3. I3: StoreItem(b) finds a as the position, reads p as its previous node,
 //     moves p.next from a to b by its first CAS and stops at elist.add.cas2.
-//  4. G2 resumes: StoreItem(a) finds a linked by G1 and returns false. Before
-//     the fix of D3 (repro_D3_test.go), a.Init() zeroed the links of the
-//     linked a, and add2 of G2 found no position from p (p -> b -> a, and a
-//     self-linked) and fell back; when it tried to link a again, it stopped
-//     at elist.insert.begin or elist.add.cas1.
-//  5. I3 resumes: its second CAS finds a.prev to be p and links b. Before the
-//     fix of D3, it found 0, failed, and stopped at elist.add.rollback.
+//  4. G2 resumes: StoreItem(a) finds a linked by G1 and returns false.
+//  5. I3 resumes: its second CAS finds a.prev to be p and links b.
 func startSameItemStores(t *testing.T) *sameItemStores {
 	t.Helper()
 	x := &sameItemStores{keys: adjacentKeys(4), m: newStepMap()}
@@ -83,7 +74,7 @@ func startSameItemStores(t *testing.T) *sameItemStores {
 		t.Logf("late StoreItem(a) stopped before linking a again")
 	}
 	if !x.a.IsSingle() {
-		t.Logf("a is not unlinked after the late StoreItem(a) ran Init on it")
+		t.Logf("a stays linked after the late StoreItem(a)")
 	}
 
 	cas2.Release()
@@ -116,8 +107,7 @@ func (x *sameItemStores) logKeys(t *testing.T) {
 }
 
 // check reports a break of the entry list and each of the stored keys that
-// Get cannot find. It does not check Len: each of the two StoreItem(a) adds 1
-// to it.
+// Get cannot find.
 func (x *sameItemStores) check(t *testing.T, stored ...string) {
 	t.Helper()
 	if err := skiplistmap.StepCheckLists(x.m.base); err != nil {
@@ -130,24 +120,18 @@ func (x *sameItemStores) check(t *testing.T, stored ...string) {
 	}
 }
 
-// H1: skiplistmap4 has a scene other than the three that the report lists
-// where the second CAS of an insertion fails: two goroutines storing the same
-// item a at the same time. Keys p < c < b < a, the map holds p.
+// H1: a scene other than the three that the report lists for the second CAS
+// of an insertion: two goroutines store the same item a at the same time,
+// while the insert of b before a is between its two CASes. Keys p < c < b < a,
+// the map holds p.
 //
-// After the steps of startSameItemStores, b is stopped before the rollback
-// CAS, with p.next == b and b.next == a. Since the fix of D3 the late
-// StoreItem(a) returns false and b is linked: the steps below do not happen,
-// and the test checks that the list stays whole.
+// After the steps of startSameItemStores, b is linked: p -> b -> a.
 //
 //  6. I4: StoreItem(c) finds b as the position after p, reads p as the
 //     previous node of b, and links c: p.next from b to c, b.prev from p to c.
-//  7. I3 resumes: the rollback CAS expects p.next to be b, finds c, fails, and
-//     rollback(b) still zeroes the links of b. add2 of b retries from p and
-//     stops at the self-linked b: p -> c -> b, with b unlinked, and
-//     StoreItem(b) returns true.
 //
-// This is the break of 3.4.12: the entry list stops at b before its tail, and
-// a and b cannot be found.
+// The entry list must then be whole and hold p, c, b and a. In the break of
+// 3.4.12, it stops at b before its tail, and a and b cannot be found.
 func Test_StepStoreSameItemConcurrentlyRollbackFails(t *testing.T) {
 	x := startSameItemStores(t)
 	x.logKeys(t)

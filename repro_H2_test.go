@@ -4,25 +4,15 @@ package skiplistmap_test
 
 import "testing"
 
-// H2: 3.4.9 happens inside the map under the conditions of the report (3.2.1,
-// 3.2.5 and 2.3 fixed, no StoreItem again after Delete, 3.1.2 not fixed by
+// H2: 3.4.9 inside the map under the conditions of the report (3.2.1, 3.2.5
+// and 2.3 fixed, no StoreItem again after Delete, 3.1.2 not fixed by
 // freezing): two goroutines store the same item a at the same time. Keys
 // p < c < b < a, the map holds p; c is not stored.
 //
-// After the steps of startSameItemStores, b is stopped before the rollback
-// CAS, with p.next == b, b.next == a, and a unlinked by the Init of the late
-// StoreItem(a). Since the fix of D3 the late StoreItem(a) returns false
-// without the Init and b is linked: the steps below do not happen, and the
-// test checks that the list stays whole.
-//
-//  6. I3 resumes: the rollback CAS moves p.next from b back to a, which is no
-//     longer linked. rollback(b) zeroes the links of b. add2 of b retries from
-//     p and stops at the self-linked a: no position, and StoreItem(b) returns
-//     true with b unlinked.
-//
-// This is the break of 3.4.9: p.next points to a node that Init unlinked, the
-// entry list stops at a before its tail, and b cannot be found although
-// StoreItem(b) returned true.
+// After the steps of startSameItemStores, b is linked: p -> b -> a. b must be
+// linked, and the entry list must be whole and hold p, b and a. In the break
+// of 3.4.9, p.next leads to a node out of the list, the entry list stops there
+// before its tail, and b cannot be found although StoreItem(b) returned true.
 func Test_StepStoreSameItemConcurrentlyInitsLinkedNext(t *testing.T) {
 	x := startSameItemStores(t)
 	x.logKeys(t)

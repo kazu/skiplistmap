@@ -436,7 +436,6 @@ SKIP_FETCH_BUCKET:
 	}
 
 	stepAt("set.beforeInit", unsafe.Pointer(item.PtrListHead()), unsafe.Pointer(tStart))
-	stepAt("set.checked", unsafe.Pointer(item.PtrListHead()), unsafe.Pointer(tStart))
 	atomic.AndUint32((*uint32)(&item.PtrMapHead().state), ^uint32(mapIsDeleted))
 	// the marks of an item that the item pool moves stay; add2 links its
 	// copy. An item of StoreItem is not cleared: StoreItem found it not
@@ -1920,11 +1919,10 @@ func (h *Map) _searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketE
 //
 // Delete returns false when it does not find key, or when another Delete or
 // Purge of key deleted its item first. Without UseEmbeddedPool, it returns
-// false also, doing nothing, while another call is working on the item of
-// key: a StoreItem or a Set of the item, which Get may find before it
-// returns, or a StoreItem of the item that returns false as the item is
-// linked already. It returns false, doing nothing, also when the item left
-// the map after Delete found it.
+// false also, doing nothing, when the item left the map after Delete found
+// it, and while another call is working on the item of key: a StoreItem or a
+// Set of the item, which Get may find before it returns, or a StoreItem of
+// the item that returns false as the item is linked already.
 func (h *Map) Delete(key interface{}) bool {
 	_, _, mh, ok := h.deleteItem(key)
 	if mh != nil {

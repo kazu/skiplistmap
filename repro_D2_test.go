@@ -17,8 +17,8 @@ import (
 // old array O to C in the new one. GA deletes k: it finds O, claims it, and
 // waits for the expand to end before it deletes C too. G0 ends the expand,
 // and GB deletes k: it finds C, which the copy made before the claim of GA,
-// and claims C. One of the two Delete must return false, and Len must go
-// down by one; both returned true and Len went down by two.
+// and claims O, the origin of C. One of the two Delete must return false, and
+// Len must go down by one.
 func Test_D2DeletesAcrossAnExpandBothReturnTrue(t *testing.T) {
 	holdPoolArrays(t)
 	n := skiplistmap.CntOfPersamepleItemPool
@@ -102,8 +102,7 @@ func Test_D2DeleteOfTheCopyGetsAheadOfTheOldItem(t *testing.T) {
 // D2 and the GC: GA finds k in the copy C after the expand ended, claims the
 // origin O of C in the old array, and stops before it deletes C. Nothing but
 // GA keeps the old array then. A GC must not take it: GB, which finds C too,
-// must claim O and lose. When a GC took the old array, the move was
-// forgotten, GB claimed C itself, and both Delete returned true.
+// must claim O and lose.
 func Test_D2OriginStaysUntilTheCopyIsDeleted(t *testing.T) {
 	holdPoolArrays(t)
 	n := skiplistmap.CntOfPersamepleItemPool
@@ -142,8 +141,6 @@ func Test_D2OriginStaysUntilTheCopyIsDeleted(t *testing.T) {
 // A Delete that lost its claim must not touch an item stored again: GB finds
 // u, an item of StoreItem, and stops; a Purge of the key of u returns true,
 // and GB then loses its claim on u; StoreItem stores u again, and GB goes on.
-// GB marked u deleted before it returned false, and the key of u, linked
-// again, was not found.
 func Test_D2LostDeleteLeavesAnItemStoredAgain(t *testing.T) {
 	keys := adjacentKeys(2)
 	items := newStepItems(keys[:1])
@@ -177,8 +174,7 @@ func Test_D2LostDeleteLeavesAnItemStoredAgain(t *testing.T) {
 // item it found: GL finds k in the old array, x, and stops; the pool grows;
 // GW finds the copy x', claims the origin x, which is the item of GL, and
 // stops before it marks the line; GL loses its claim and returns false.
-// Get(k) must not find k then. GL returned at once as its item was the
-// origin, and Get found x'.
+// Get(k) must not find k then.
 func Test_D2LostDeleteDeletesTheCopiesOfItsItem(t *testing.T) {
 	holdPoolArrays(t)
 	n := skiplistmap.CntOfPersamepleItemPool
@@ -220,8 +216,7 @@ func Test_D2LostDeleteDeletesTheCopiesOfItsItem(t *testing.T) {
 // before its claim. The pool grows again, and GA deletes k from the second
 // copy x2, claiming the origin x in the first array. A GC then takes the
 // first array, and GB claims x1, the oldest node of the line still kept: GA
-// marked it deleted before it let x go, and GB must return false. GA used to
-// mark only x2, and GB returned true too.
+// marked it deleted before it let x go, and GB must return false.
 func Test_D2DeleteOfAMiddleCopyAfterTheOriginIsGone(t *testing.T) {
 	holdPoolArrays(t)
 	n := skiplistmap.CntOfPersamepleItemPool

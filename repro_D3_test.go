@@ -15,12 +15,6 @@ import (
 // takes the mapIsBusy of a: G2 links a, and when G1 goes on, it must return
 // false, as it does when it runs after G2. When busy is set, G1 stops holding
 // the mapIsBusy of a: G2 must return false, and G1 links a when it goes on.
-// Before the fix of D3, G2 linked a in both cases, and G1 returned true: at
-// map.storeItem.checked, the lookup of the key found a itself and stored the
-// value of a into it; at map.set.checked, the Init of a cut a out of the list
-// of G2; at map.add2.found, add2 took a out of that list and linked it again;
-// at elist.insert.begin, the insert took the links that G2 wrote as its own
-// and relinked a, leaving the neighbors of a in that list leading to it.
 func testD3StoreItemAtOnce(t *testing.T, point string, same, busy bool) {
 	keys := adjacentKeys(2)
 	items := newStepItems(keys[:1])
@@ -59,7 +53,7 @@ func testD3StoreItemAtOnce(t *testing.T, point string, same, busy bool) {
 }
 
 func Test_D3StoreItemIntoTwoMapsAfterTheCheck(t *testing.T) {
-	testD3StoreItemAtOnce(t, "map.set.checked", false, true)
+	testD3StoreItemAtOnce(t, "map.set.beforeInit", false, true)
 }
 
 func Test_D3StoreItemIntoTwoMapsAfterTheFind(t *testing.T) {
@@ -75,7 +69,7 @@ func Test_D3StoreItemTwiceIntoOneMapBeforeTheLookup(t *testing.T) {
 }
 
 func Test_D3StoreItemTwiceIntoOneMapAfterTheCheck(t *testing.T) {
-	testD3StoreItemAtOnce(t, "map.set.checked", true, true)
+	testD3StoreItemAtOnce(t, "map.set.beforeInit", true, true)
 }
 
 func Test_D3StoreItemTwiceIntoOneMapBeforeTheLink(t *testing.T) {
@@ -208,8 +202,7 @@ func testD3StoreItemRefusesADeleteBetweenTheCASesOfItsInsert(t *testing.T, purge
 // puts u back; GQ then ends, and G1 takes u again for the place before zz and
 // stops before it links u. GP goes on: G1 holds the mapIsBusy of u, so GP
 // must return false without clearing the links of u. G1 then links u, and
-// the list must hold x, u and zz. Before the flag, GP cleared the links that
-// G1 had taken, and G1 then linked u with links that lead to u itself.
+// the list must hold x, u and zz.
 func Test_D3StoreItemTakingItsItemAgainRefusesAPurgeThatFoundItBefore(t *testing.T) {
 	keys := adjacentKeys(4)
 	items := newStepItems(keys[1:2])
@@ -251,8 +244,8 @@ func Test_D3StoreItemTakingItsItemAgainRefusesAPurgeThatFoundItBefore(t *testing
 
 // Items u and w have the same key. G1 stores u into m1 and stops after it
 // found u not linked. u is stored into m2, and w into m1. When G1 goes on, it
-// must return false and leave the value of w, as u is linked into m2: it found
-// w, stored the value of u into it and returned true.
+// takes the mapIsBusy of u and finds u linked into m2: it must return false
+// and leave the value of w.
 func Test_D3StoreItemOfAnItemLinkedMeanwhileLeavesTheItemOfItsKey(t *testing.T) {
 	keys := adjacentKeys(1)
 	items := newStepItems([]string{keys[0], keys[0]})

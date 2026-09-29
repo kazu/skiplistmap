@@ -193,6 +193,64 @@ func testD3StoreItemKeepsADeleteBetweenTheCASesOfItsInsert(t *testing.T, purge b
 	assertStoredInOrder(t, m, keys[:1])
 }
 
+// Keys x < u < z lie in the last bucket; the map holds x and z. G1 stores u
+// and stops before add2 looks for the position from x; G2 purges x. G1 then
+// inserts u after the dummy of the bucket and stops after it linked u from
+// the dummy. G3 purges the key of u and stops after it marked u; G4 purges z
+// and stops after it marked z, so that the insert fails. G1 then goes to the
+// insert before the last dummy. u must stay out of the list once G3 returns:
+// G1 linked u again there, deleted, and nothing could take it out.
+func Test_D3StoreItemKeepsAPurgeBeforeItsInsertAtTheTail(t *testing.T) {
+	keys := regionKeys(0xf, 0xf, 3)
+	items := newStepItems(keys[1:2])
+	u := &items[0]
+	m := newStepMap()
+	setKeys(t, m, []string{keys[0], keys[2]})
+	xItem, ok := m.base.LoadItem(keys[0])
+	if !ok {
+		t.Fatalf("LoadItem(x) not found")
+	}
+	x := nodeOf(xItem.(*skiplistmap.SampleItem))
+	zItem, ok := m.base.LoadItem(keys[2])
+	if !ok {
+		t.Fatalf("LoadItem(z) not found")
+	}
+	z := nodeOf(zItem.(*skiplistmap.SampleItem))
+
+	s := newStepper(t)
+	st1 := s.stopAt("map.find.begin", isNode(x))
+	done1 := goStep(t, func() { m.base.StoreItem(u) })
+	st1.waitReached(t, done1)
+	if !m.base.Purge(keys[0]) {
+		t.Fatalf("Purge(x) returned false")
+	}
+	cas2 := s.stopAt("elist.add.cas2", isNode(nodeOf(u)))
+	st1.Release()
+	cas2.waitReached(t, done1)
+	st3 := s.stopAt("elist.del.marked", isNode(nodeOf(u)))
+	done3 := goStep(t, func() { m.base.Purge(keys[1]) })
+	st3.waitReached(t, done3)
+	st3.Release()
+	st4 := s.stopAt("elist.del.marked", isNode(z))
+	done4 := goStep(t, func() { m.base.Purge(keys[2]) })
+	st4.waitReached(t, done4)
+	tail := s.stopAt("map.add2.tailInsert", isNode(nodeOf(u)))
+	cas2.Release()
+	select {
+	case <-tail.reached:
+	case <-done1:
+	}
+	st4.Release()
+	waitDone(t, done4, "Purge(z)")
+	waitDone(t, done3, "Purge(u)")
+	tail.Release()
+	waitDone(t, done1, "StoreItem(u)")
+
+	if !u.PtrListHead().IsSingle() {
+		t.Errorf("u is linked after Purge(u) returned")
+	}
+}
+
 func Test_D3StoreItemKeepsADeleteBetweenTheCASesOfItsInsert(t *testing.T) {
 	testD3StoreItemKeepsADeleteBetweenTheCASesOfItsInsert(t, false)
 }

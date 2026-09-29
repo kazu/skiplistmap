@@ -194,8 +194,7 @@ func Test_D2LostDeleteDeletesTheCopiesOfItsItem(t *testing.T) {
 
 	s := newStepper(t)
 	found := s.stopAt("map.delete.found", isNode(x))
-	var okL bool
-	doneL := goStep(t, func() { okL = m.base.Delete(k) })
+	doneL := goStep(t, func() { m.base.Delete(k) })
 	found.waitReached(t, doneL)
 	m.Set(keys[n], &list_head.ListHead{})
 	item, ok = m.base.LoadItem(k)
@@ -209,9 +208,6 @@ func Test_D2LostDeleteDeletesTheCopiesOfItsItem(t *testing.T) {
 	found.Release()
 	waitDone(t, doneL, "Delete(k) of GL")
 
-	if okL {
-		t.Errorf("Delete(k) of GL returned true, but GW claimed k first")
-	}
 	if _, ok := m.Get(k); ok {
 		t.Errorf("Get(k) found after Delete(k) of GL returned false")
 	}

@@ -876,8 +876,9 @@ func (h *Map) Set(key, value interface{}) bool {
 // holds only offsets to item, which the GC does not follow, so the caller
 // must keep item reachable while it is linked: until Purge of its key
 // returns, or until the caller stops using the map. Delete leaves item
-// linked, and a Purge after Delete does not find it, so an item that Delete
-// removed stays linked as long as the map is used.
+// linked, unless it finds item while a StoreItem of item is still linking it,
+// and a Purge after Delete does not find it: keep an item that Delete removed
+// reachable as long as the map is used.
 // Otherwise the map links freed memory (a dangling reference). The map never
 // moves item. If the key is already present, only the value is stored into
 // the existing item, and item is not linked. StoreItem returns false for an
@@ -1164,14 +1165,22 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 		}
 	}
 
+	// deleted reports whether e was stored, and deleted before an insert of
+	// it failed: linking it again would undo the delete. It is asked before
+	// each insert that may take e again.
+	deleted := func() bool {
+		if taken && atomic.LoadUint32(state)&uint32(mapIsDeleted) != 0 {
+			opt.user.deleted = true
+			return true
+		}
+		return false
+	}
+
 RETRY:
 	// the item pool moves e to a larger array before e is linked: the copy
 	// is linked instead
 	e = movedEntry(e)
-	if taken && atomic.LoadUint32(state)&uint32(mapIsDeleted) != 0 {
-		// e was stored, and deleted before its insert failed: linking it
-		// again would undo the delete
-		opt.user.deleted = true
+	if deleted() {
 		return true
 	}
 	if opt != nil && opt.user != nil && !e.PtrListHead().IsSingle() {
@@ -1283,6 +1292,10 @@ RETRY:
 	})
 	if pos != nil {
 		goto RETRY
+	}
+	// the insert after the dummy of the bucket may have taken e and failed
+	if deleted() {
+		return true
 	}
 
 	if stepEnabled {

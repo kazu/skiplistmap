@@ -17,7 +17,7 @@ const (
 )
 
 type bucket struct {
-	_level  int32
+	_level  int32 // < 0 while a split builds the slot; lookups skip level() <= 0
 	_len    int32
 	reverse uint64
 	dummy   entryHMap
@@ -116,7 +116,7 @@ func (b *bucket) len() int32 {
 	if b._itemPool == nil && b.itemPoolFn == nil {
 		return atomic.LoadInt32(&b._len)
 	}
-	return int32(len(b.itemPool().items))
+	return int32(b.itemPool().ptrItems().Len())
 
 }
 
@@ -314,23 +314,24 @@ func (o *commonOpt) Option(opts ...cOptFn) (prevs []cOptFn) {
 
 func (b *bucket) largestDown(ignoreNoPool, ignoreNoInitDummy bool) *bucket {
 
-	if len(b.downLevels) == 0 {
+	downs := b.ptrDownLevels()
+	if downs.Cap() == 0 {
 		return b
 	}
 
-	for i := len(b.downLevels) - 1; i > -1; i-- {
-
-		if b.downLevels[i].level() == 0 || b.downLevels[i].reverse == 0 {
+	for i := downs.Len() - 1; i > -1; i-- {
+		down := downs.at(i)
+		if down.level() <= 0 || down.reverse == 0 {
 			continue
 		}
 		//FIXME: should not lookup direct
-		if ignoreNoPool && b.downLevels[i]._itemPool == nil {
+		if ignoreNoPool && down._itemPool == nil {
 			continue
 		}
-		if ignoreNoInitDummy && b.downLevels[i].state != bucketStateActive {
+		if ignoreNoInitDummy && down.state != bucketStateActive {
 			continue
 		}
-		return b.downLevels[i].largestDown(ignoreNoPool, ignoreNoInitDummy)
+		return down.largestDown(ignoreNoPool, ignoreNoInitDummy)
 	}
 	return b
 }
@@ -430,6 +431,17 @@ func (b *bucket) setLevel(l int32) (prev int32) {
 func (b *bucket) level() (prev int32) {
 
 	return atomic.LoadInt32(&b._level)
+}
+
+// childLevel returns the level of the buckets in the downLevels of b. The
+// level of b is negative while its split is not finished, so it is read as
+// its absolute value.
+func (b *bucket) childLevel() int32 {
+	l := b.level()
+	if l < 0 {
+		l = -l
+	}
+	return l + 1
 }
 
 type bucketSlice struct {

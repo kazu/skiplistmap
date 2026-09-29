@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/kazu/elist_head"
@@ -23,6 +25,12 @@ const (
 	CmdClose
 )
 const cntOfPoolMgr = 8
+
+// poolIndex returns the index of the pool list of a Pool that holds the items
+// of the keys of reverse: the keys of one top 4 bits share a pool.
+func poolIndex(reverse uint64) uint64 {
+	return reverse >> (4 * 15) % cntOfPoolMgr
+}
 
 var UseGoroutineInPool bool = false
 
@@ -70,13 +78,28 @@ func (p *Pool) startMgr() {
 
 func (p *Pool) Get(reverse uint64, fn successFn) {
 
-	idx := (reverse >> (4 * 15) % cntOfPoolMgr)
+	idx := poolIndex(reverse)
 
 	if !UseGoroutineInPool {
-		p := samepleItemPoolFromListHead(p.itemPool[idx].Next())
-		e, _, mu := p.Get()
-		fn(e, mu)
-		return
+		for retry := 0; ; retry++ {
+			if retry > 0 {
+				runtime.Gosched()
+			}
+			head := p.itemPool[idx].Next()
+			if head.Empty() {
+				// the list has no pool; an expand is replacing one
+				continue
+			}
+			p := samepleItemPoolFromListHead(head)
+			stepAt("pool.get.pool", unsafe.Pointer(&p.ListHead), nil)
+			e, _, mu := p.Get()
+			if e == nil {
+				// the pool was expanded meanwhile
+				continue
+			}
+			fn(e, mu)
+			return
+		}
 	}
 
 	p.mgrCh[idx] <- poolReq{
@@ -87,7 +110,7 @@ func (p *Pool) Get(reverse uint64, fn successFn) {
 
 func (p *Pool) Put(item MapItem) {
 	reverse := item.PtrMapHead().reverse
-	idx := reverse >> (4 * 15)
+	idx := poolIndex(reverse)
 
 	if !UseGoroutineInPool {
 		p := samepleItemPoolFromListHead(p.itemPool[idx].Next())
@@ -115,6 +138,9 @@ type samepleItemPool struct {
 	freeHead elist_head.ListHead
 	freeTail elist_head.ListHead
 	items    []SampleItem
+	// expanded is set under mu once _expand has replaced the pool, so that
+	// a Get that waited for mu does not expand it again
+	expanded atomic.Bool
 	list_head.ListHead
 }
 
@@ -147,9 +173,6 @@ func (sp *samepleItemPool) _init(cap int) {
 	elist_head.InitAsEmpty(&sp.freeHead, &sp.freeTail)
 
 	sp.items = make([]SampleItem, 0, cap)
-	if !list_head.MODE_CONCURRENT {
-		list_head.MODE_CONCURRENT = true
-	}
 	//sp.Init()
 }
 
@@ -215,11 +238,14 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker
 	var mu *trylock.Mutex
 	var i int
 	var new2 *SampleItem
-	if pItems.Cap() <= pItems.Len() {
+	// read the length once: the CAS below raises it from this value, and
+	// another Get may take the last item between two reads
+	i = pItems.Len()
+	if pItems.Cap() <= i {
 		goto EXPAND
 	}
-	i = pItems.Len()
 	if i+1 == pItems.Cap() {
+		stepAt("pool.lastSlot", unsafe.Pointer(sp), nil)
 		mu = &sp.mu
 		mu.Lock()
 		if i+1 != pItems.Cap() {
@@ -229,15 +255,18 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker
 		}
 	}
 	if !atomic_util.CompareAndSwapInt(&pItems.len, i, i+1) {
-		Log(LogWarn, "fail to increment pItem.len=%d pItem.cap=%d i=%d", pItems.len, pItems.cap, i)
-		if sp.mu.TryLock() {
-			sp.mu.Unlock()
+		Log(LogWarn, "fail to increment pItem.len=%d pItem.cap=%d i=%d", pItems.Len(), pItems.Cap(), i)
+		// the lock of the last item taken above is this Get's own; the
+		// retry takes it again
+		if mu != nil {
+			mu.Unlock()
 		}
 		new, isExpanded, lock = sp.Get()
 		return
 	}
 	new2 = (*pItems).at(i)
-	new2.Init()
+	// an expand that started after the CAS above may have marked the item
+	new2.InitUnmarked()
 	if mu != nil {
 		new, isExpanded, lock = new2, false, mu
 		return
@@ -246,9 +275,11 @@ func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker
 	return
 
 EXPAND:
+	stepAt("pool.get.expand", unsafe.Pointer(sp), nil)
 
-	// found next pool
-	if nsp := sp.DirectNext(); nsp.DirectNext() != nsp {
+	// found next pool; the node, not the link with the mark of a delete
+	if nsp := sp.Next(); !nsp.Empty() {
+		stepAt("pool.get.nextPool", unsafe.Pointer(sp), unsafe.Pointer(nsp))
 		return samepleItemPoolFromListHead(nsp).Get()
 	}
 
@@ -258,10 +289,12 @@ EXPAND:
 	}
 	nPool, err := sp._expand()
 	if err != nil {
-		panic("already deleted")
+		// another Get expanded sp meanwhile; the caller starts again from
+		// the pool list
+		return nil, false, nil
 	}
-	new, _, _ = nPool.Get()
-	return new, isExpanded, nil
+	new, _, lock = nPool.Get()
+	return new, isExpanded, lock
 
 }
 
@@ -285,38 +318,44 @@ func (sp *samepleItemPool) DumpExpandInfo(w io.Writer, outers []unsafe.Pointer, 
 
 func (sp *samepleItemPool) _expand() (*samepleItemPool, error) {
 
+	stepAt("pool.expand.begin", unsafe.Pointer(sp), nil)
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
-
-	olen := len(sp.items)
-	empty := elist_head.ListHead{}
-	if sp.items[olen-1].ListHead == empty {
-		Log(LogError, "last item must not be empty")
+	if sp.expanded.Load() {
+		return nil, EPoolAlreadyDeleted
 	}
 
 	nPool := &samepleItemPool{}
 	_ = nPool
 	var e error
-	var pOpts []list_head.TravOpt
 	var next *list_head.ListHead
 	a := samepleItemPool{}
 	if sp.ListHead == a.ListHead {
 		goto NO_DELETE
 	}
 	next = sp.Next()
-	pOpts = list_head.DefaultModeTraverse.Option(list_head.WaitNoM())
-	e = sp.MarkForDelete()
-	if e != nil {
-		return nil, EPoolAlreadyDeleted
-	}
 NO_DELETE:
 
 	elist_head.InitAsEmpty(&nPool.freeHead, &nPool.freeTail)
 
 	nCap := PoolCap(len(sp.items))
 
-	nPool.items = make([]SampleItem, 0, nCap)
-	nPool.items = append(nPool.items, sp.items...)
+	nPool.items = make([]SampleItem, len(sp.items), nCap)
+	// the old items get the mark of a delete and the copies their links.
+	// The items that are linked are copied after that: their Set wrote
+	// them before it linked them
+	move := elist_head.FreezeSlice(
+		unsafe.Pointer(&sp.items[0]),
+		unsafe.Pointer(&sp.items[len(sp.items)-1]),
+		unsafe.Pointer(&nPool.items[0]),
+		int(SampleItemSize),
+		int(SampleItemOffsetOf))
+	for i := range sp.items {
+		if move.Linked(i) {
+			nPool.items[i].copyFrom(&sp.items[i])
+		}
+	}
+	stepAt("pool.expand.copied", unsafe.Pointer(sp), unsafe.Pointer(nPool))
 
 	// for debugging
 	var outers []unsafe.Pointer
@@ -331,16 +370,7 @@ NO_DELETE:
 		sp.DumpExpandInfo(&b, outers, "B:rewrite reverse=0x%x\n", &sp.items[0].reverse)
 	}
 
-	err := elist_head.RepaireSliceAfterCopy(
-		unsafe.Pointer(&sp.items[0]),
-		unsafe.Pointer(&sp.items[len(sp.items)-1]),
-		unsafe.Pointer(&nPool.items[0]),
-		int(SampleItemSize),
-		int(SampleItemOffsetOf))
-
-	if err != nil {
-		return nil, EPoolExpandFail
-	}
+	move.Relink()
 
 	// for debugging
 	if IsDebug() {
@@ -350,15 +380,24 @@ NO_DELETE:
 
 	nPool.Init()
 
-	//FIXME: check
-	next.InsertBefore(&nPool.ListHead)
-	list_head.DefaultModeTraverse.Option(pOpts...)
+	// link the new pool after sp before sp leaves the pool list, so that a
+	// Get walking the list always finds a pool there
+	if next != nil {
+		next.InsertBefore(&nPool.ListHead)
+		e = sp.MarkForDelete()
+		if e != nil {
+			return nil, EPoolAlreadyDeleted
+		}
+		stepAt("pool.expand.marked", unsafe.Pointer(sp), nil)
+	}
+	stepAt("pool.expand.beforeSafety", unsafe.Pointer(sp), unsafe.Pointer(nPool))
 	if ok, _ := sp.IsSafety(); ok {
 		sp.Init()
 	} else {
 		sp.IsSafety()
 		Log(LogWarn, "old sampleItem pool is not safety")
 	}
+	sp.expanded.Store(true)
 	return nPool, nil
 }
 

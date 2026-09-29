@@ -18,6 +18,7 @@ import (
 
 func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
 
+	stepAt("bsearch.begin", unsafe.Pointer(bucket), nil)
 	pool := bucket.toBase().itemPool()
 	// FIXME: why fail to get
 	if pool == nil {
@@ -26,33 +27,49 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 	// MENTION: should remove 0 slice ?
 	//items := pool.itemSlice(false)
 	items := pool.ptrItems()
-	l := items.Len()
+	// insertToPool may put a new array into the pool while the search reads
+	// the old one; the search starts again when the array changed under it
+	for {
+		data := atomic.LoadPointer(&items.data)
+		l := items.Len()
 
-	idx := sort.Search(l, func(i int) bool {
-		item := items._at(i, true, true)
-		if item == nil {
-			return true
+		idx := sort.Search(l, func(i int) bool {
+			item := items._at(i, true, true)
+			if item == nil {
+				return true
+			}
+			return atomic.LoadUint64(&item.reverse) >= reverseNoMask
+			//return items.reverseAt(i) >= reverseNoMask
+		})
+		stepAt("bsearch.searched", unsafe.Pointer(bucket), nil)
+		// Equal reverses sit next to each other; a purged placeholder may
+		// precede the live entry of the same key, so skip ignored matches.
+		var found *SampleItem
+		for ; idx < l && items.reverseAt(idx) == reverseNoMask; idx++ {
+			item := items._at(idx, true, false)
+			if item == nil {
+				break
+			}
+			if ignoreBucketEnry && item.IsIgnored() {
+				continue
+			}
+			found = item
+			break
 		}
-		return atomic.LoadUint64(&item.reverse) >= reverseNoMask
-		//return items.reverseAt(i) >= reverseNoMask
-	})
-	// Equal reverses sit next to each other; a purged placeholder may precede
-	// the live entry of the same key, so skip ignored matches.
-	for ; idx < l && items.reverseAt(idx) == reverseNoMask; idx++ {
-		item := items._at(idx, true, false)
-		if item == nil {
-			return nil
-		}
-		if ignoreBucketEnry && item.IsIgnored() {
+		if atomic.LoadPointer(&items.data) != data {
 			continue
 		}
-		return item
+		if found != nil {
+			return found
+		}
+		break
 	}
 
 	a := bucket.toBase().prevAsB()
-	_ = a
 	if a.reverse < reverseNoMask {
-		h.findBucket(reverseNoMask)
+		if nb := h.findBucket(reverseNoMask); nb.toBase() != bucket.toBase() {
+			return h.bsearchBybucket(nb, reverseNoMask, ignoreBucketEnry)
+		}
 	}
 
 	return nil
@@ -76,9 +93,7 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 	if newReverse&1 > 0 {
 		newReverse++
 	}
-	// Decide whether a split is possible before touching the bucket table:
-	// bucketFromPoolEmbedded marks the slot as a live bucket (level, reverse),
-	// and a slot left without a pool sends every lookup into itemPool() forever.
+	// Decide whether a split is possible before claiming a slot of the bucket table.
 	idx, err := bucket.itemPool().findIdx(newReverse)
 	if err != nil || idx == 0 {
 		return err
@@ -88,6 +103,7 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 	if b == nil {
 		return ErrBucketAllocatedFail
 	}
+	stepAt("makeBucket2.got", unsafe.Pointer(b), unsafe.Pointer(bucket))
 
 	if b.reverse == 0 && b.level() > 1 {
 		err = NewError(EBucketInvalid, "bucket.reverse = 0. but level 1= 1", nil)
@@ -106,32 +122,24 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 	atomic.StoreInt32(&b._len, int32(olen-idx))
 
 	h.addBucket(b)
-
-	nextLevel := h.findNextLevelBucket(b.reverse, b.level())
+	stepAt("makeBucket2.added", unsafe.Pointer(b), unsafe.Pointer(bucket))
+	if l := b.level(); l < 0 {
+		b.setLevel(-l)
+	}
+	spItems := bucket.itemPool().ptrItems()
+	atomic_util.StoreInt(&spItems.len, idx)
+	atomic_util.StoreInt(&spItems.cap, idx)
 
 	if b.LevelHead.DirectNext() == &b.LevelHead {
 		Log(LogWarn, "bucket.LevelHead is pointed to self")
 	}
 
-	if nextLevel != nil {
-
-		nextLevelBucket := bucketFromLevelHead(nextLevel)
-		if nextLevelBucket.reverse < b.reverse {
-			nextLevel.InsertBefore(&b.LevelHead)
-		} else if nextLevelBucket.reverse != b.reverse {
-
-			nextnextBucket := bucketFromLevelHead(nextLevel.Next())
-			_ = nextnextBucket
-			nextLevel.DirectNext().InsertBefore(&b.LevelHead)
-		}
-
-	} else {
-		Log(LogWarn, "not found level bucket.")
-	}
+	h.insertOnLevel(b, b.level(), "makeBucket2.levelFound", unsafe.Pointer(b))
 	if b.LevelHead.Next() == &b.LevelHead {
 		Log(LogWarn, "bucket.LevelHead is pointed to self")
 	}
 
+	stepAt("makeBucket2.recurse", unsafe.Pointer(bucket), unsafe.Pointer(b))
 	if int(b.len()) > h.maxPerBucket {
 		h.makeBucket2(b)
 	} else if int(bucket.len()) > h.maxPerBucket {
@@ -143,6 +151,7 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 
 func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 
+	claimed := false
 	level := int32(0)
 	for cur := bits.Reverse64(reverse); cur != 0; cur >>= 4 {
 		level++
@@ -161,13 +170,15 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 		// init downLevels[0]
 		if downs == nil || atomic_util.CompareAndSwapInt(&downs.cap, 0, 1) {
 			//if cap(b.downLevels) == 0 {
-			b.downLevels = make([]bucket, 0, 16)
+			downLevels := make([]bucket, 0, 16)
+			atomic.StorePointer(&downs.data, unsafe.Pointer(unsafe.SliceData(downLevels)))
+			atomic_util.StoreInt(&downs.cap, cap(downLevels))
 			downs = b.ptrDownLevels()
 			if atomic_util.LoadInt(&downs.len) == 1 {
 				goto SKIP_FIRST_DOWN_INIT
 			}
 			firstDown := downs._at(0, false)
-			firstDown.setLevel(b.level() + 1)
+			firstDown.setLevel(b.childLevel())
 			firstDown.reverse = b.reverse
 			firstDown.Init()
 			firstDown.LevelHead.Init()
@@ -177,19 +188,7 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 				b.setItemPool(p)
 			}
 
-			lCur := h.levelBucket(l)
-			if lCur.LevelHead.Empty() {
-				lCur = bucketFromLevelHead(lCur.LevelHead.DirectPrev().DirectNext())
-			}
-			for ; lCur != lCur.NextOnLevel(); lCur = lCur.NextOnLevel() {
-				if lCur.LevelHead.Empty() {
-					break
-				}
-				if lCur.reverse < b.reverse {
-					break
-				}
-			}
-			lCur.LevelHead.InsertBefore(&firstDown.LevelHead)
+			h.insertOnLevel(firstDown, l, "bucketFromPoolEmbedded.levelFound", unsafe.Pointer(b))
 			if !atomic_util.CompareAndSwapInt(&downs.len, 0, 1) {
 				panic("this must not be reached")
 			}
@@ -206,20 +205,34 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 			Log(LogWarn, "downs.len is updated. retry")
 		}
 
-		// init downLevels[idx]
+		// init downLevels[idx]; of two splits of the same gap, the one that
+		// sets the level of the element takes it
 		if downs.at(idx).level() == 0 {
+			if stepEnabled {
+				stepAt("bucketFromPoolEmbedded.claim", unsafe.Pointer(downs.at(idx)), unsafe.Pointer(b))
+			}
 			if l != level {
 				Log(LogWarn, "not collected already inited")
 			}
-			downs.at(idx).setLevel(b.level() + 1)
+			if !atomic.CompareAndSwapInt32(&downs.at(idx)._level, 0, -b.childLevel()) {
+				// another split took the element
+				return nil
+			}
 			downs.at(idx).reverse = b.reverse | (uint64(idx) << (4 * (16 - l)))
 			b = downs.at(idx)
+			stepAt("bucketFromPoolEmbedded.claimed", unsafe.Pointer(b), nil)
 			if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {
 				Log(LogWarn, "already inited")
 			}
+			claimed = true
 			break
 		}
 		b = downs.at(idx)
+	}
+	if !claimed {
+		// the bucket of reverse is made already; a split must not make it
+		// again
+		return nil
 	}
 	if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {
 		h.DumpBucket(logio)
@@ -312,7 +325,10 @@ func lazyUnlock(mu sync.Locker) {
 
 type unlocker func(mu sync.Locker)
 
-func (sp *samepleItemPool) appendLast(mu sync.Locker) (newItem MapItem, nPool *samepleItemPool, fn unlocker) {
+// appendLast takes the slot after the last one for the key of reverse. It
+// writes reverse into the slot before the slot counts in the length, so that
+// a binary search over the slots never meets a slot of reverse 0 there.
+func (sp *samepleItemPool) appendLast(reverse uint64, mu sync.Locker) (newItem MapItem, nPool *samepleItemPool, fn unlocker) {
 
 	if mu != nil {
 		mu.Lock()
@@ -325,12 +341,16 @@ func (sp *samepleItemPool) appendLast(mu sync.Locker) (newItem MapItem, nPool *s
 	if l >= items.Cap() {
 		return nil, nil, fn
 	}
+	// the slot may be one released by purgeInEmbedded: clear its old
+	// identity and give it reverse while it is past the length, where no
+	// reader looks at it yet
+	slot := items._at(l, false, false)
+	atomic.StoreUint32((*uint32)(&slot.PtrMapHead().state), 0)
+	atomic.StoreUint64(&slot.PtrMapHead().conflict, 0)
+	atomic.StoreUint64(&slot.PtrMapHead().reverse, reverse)
 	if atomic_util.CompareAndSwapInt(&items.len, l, l+1) {
 		new = items.at(l)
-		// the slot may be one released by purgeInEmbedded: clear its old identity
-		atomic.StoreUint32((*uint32)(&new.PtrMapHead().state), 0)
-		atomic.StoreUint64(&new.PtrMapHead().reverse, 0)
-		atomic.StoreUint64(&new.PtrMapHead().conflict, 0)
+		stepAt("appendLast.claimed", unsafe.Pointer(new), nil)
 		return new, nil, fn
 	}
 	Log(LogWarn, "retry to fail to expand")
@@ -406,6 +426,9 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem
 			newItems[i+1].ListHead = after
 		}
 		newItems[i].Init()
+		// the new slot has the reverse of its key before the array is
+		// published, so that the slots stay in order for a binary search
+		newItems[i].PtrMapHead().reverse = reverse
 
 		err = prevItem.ReplaceNext(first, &newItems[olen].ListHead, nextItem)
 		if err != nil {
@@ -415,6 +438,7 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem
 		oldItems := sp.ptrItems().dup()
 		spItems := sp.ptrItems()
 		newItemSlice := toItemSlice(newItems)
+		stepAt("insertToPool.publish", unsafe.Pointer(sp), nil)
 		spItems.CopyFrom(&newItemSlice, 0, newItemSlice.Len())
 
 		// for debug
@@ -472,7 +496,7 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu sync.Locker) (new MapIte
 	switch sp.state4get(reverse, olen, ocap) {
 	case getEmpty, getLargest:
 		nmu := mu
-		new, nPool, fn = sp.appendLast(nmu)
+		new, nPool, fn = sp.appendLast(reverse, nmu)
 		if new != nil {
 			return
 		}
@@ -520,7 +544,9 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu sync.Locker) (new MapIte
 		if oState&uint32(mapIsDeleted) == 0 {
 			goto RETRY
 		}
-		if !atomic.CompareAndSwapUint64(&new.PtrMapHead().reverse, oReverse, 0) {
+		// the free slot takes the reverse of the new key at once, so that
+		// the slots stay in order for a binary search
+		if !atomic.CompareAndSwapUint64(&new.PtrMapHead().reverse, oReverse, reverse) {
 			goto RETRY
 		}
 		atomic.StoreUint64(&new.PtrMapHead().conflict, 0)
@@ -675,17 +701,9 @@ func (sp *samepleItemPool) _split(idx int, connect bool) (nPool *samepleItemPool
 		return sp._split(idx, connect)
 	}
 
-	for {
-		nItems := nPool.ptrItems()
-		spItems := sp.ptrItems()
-
-		nItems.CopyFrom(spItems, idx, spItems.Len()-idx)
-		if atomic_util.CompareAndSwapInt(&spItems.len, spItems.len, idx) &&
-			atomic_util.CompareAndSwapInt(&spItems.cap, spItems.cap, idx) {
-			break
-		}
-		nItems.init()
-	}
+	// sp keeps its items: the caller shrinks sp after nPool's bucket is readable.
+	spItems := sp.ptrItems()
+	nPool.ptrItems().CopyFrom(spItems, idx, spItems.Len()-idx)
 	nPool.Init()
 	//sp.validateItems()
 	//nPool.validateItems()
@@ -911,7 +929,7 @@ func (list *itemSlice) dup() (new *itemSlice) {
 func (list *itemSlice) reverseAt(idx int) (r uint64) {
 
 	const toReverse = unsafe.Offsetof(EmptySampleHMapEntry.reverse)
-	ptr := unsafe.Add(list.data, idx*int(SampleItemSize)+int(toReverse))
+	ptr := unsafe.Add(atomic.LoadPointer(&list.data), idx*int(SampleItemSize)+int(toReverse))
 	r = atomic.LoadUint64((*uint64)(ptr))
 	return r
 }

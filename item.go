@@ -6,6 +6,7 @@ package skiplistmap
 
 import (
 	"sync"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/kazu/elist_head"
@@ -79,7 +80,7 @@ func (s *entryHMap) Offset() uintptr {
 
 func (s *entryHMap) Delete() {
 	s.key = nil
-	s.MapHead.state |= mapIsDeleted
+	atomic.OrUint32((*uint32)(&s.MapHead.state), uint32(mapIsDeleted))
 }
 
 func (s *entryHMap) KeyHash() (uint64, uint64) {

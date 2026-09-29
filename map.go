@@ -304,6 +304,9 @@ func (h *Map) initBeforeSet() {
 }
 
 func (h *Map) _update(item MapItem, v interface{}) bool {
+	if stepEnabled {
+		stepAt("update.found", unsafe.Pointer(item.PtrListHead()), nil)
+	}
 	ok := item.SetValue(v)
 	head := item.PtrListHead()
 	if !head.IsMarked() {

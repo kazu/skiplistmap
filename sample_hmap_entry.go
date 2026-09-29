@@ -85,14 +85,21 @@ func (s *SampleItem) Delete() {
 }
 
 // copyFrom copies the key, the value and the state of src, and not its
-// links. s is a copy that the list does not lead to yet, so nobody else reads
-// or writes it, and it is written without atomic stores.
+// links, to s, which the list does not lead to yet. A Delete or a Set that
+// found src may write the state or the value of s once the move of src is
+// done, before a Set that copies src itself then writes s: the state of src
+// is added to that of s, and the value of src goes only into s without one.
 func (s *SampleItem) copyFrom(src *SampleItem) {
 	s.K = src.K
-	if v := src.V.Load(); v != nil {
-		*(*interface{})(unsafe.Pointer(&s.V)) = v
+	v := src.V.Load()
+	state := atomic.LoadUint32((*uint32)(&src.state))
+	if stepEnabled {
+		stepAt("item.copy.read", unsafe.Pointer(s.PtrListHead()), unsafe.Pointer(src.PtrListHead()))
 	}
-	s.state = mapState(atomic.LoadUint32((*uint32)(&src.state)))
+	if v != nil {
+		s.V.CompareAndSwap(nil, v)
+	}
+	atomic.OrUint32((*uint32)(&s.state), state)
 	s.conflict = atomic.LoadUint64(&src.conflict)
 	s.reverse = atomic.LoadUint64(&src.reverse)
 }

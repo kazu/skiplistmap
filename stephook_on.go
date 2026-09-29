@@ -15,6 +15,9 @@ import (
 // replay a concurrent interleaving one step at a time.
 //
 // Points and arguments:
+//   - "set.identity" (item, nil): an embedded slot has its new hashes, before its key and value.
+//   - "bsearch.snapshot" (pool, nil): the search read the pool's data pointer and length.
+//   - "slice.dataPublished" (slice, nil): CopyFrom published data, before cap and len.
 //   - "add2.found" (item, pos): add2 found the position to insert item before.
 //   - "makeBucket.begin" (item, nil): _set starts to split the bucket of item.
 //   - "makeBucket.claimed" (bucket, item): bucketFromPool returned bucket for the split started by item.

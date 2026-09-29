@@ -4,6 +4,8 @@ package skiplistmap_test
 
 import (
 	"testing"
+
+	"github.com/kazu/skiplistmap"
 )
 
 // D3: two StoreItem of one item a run at once. G1 stores a into m1 and stops
@@ -145,4 +147,60 @@ func Test_D3StoreItemAfterTheCheckKeepsADeleteOfTheOtherMap(t *testing.T) {
 	if _, ok := m2.Get(keys[0]); ok {
 		t.Errorf("m2.Get(a) found after m2.Delete(a) returned true")
 	}
+}
+
+// Keys x < a < z; the map holds x and z. G1 stores a and stops after it
+// linked a from x, before it links a from z. G2 deletes the key of a, or
+// purges it when purge is set: it finds a and deletes it. G3 purges z and
+// stops after it marked z, so that the insert of G1 fails and puts a back.
+// G1 must not link a again: it returns true, as a was stored before G2
+// deleted it, and a is gone. G1 linked a again when the delete of G2 left a
+// linked, and returned false when the purge of G2 left its marks on a.
+func testD3StoreItemKeepsADeleteBetweenTheCASesOfItsInsert(t *testing.T, purge bool) {
+	keys := adjacentKeys(3)
+	items := newStepItems(keys[1:2])
+	a := &items[0]
+	m := newStepMap()
+	setKeys(t, m, []string{keys[0], keys[2]})
+	zItem, ok := m.base.LoadItem(keys[2])
+	if !ok {
+		t.Fatalf("LoadItem(z) not found")
+	}
+	z := nodeOf(zItem.(*skiplistmap.SampleItem))
+
+	s := newStepper(t)
+	st1 := s.stopAt("elist.add.cas2", isNode(nodeOf(a)))
+	done1 := goStep(t, func() { m.base.StoreItem(a) })
+	st1.waitReached(t, done1)
+	var done2 <-chan struct{}
+	if purge {
+		st2 := s.stopAt("elist.del.marked", isNode(nodeOf(a)))
+		done2 = goStep(t, func() { m.base.Purge(keys[1]) })
+		st2.waitReached(t, done2)
+		st2.Release()
+	} else {
+		done2 = goStep(t, func() { m.base.Delete(keys[1]) })
+		waitDone(t, done2, "Delete(a)")
+	}
+	st3 := s.stopAt("elist.del.marked", isNode(z))
+	done3 := goStep(t, func() { m.base.Purge(keys[2]) })
+	st3.waitReached(t, done3)
+	back := s.stopAt("elist.add.rollback", isNode(nodeOf(a)))
+	st1.Release()
+	back.waitReached(t, done1)
+	back.Release()
+	st3.Release()
+	waitDone(t, done1, "StoreItem(a)")
+	waitDone(t, done2, "the delete of a")
+	waitDone(t, done3, "Purge(z)")
+
+	assertStoredInOrder(t, m, keys[:1])
+}
+
+func Test_D3StoreItemKeepsADeleteBetweenTheCASesOfItsInsert(t *testing.T) {
+	testD3StoreItemKeepsADeleteBetweenTheCASesOfItsInsert(t, false)
+}
+
+func Test_D3StoreItemKeepsAPurgeBetweenTheCASesOfItsInsert(t *testing.T) {
+	testD3StoreItemKeepsADeleteBetweenTheCASesOfItsInsert(t, true)
 }

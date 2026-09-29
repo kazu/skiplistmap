@@ -450,14 +450,20 @@ SKIP_FETCH_BUCKET:
 	}
 	var linked bool
 	if fromUser {
-		var userLinked bool
+		var u userStore
 		if addOpt == nil {
-			linked = h.add2(tStart, item, refuseLinked(&userLinked))
+			linked = h.add2(tStart, item, forUser(&u))
 		} else {
-			linked = h.add2(tStart, item, addOpt, refuseLinked(&userLinked))
+			linked = h.add2(tStart, item, addOpt, forUser(&u))
 		}
-		if userLinked {
+		if u.linked {
 			return false
+		}
+		if u.deleted {
+			// item is not linked: it counts as stored, and the delete
+			// counted it out
+			atomic.AddInt64(&h.len, 1)
+			return true
 		}
 	} else if addOpt == nil {
 		//btable._validateItemsNear()
@@ -1078,10 +1084,20 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 
 type hmapMethod struct {
 	bucket *bucket
-	// userLinked is set for an item of StoreItem: add2 does not take it out
-	// of the list that another StoreItem linked it into, and sets
-	// *userLinked instead
-	userLinked *bool
+	// user is set for an item of StoreItem: add2 does not take it out of
+	// the list that another StoreItem linked it into, and reports that in
+	// user instead
+	user *userStore
+}
+
+// userStore is what add2 reports for an item of StoreItem, besides whether it
+// stored the item.
+type userStore struct {
+	// linked: another StoreItem links the item, and add2 left it
+	linked bool
+	// deleted: a Delete or a Purge deleted the item between the CASes of an
+	// insert that failed, and add2 did not link it again
+	deleted bool
 }
 
 type HMethodOpt func(*hmapMethod)
@@ -1093,11 +1109,11 @@ func WithBucket(b *bucket) func(*hmapMethod) {
 	}
 }
 
-// refuseLinked makes add2 refuse an item of StoreItem that another StoreItem
-// links meanwhile, and set *linked.
-func refuseLinked(linked *bool) HMethodOpt {
+// forUser makes add2 store an item of StoreItem, and report in u what it did
+// when it did not link the item.
+func forUser(u *userStore) HMethodOpt {
 	return func(conf *hmapMethod) {
-		conf.userLinked = linked
+		conf.user = u
 	}
 }
 
@@ -1127,14 +1143,21 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 
 	}()
 
-	// an item of StoreItem is taken by one StoreItem only, which clears the
-	// delete that a Purge left before the item is linked
+	// an item of StoreItem is taken by one StoreItem only. Its first take
+	// clears the delete that a Purge left before the item is linked; a take
+	// after an insert that failed keeps the delete of a Delete or a Purge
+	// that found the item between the CASes of that insert
 	var took func()
-	if opt != nil && opt.userLinked != nil {
+	var taken bool
+	var state *uint32
+	if opt != nil && opt.user != nil {
 		// the item pool does not move an item of StoreItem: e stays it
-		state := (*uint32)(&e.PtrMapHead().state)
+		state = (*uint32)(&e.PtrMapHead().state)
 		took = func() {
-			atomic.AndUint32(state, ^uint32(mapIsDeleted))
+			if !taken {
+				taken = true
+				atomic.AndUint32(state, ^uint32(mapIsDeleted))
+			}
 		}
 	}
 
@@ -1142,8 +1165,14 @@ RETRY:
 	// the item pool moves e to a larger array before e is linked: the copy
 	// is linked instead
 	e = movedEntry(e)
-	if opt != nil && opt.userLinked != nil && !e.PtrListHead().IsSingle() {
-		*opt.userLinked = true
+	if taken && atomic.LoadUint32(state)&uint32(mapIsDeleted) != 0 {
+		// e was stored, and deleted before its insert failed: linking it
+		// again would undo the delete
+		opt.user.deleted = true
+		return true
+	}
+	if opt != nil && opt.user != nil && !e.PtrListHead().IsSingle() {
+		opt.user.linked = true
 		return false
 	}
 	if start.IsMarked() || start.Empty() {
@@ -1182,7 +1211,7 @@ RETRY:
 
 	if pos != nil {
 		if !e.PtrListHead().IsSingle() {
-			if opt != nil && opt.userLinked != nil {
+			if opt != nil && opt.user != nil {
 				goto RETRY
 			}
 			Log(LogWarn, "add2: element for insertion  is not single ")

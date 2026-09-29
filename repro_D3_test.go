@@ -10,15 +10,18 @@ import (
 
 // D3: two StoreItem of one item a run at once. G1 stores a into m1 and stops
 // at point, after it found a not linked; G2 stores a into m2, or into m1 too
-// when same is set, and returns. When G1 goes on, it must return false, as
-// it does when it runs after G2: a is linked by G2, and one item is linked
-// into one list only. It returned true instead: at map.storeItem.checked,
-// the lookup of the key found a itself and stored the value of a into it; at
-// map.set.checked, the Init of a cut a out of the list of G2; at
-// map.add2.found, add2 took a out of that list and linked it again; at
-// elist.insert.begin, the insert took the links that G2 wrote as its own and
-// relinked a, leaving the neighbors of a in that list leading to it.
-func testD3StoreItemAtOnce(t *testing.T, point string, same bool) {
+// when same is set, and returns. One item is linked into one list only, so
+// one of them must return false. When busy is not set, G1 stops before it
+// takes the mapIsBusy of a: G2 links a, and when G1 goes on, it must return
+// false, as it does when it runs after G2. When busy is set, G1 stops holding
+// the mapIsBusy of a: G2 must return false, and G1 links a when it goes on.
+// Before the fix of D3, G2 linked a in both cases, and G1 returned true: at
+// map.storeItem.checked, the lookup of the key found a itself and stored the
+// value of a into it; at map.set.checked, the Init of a cut a out of the list
+// of G2; at map.add2.found, add2 took a out of that list and linked it again;
+// at elist.insert.begin, the insert took the links that G2 wrote as its own
+// and relinked a, leaving the neighbors of a in that list leading to it.
+func testD3StoreItemAtOnce(t *testing.T, point string, same, busy bool) {
 	keys := adjacentKeys(2)
 	items := newStepItems(keys[:1])
 	a := &items[0]
@@ -39,47 +42,52 @@ func testD3StoreItemAtOnce(t *testing.T, point string, same bool) {
 	st.Release()
 	waitDone(t, done1, "the first StoreItem(a)")
 
-	if !ok2 || ok1 {
-		t.Errorf("the first StoreItem(a) = %v and the second = %v, want false and true", ok1, ok2)
+	holder, other := m2, m1
+	if busy {
+		holder, other = m1, m2
 	}
-	assertStoredInOrder(t, m2, keys)
+	if ok1 != busy || ok2 == busy {
+		t.Errorf("the first StoreItem(a) = %v and the second = %v, want %v and %v", ok1, ok2, busy, !busy)
+	}
+	assertStoredInOrder(t, holder, keys)
 	if !same {
-		if _, ok := m1.Get(keys[0]); ok {
-			t.Errorf("m1.Get(a) found, but a is linked into m2")
+		if _, ok := other.Get(keys[0]); ok {
+			t.Errorf("Get(a) found in both maps, but a is linked into one")
 		}
-		assertStoredInOrder(t, m1, keys[1:])
+		assertStoredInOrder(t, other, keys[1:])
 	}
 }
 
 func Test_D3StoreItemIntoTwoMapsAfterTheCheck(t *testing.T) {
-	testD3StoreItemAtOnce(t, "map.set.checked", false)
+	testD3StoreItemAtOnce(t, "map.set.checked", false, true)
 }
 
 func Test_D3StoreItemIntoTwoMapsAfterTheFind(t *testing.T) {
-	testD3StoreItemAtOnce(t, "map.add2.found", false)
+	testD3StoreItemAtOnce(t, "map.add2.found", false, true)
 }
 
 func Test_D3StoreItemIntoTwoMapsBeforeTheLink(t *testing.T) {
-	testD3StoreItemAtOnce(t, "elist.insert.begin", false)
+	testD3StoreItemAtOnce(t, "elist.insert.begin", false, true)
 }
 
 func Test_D3StoreItemTwiceIntoOneMapBeforeTheLookup(t *testing.T) {
-	testD3StoreItemAtOnce(t, "map.storeItem.checked", true)
+	testD3StoreItemAtOnce(t, "map.storeItem.checked", true, false)
 }
 
 func Test_D3StoreItemTwiceIntoOneMapAfterTheCheck(t *testing.T) {
-	testD3StoreItemAtOnce(t, "map.set.checked", true)
+	testD3StoreItemAtOnce(t, "map.set.checked", true, true)
 }
 
 func Test_D3StoreItemTwiceIntoOneMapBeforeTheLink(t *testing.T) {
-	testD3StoreItemAtOnce(t, "elist.insert.begin", true)
+	testD3StoreItemAtOnce(t, "elist.insert.begin", true, true)
 }
 
-// D3: G1 stores a into m1 and stops after it found a not linked. G2 stores a
-// into m2, and G3 purges the key of a from m2 and stops after it took a out
-// of the list, before it clears the links of a. G1 goes on, and then G3. The
-// list of m1 must stay whole, whether G1 stored a or refused it: G3 clears the
-// links of a only while they keep the marks of its delete.
+// D3: G1 stores a into m1 and stops after it found a not linked, before it
+// takes the mapIsBusy of a. G2 stores a into m2, and G3 purges the key of a
+// from m2 and stops after it took a out of the list, before it clears the
+// links of a. G1 goes on, and then G3. G1 must return false, as G3 holds the
+// mapIsBusy of a, and the list of m1 must stay whole. G1 cannot stop after
+// it took the flag here: G2 would then return false at once.
 func Test_D3StoreItemWhileTheOtherMapPurgesIt(t *testing.T) {
 	keys := adjacentKeys(2)
 	items := newStepItems(keys[:1])
@@ -89,7 +97,7 @@ func Test_D3StoreItemWhileTheOtherMapPurgesIt(t *testing.T) {
 	setKeys(t, m2, keys[1:])
 
 	s := newStepper(t)
-	st1 := s.stopAt("map.set.checked", isNode(nodeOf(a)))
+	st1 := s.stopAt("map.storeItem.checked", isNode(nodeOf(a)))
 	var ok1 bool
 	done1 := goStep(t, func() { ok1 = m1.base.StoreItem(a) })
 	st1.waitReached(t, done1)
@@ -104,17 +112,19 @@ func Test_D3StoreItemWhileTheOtherMapPurgesIt(t *testing.T) {
 	st3.Release()
 	waitDone(t, done3, "m2.Purge(a)")
 
-	assertStoredInOrder(t, m2, keys[1:])
 	if ok1 {
-		assertStoredInOrder(t, m1, keys)
-	} else {
-		assertStoredInOrder(t, m1, keys[1:])
+		t.Errorf("m1.StoreItem(a) returned true while m2.Purge(a) held a")
 	}
+	assertStoredInOrder(t, m2, keys[1:])
+	assertStoredInOrder(t, m1, keys[1:])
 }
 
-// D3: G1 stores a into m1 and stops after it found a not linked. G2 stores a
-// into m2, and G3 deletes the key of a from m2; both return true. When G1
-// goes on, it must not undo the Delete of G3: a stays deleted in m2.
+// D3: G1 stores a into m1 and stops after it found a not linked, before it
+// takes the mapIsBusy of a. G2 stores a into m2, and G3 deletes the key of a
+// from m2; both return true. When G1 goes on, it must return false, as a is
+// linked into m2, and must not undo the Delete of G3: a stays deleted in m2.
+// G1 cannot stop after it took the flag here: G2 would then return false at
+// once.
 func Test_D3StoreItemAfterTheCheckKeepsADeleteOfTheOtherMap(t *testing.T) {
 	keys := adjacentKeys(2)
 	items := newStepItems(keys[:1])
@@ -124,7 +134,7 @@ func Test_D3StoreItemAfterTheCheckKeepsADeleteOfTheOtherMap(t *testing.T) {
 	setKeys(t, m2, keys[1:])
 
 	s := newStepper(t)
-	st := s.stopAt("map.set.checked", isNode(nodeOf(a)))
+	st := s.stopAt("map.storeItem.checked", isNode(nodeOf(a)))
 	var ok1 bool
 	done1 := goStep(t, func() { ok1 = m1.base.StoreItem(a) })
 	st.waitReached(t, done1)
@@ -147,12 +157,11 @@ func Test_D3StoreItemAfterTheCheckKeepsADeleteOfTheOtherMap(t *testing.T) {
 
 // Keys x < a < z; the map holds x and z. G1 stores a and stops after it
 // linked a from x, before it links a from z. G2 deletes the key of a, or
-// purges it when purge is set: it finds a and deletes it. G3 purges z and
-// stops after it marked z, so that the insert of G1 fails and puts a back.
-// G1 must not link a again: it returns true, as a was stored before G2
-// deleted it, and a is gone. G1 linked a again when the delete of G2 left a
-// linked, and returned false when the purge of G2 left its marks on a.
-func testD3StoreItemKeepsADeleteBetweenTheCASesOfItsInsert(t *testing.T, purge bool) {
+// purges it when purge is set: it finds a, but G1 holds the mapIsBusy of a,
+// so it must return false and leave a as it is. G3 purges z and stops after
+// it marked z, so that the insert of G1 fails and puts a back. G1 must link
+// a again and return true: the map holds x and a.
+func testD3StoreItemRefusesADeleteBetweenTheCASesOfItsInsert(t *testing.T, purge bool) {
 	keys := adjacentKeys(3)
 	items := newStepItems(keys[1:2])
 	a := &items[0]
@@ -166,17 +175,15 @@ func testD3StoreItemKeepsADeleteBetweenTheCASesOfItsInsert(t *testing.T, purge b
 
 	s := newStepper(t)
 	st1 := s.stopAt("elist.add.cas2", isNode(nodeOf(a)))
-	done1 := goStep(t, func() { m.base.StoreItem(a) })
+	var ok1 bool
+	done1 := goStep(t, func() { ok1 = m.base.StoreItem(a) })
 	st1.waitReached(t, done1)
-	var done2 <-chan struct{}
 	if purge {
-		st2 := s.stopAt("elist.del.marked", isNode(nodeOf(a)))
-		done2 = goStep(t, func() { m.base.Purge(keys[1]) })
-		st2.waitReached(t, done2)
-		st2.Release()
-	} else {
-		done2 = goStep(t, func() { m.base.Delete(keys[1]) })
-		waitDone(t, done2, "Delete(a)")
+		if m.base.Purge(keys[1]) {
+			t.Errorf("Purge(a) returned true while StoreItem(a) held a")
+		}
+	} else if m.base.Delete(keys[1]) {
+		t.Errorf("Delete(a) returned true while StoreItem(a) held a")
 	}
 	st3 := s.stopAt("elist.del.marked", isNode(z))
 	done3 := goStep(t, func() { m.base.Purge(keys[2]) })
@@ -187,20 +194,101 @@ func testD3StoreItemKeepsADeleteBetweenTheCASesOfItsInsert(t *testing.T, purge b
 	back.Release()
 	st3.Release()
 	waitDone(t, done1, "StoreItem(a)")
-	waitDone(t, done2, "the delete of a")
 	waitDone(t, done3, "Purge(z)")
 
-	assertStoredInOrder(t, m, keys[:1])
+	if !ok1 {
+		t.Errorf("StoreItem(a) returned false")
+	}
+	assertStoredInOrder(t, m, keys[:2])
+}
+
+// Keys x < u < z < zz; the map holds x, z and zz. G1 stores u and stops after
+// it linked u from x. GP purges the key of u and stops after it found u. GQ
+// purges z and stops after it marked z, so that the insert of G1 fails and
+// puts u back; GQ then ends, and G1 takes u again for the place before zz and
+// stops before it links u. GP goes on: G1 holds the mapIsBusy of u, so GP
+// must return false without clearing the links of u. G1 then links u, and
+// the list must hold x, u and zz. Before the flag, GP cleared the links that
+// G1 had taken, and G1 then linked u with links that lead to u itself.
+func Test_D3StoreItemTakingItsItemAgainRefusesAPurgeThatFoundItBefore(t *testing.T) {
+	keys := adjacentKeys(4)
+	items := newStepItems(keys[1:2])
+	u := &items[0]
+	m := newStepMap()
+	setKeys(t, m, []string{keys[0], keys[2], keys[3]})
+	zItem, ok := m.base.LoadItem(keys[2])
+	if !ok {
+		t.Fatalf("LoadItem(z) not found")
+	}
+	z := nodeOf(zItem.(*skiplistmap.SampleItem))
+
+	s := newStepper(t)
+	st1 := s.stopAt("elist.add.cas2", isNode(nodeOf(u)))
+	var ok1, okP bool
+	done1 := goStep(t, func() { ok1 = m.base.StoreItem(u) })
+	st1.waitReached(t, done1)
+	stP := s.stopAt("map.delete.found", isNode(nodeOf(u)))
+	doneP := goStep(t, func() { okP = m.base.Purge(keys[1]) })
+	stP.waitReached(t, doneP)
+	stQ := s.stopAt("elist.del.marked", isNode(z))
+	doneQ := goStep(t, func() { m.base.Purge(keys[2]) })
+	stQ.waitReached(t, doneQ)
+	again := s.stopAt("elist.add.cas1", isNode(nodeOf(u)))
+	st1.Release()
+	stQ.Release()
+	waitDone(t, doneQ, "Purge(z)")
+	again.waitReached(t, done1)
+	stP.Release()
+	waitDone(t, doneP, "Purge(u)")
+	again.Release()
+	waitDone(t, done1, "StoreItem(u)")
+
+	if okP || !ok1 {
+		t.Errorf("Purge(u) = %v and StoreItem(u) = %v, want false and true", okP, ok1)
+	}
+	assertStoredInOrder(t, m, []string{keys[0], keys[1], keys[3]})
+}
+
+// Items u and w have the same key. G1 stores u into m1 and stops after it
+// found u not linked. u is stored into m2, and w into m1. When G1 goes on, it
+// must return false and leave the value of w, as u is linked into m2: it found
+// w, stored the value of u into it and returned true.
+func Test_D3StoreItemOfAnItemLinkedMeanwhileLeavesTheItemOfItsKey(t *testing.T) {
+	keys := adjacentKeys(1)
+	items := newStepItems([]string{keys[0], keys[0]})
+	u, w := &items[0], &items[1]
+	m1, m2 := newStepMap(), newStepMap()
+
+	s := newStepper(t)
+	st := s.stopAt("map.storeItem.checked", isNode(nodeOf(u)))
+	var ok1 bool
+	done1 := goStep(t, func() { ok1 = m1.base.StoreItem(u) })
+	st.waitReached(t, done1)
+	if !m2.base.StoreItem(u) {
+		t.Fatalf("m2.StoreItem(u) returned false")
+	}
+	if !m1.base.StoreItem(w) {
+		t.Fatalf("m1.StoreItem(w) returned false")
+	}
+	st.Release()
+	waitDone(t, done1, "m1.StoreItem(u)")
+
+	if ok1 {
+		t.Errorf("m1.StoreItem(u) returned true, but u is linked into m2")
+	}
+	if got, _ := m1.Get(keys[0]); got != w.Value() {
+		t.Errorf("m1.Get(k) = %p, want the value of w %p", got, w.Value())
+	}
 }
 
 // Keys x < u < z lie in the last bucket; the map holds x and z. G1 stores u
 // and stops before add2 looks for the position from x; G2 purges x. G1 then
 // inserts u after the dummy of the bucket and stops after it linked u from
-// the dummy. G3 purges the key of u and stops after it marked u; G4 purges z
-// and stops after it marked z, so that the insert fails. G1 then goes to the
-// insert before the last dummy. u must stay out of the list once G3 returns:
-// G1 linked u again there, deleted, and nothing could take it out.
-func Test_D3StoreItemKeepsAPurgeBeforeItsInsertAtTheTail(t *testing.T) {
+// the dummy. G3 purges the key of u: G1 holds the mapIsBusy of u, so G3 must
+// return false and leave u as it is. G4 purges z and stops after it marked z,
+// so that the insert fails. G1 then goes to the insert before the last dummy,
+// links u there and returns true: the map holds u.
+func Test_D3StoreItemRefusesAPurgeBeforeItsInsertAtTheTail(t *testing.T) {
 	keys := regionKeys(0xf, 0xf, 3)
 	items := newStepItems(keys[1:2])
 	u := &items[0]
@@ -219,7 +307,8 @@ func Test_D3StoreItemKeepsAPurgeBeforeItsInsertAtTheTail(t *testing.T) {
 
 	s := newStepper(t)
 	st1 := s.stopAt("map.find.begin", isNode(x))
-	done1 := goStep(t, func() { m.base.StoreItem(u) })
+	var ok1 bool
+	done1 := goStep(t, func() { ok1 = m.base.StoreItem(u) })
 	st1.waitReached(t, done1)
 	if !m.base.Purge(keys[0]) {
 		t.Fatalf("Purge(x) returned false")
@@ -227,10 +316,9 @@ func Test_D3StoreItemKeepsAPurgeBeforeItsInsertAtTheTail(t *testing.T) {
 	cas2 := s.stopAt("elist.add.cas2", isNode(nodeOf(u)))
 	st1.Release()
 	cas2.waitReached(t, done1)
-	st3 := s.stopAt("elist.del.marked", isNode(nodeOf(u)))
-	done3 := goStep(t, func() { m.base.Purge(keys[1]) })
-	st3.waitReached(t, done3)
-	st3.Release()
+	if m.base.Purge(keys[1]) {
+		t.Errorf("Purge(u) returned true while StoreItem(u) held u")
+	}
 	st4 := s.stopAt("elist.del.marked", isNode(z))
 	done4 := goStep(t, func() { m.base.Purge(keys[2]) })
 	st4.waitReached(t, done4)
@@ -242,19 +330,19 @@ func Test_D3StoreItemKeepsAPurgeBeforeItsInsertAtTheTail(t *testing.T) {
 	}
 	st4.Release()
 	waitDone(t, done4, "Purge(z)")
-	waitDone(t, done3, "Purge(u)")
 	tail.Release()
 	waitDone(t, done1, "StoreItem(u)")
 
-	if !u.PtrListHead().IsSingle() {
-		t.Errorf("u is linked after Purge(u) returned")
+	if !ok1 {
+		t.Errorf("StoreItem(u) returned false")
 	}
+	assertStoredInOrder(t, m, keys[1:2])
 }
 
-func Test_D3StoreItemKeepsADeleteBetweenTheCASesOfItsInsert(t *testing.T) {
-	testD3StoreItemKeepsADeleteBetweenTheCASesOfItsInsert(t, false)
+func Test_D3StoreItemRefusesADeleteBetweenTheCASesOfItsInsert(t *testing.T) {
+	testD3StoreItemRefusesADeleteBetweenTheCASesOfItsInsert(t, false)
 }
 
-func Test_D3StoreItemKeepsAPurgeBetweenTheCASesOfItsInsert(t *testing.T) {
-	testD3StoreItemKeepsADeleteBetweenTheCASesOfItsInsert(t, true)
+func Test_D3StoreItemRefusesAPurgeBetweenTheCASesOfItsInsert(t *testing.T) {
+	testD3StoreItemRefusesADeleteBetweenTheCASesOfItsInsert(t, true)
 }

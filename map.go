@@ -436,18 +436,11 @@ SKIP_FETCH_BUCKET:
 	}
 
 	stepAt("set.beforeInit", unsafe.Pointer(item.PtrListHead()), unsafe.Pointer(tStart))
-	if fromUser && !item.PtrListHead().IsSingle() {
-		// item is still linked, in this map or in another: Purge it from
-		// that map before storing it
-		return false
-	}
 	stepAt("set.checked", unsafe.Pointer(item.PtrListHead()), unsafe.Pointer(tStart))
-	if !fromUser {
-		atomic.AndUint32((*uint32)(&item.PtrMapHead().state), ^uint32(mapIsDeleted))
-	}
+	atomic.AndUint32((*uint32)(&item.PtrMapHead().state), ^uint32(mapIsDeleted))
 	// the marks of an item that the item pool moves stay; add2 links its
-	// copy. An item of StoreItem is not cleared: another StoreItem of it
-	// may have linked it since the check above
+	// copy. An item of StoreItem is not cleared: StoreItem found it not
+	// linked after it took its mapIsBusy
 	if !fromUser && !item.PtrListHead().InitUnmarked() && elist_head.MovedTo(item.PtrListHead()) == nil {
 		item.PtrListHead().Init()
 	}
@@ -459,14 +452,9 @@ SKIP_FETCH_BUCKET:
 		} else {
 			linked = h.add2(tStart, item, addOpt, forUser(&u))
 		}
+		item.PtrMapHead().releaseBusy()
 		if u.linked {
 			return false
-		}
-		if u.deleted {
-			// item is not linked: it counts as stored, and the delete
-			// counted it out
-			atomic.AddInt64(&h.len, 1)
-			return true
 		}
 	} else if addOpt == nil {
 		//btable._validateItemsNear()
@@ -476,6 +464,9 @@ SKIP_FETCH_BUCKET:
 		//btable._validateItemsNear()
 		linked = h.add2(tStart, item, addOpt)
 		//btable._validateItemsNear()
+	}
+	if !fromUser && !h.isEmbededItemInBucket {
+		item.PtrMapHead().releaseBusy()
 	}
 	if !linked {
 		// the value went into an entry of the key linked meanwhile
@@ -853,7 +844,11 @@ func (h *Map) Set(key, value interface{}) bool {
 
 	s.K = key.(string)
 	s.SetValue(value)
-	atomic.OrUint32((*uint32)(&s.PtrMapHead().state), uint32(mapIsPoolItem))
+	st := mapIsPoolItem
+	if !h.isEmbededItemInBucket {
+		st |= mapIsBusy
+	}
+	atomic.OrUint32((*uint32)(&s.PtrMapHead().state), uint32(st))
 
 	if _, ok := h.ItemFn().(*SampleItem); !ok {
 		ItemFn(func() MapItem {
@@ -875,16 +870,17 @@ func (h *Map) Set(key, value interface{}) bool {
 // StoreItem links item itself into the map and does not copy it. The map
 // holds only offsets to item, which the GC does not follow, so the caller
 // must keep item reachable while it is linked: until Purge of its key
-// returns, or until the caller stops using the map. Delete leaves item
-// linked, unless it finds item while a StoreItem of item is still linking it,
-// and a Purge after Delete does not find it: keep an item that Delete removed
-// reachable as long as the map is used.
+// returns true, or until the caller stops using the map. Delete leaves item
+// linked, and a Purge after Delete does not find it: keep an item that
+// Delete removed reachable as long as the map is used. A Delete that finds
+// item while a StoreItem of item is still linking it returns false, and item
+// stays linked.
 // Otherwise the map links freed memory (a dangling reference). The map never
 // moves item. If the key is already present, only the value is stored into
 // the existing item, and item is not linked. StoreItem returns false for an
 // item still linked, in this map or in another: an item that Purge took out
 // of the map that holds it is stored again. It returns false also while
-// another StoreItem call is inserting item, and for an
+// another StoreItem, a Delete or a Purge of item is running, and for an
 // item that the item pool of a map handed out, as the items stored by Set
 // are, which LoadItem, RangeItem and a walk of the list return: the pool
 // moves and reuses them (see LoadItem).
@@ -900,15 +896,20 @@ func (h *Map) StoreItem(item MapItem) bool {
 		return false
 	}
 	stepAt("storeItem.checked", unsafe.Pointer(item.PtrListHead()), nil)
+	if !item.PtrMapHead().claimBusy() {
+		return false
+	}
+	if !item.PtrListHead().IsSingle() {
+		item.PtrMapHead().releaseBusy()
+		return false
+	}
 	k, conflict := item.KeyHash()
 
 	oitem, bucket, found := h._loadItem(k, conflict, nil)
 	if found {
-		if oitem.PtrListHead() == item.PtrListHead() {
-			// another StoreItem of item linked it meanwhile
-			return false
-		}
-		return h._update(oitem, item.Value())
+		ok := h._update(oitem, item.Value())
+		item.PtrMapHead().releaseBusy()
+		return ok
 	}
 	return h.setItem(k, conflict, bucket, item, true)
 }
@@ -1089,19 +1090,16 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 type hmapMethod struct {
 	bucket *bucket
 	// user is set for an item of StoreItem: add2 does not take it out of
-	// the list that another StoreItem linked it into, and reports that in
-	// user instead
+	// the list that it is found linked into, and reports that in user
+	// instead
 	user *userStore
 }
 
 // userStore is what add2 reports for an item of StoreItem, besides whether it
 // stored the item.
 type userStore struct {
-	// linked: another StoreItem links the item, and add2 left it
+	// linked: add2 found the item linked, and left it
 	linked bool
-	// deleted: a Delete or a Purge deleted the item between the CASes of an
-	// insert that failed, and add2 did not link it again
-	deleted bool
 }
 
 type HMethodOpt func(*hmapMethod)
@@ -1147,42 +1145,10 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 
 	}()
 
-	// an item of StoreItem is taken by one StoreItem only. Its first take
-	// clears the delete that a Purge left before the item is linked; a take
-	// after an insert that failed keeps the delete of a Delete or a Purge
-	// that found the item between the CASes of that insert
-	var took func()
-	var taken bool
-	var state *uint32
-	if opt != nil && opt.user != nil {
-		// the item pool does not move an item of StoreItem: e stays it
-		state = (*uint32)(&e.PtrMapHead().state)
-		took = func() {
-			if !taken {
-				taken = true
-				atomic.AndUint32(state, ^uint32(mapIsDeleted))
-			}
-		}
-	}
-
-	// deleted reports whether e was stored, and deleted before an insert of
-	// it failed: linking it again would undo the delete. It is asked before
-	// each insert that may take e again.
-	deleted := func() bool {
-		if taken && atomic.LoadUint32(state)&uint32(mapIsDeleted) != 0 {
-			opt.user.deleted = true
-			return true
-		}
-		return false
-	}
-
 RETRY:
 	// the item pool moves e to a larger array before e is linked: the copy
 	// is linked instead
 	e = movedEntry(e)
-	if deleted() {
-		return true
-	}
 	if opt != nil && opt.user != nil && !e.PtrListHead().IsSingle() {
 		opt.user.linked = true
 		return false
@@ -1243,7 +1209,7 @@ RETRY:
 		if h.storeIntoSameKey(pos.PtrListHead(), e) {
 			return false
 		}
-		if err := insertInOrder(pos.PtrListHead(), e.PtrListHead(), took); err != nil {
+		if err := insertInOrder(pos.PtrListHead(), e.PtrListHead()); err != nil {
 			runtime.Gosched()
 			goto RETRY
 		}
@@ -1280,7 +1246,7 @@ RETRY:
 		if h.storeIntoSameKey(nextE.PtrListHead(), e) {
 			return false
 		}
-		if err := insertInOrder(nextE.PtrListHead(), e.PtrListHead(), took); err == nil {
+		if err := insertInOrder(nextE.PtrListHead(), e.PtrListHead()); err == nil {
 			return true
 		}
 		// the entry after the dummy of the bucket is not a place for e;
@@ -1293,10 +1259,6 @@ RETRY:
 	if pos != nil {
 		goto RETRY
 	}
-	// the insert after the dummy of the bucket may have taken e and failed
-	if deleted() {
-		return true
-	}
 
 	if stepEnabled {
 		stepAt("add2.tailInsert", unsafe.Pointer(e.PtrListHead()), unsafe.Pointer(h.tail.Prev()))
@@ -1304,7 +1266,7 @@ RETRY:
 	if h.storeIntoSameKey(h.tail.Prev(), e) {
 		return false
 	}
-	if err := insertInOrder(h.tail.Prev(), e.PtrListHead(), took); err != nil {
+	if err := insertInOrder(h.tail.Prev(), e.PtrListHead()); err != nil {
 		runtime.Gosched()
 		goto RETRY
 	}
@@ -1955,19 +1917,32 @@ func (h *Map) _searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketE
 }
 
 // Delete ... set nil to the key of MapItem. cannot Get entry
+//
+// Delete returns false when it does not find key, or when another Delete or
+// Purge of key deleted its item first. Without UseEmbeddedPool, it returns
+// false also, doing nothing, while another call is working on the item of
+// key: a StoreItem or a Set of the item, which Get may find before it
+// returns, or a StoreItem of the item that returns false as the item is
+// linked already. It returns false, doing nothing, also when the item left
+// the map after Delete found it.
 func (h *Map) Delete(key interface{}) bool {
-	_, _, ok := h.deleteItem(key)
+	_, _, mh, ok := h.deleteItem(key)
+	if mh != nil {
+		mh.releaseBusy()
+	}
 	return ok
 }
 
 // deleteItem marks the item of key deleted, and returns it and the bucket
-// that the lookup found it in, when this call marked it.
-func (h *Map) deleteItem(key interface{}) (MapItem, *bucket, bool) {
+// that the lookup found it in, when this call marked it. Without
+// UseEmbeddedPool it returns also the node whose mapIsBusy it holds, for the
+// caller to release.
+func (h *Map) deleteItem(key interface{}) (MapItem, *bucket, *MapHead, bool) {
 
 	k, conflict := KeyToHash(key)
 	item, bucket, ok := h._loadItem(k, conflict, nil)
 	if !ok {
-		return nil, nil, false
+		return nil, nil, nil, false
 	}
 	if stepEnabled {
 		stepAt("delete.found", unsafe.Pointer(item.PtrListHead()), nil)
@@ -1975,12 +1950,25 @@ func (h *Map) deleteItem(key interface{}) (MapItem, *bucket, bool) {
 	// the item pool moves the item to a larger array: a delete that found
 	// the item and one that found its copy claim one node
 	origin := elist_head.FindOrigin(item.PtrListHead())
-	won := mapheadFromLListHead(origin).claimDelete()
+	mh := mapheadFromLListHead(origin)
+	var hold mapState
+	if !h.isEmbededItemInBucket {
+		hold = mapIsBusy
+	}
+	won, busy := mh.claimDelete(hold)
 	stepAt("delete.claimed", unsafe.Pointer(item.PtrListHead()), nil)
+	if busy {
+		return nil, nil, nil, false
+	}
+	if won && hold != 0 && item.PtrListHead().IsSingle() {
+		// item left the list before this call claimed it
+		atomic.AndUint32((*uint32)(&mh.state), ^uint32(mapIsDeleted|mapIsBusy))
+		return nil, nil, nil, false
+	}
 	if !won && origin == item.PtrListHead() && !elist_head.IsMoved(item.PtrListHead()) {
 		// another delete of the key got there first, and item has no copies
 		// to delete: a StoreItem may have linked item again since
-		return nil, nil, false
+		return nil, nil, nil, false
 	}
 	if won {
 		// a delete that finds another node of the line of the item once
@@ -2004,13 +1992,19 @@ func (h *Map) deleteItem(key interface{}) (MapItem, *bucket, bool) {
 	runtime.KeepAlive(origin)
 	if !won {
 		// another delete of the key got there first
-		return nil, nil, false
+		return nil, nil, nil, false
 	}
 	h.AddLen(-1)
-	return item, bucket, true
+	if hold == 0 {
+		return item, bucket, nil, true
+	}
+	return item, bucket, mh, true
 }
 
 // Purge ... key/value entry from map.
+//
+// Without UseEmbeddedPool, Purge returns false where Delete does, and then
+// does not take the item out of the list.
 func (h *Map) Purge(key interface{}) bool {
 	if h.isEmbededItemInBucket {
 		return h.purgeInEmbedded(key)
@@ -2021,10 +2015,11 @@ func (h *Map) Purge(key interface{}) bool {
 // purgeItem deletes the item of key as Delete does, and then takes it out of
 // the list of entries, in the order of purgeInEmbedded.
 func (h *Map) purgeItem(key interface{}) bool {
-	item, bucket, ok := h.deleteItem(key)
+	item, bucket, mh, ok := h.deleteItem(key)
 	if !ok {
 		return false
 	}
+	defer mh.releaseBusy()
 	head := item.PtrListHead()
 	for {
 		// an item that the item pool moves stays linked, with its marks;

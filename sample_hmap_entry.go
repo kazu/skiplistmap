@@ -88,7 +88,8 @@ func (s *SampleItem) Delete() {
 // links, to s, which the list does not lead to yet. A Delete or a Set that
 // found src may write the state or the value of s once the move of src is
 // done, before a Set that copies src itself then writes s: the state of src
-// is added to that of s, and the value of src goes only into s without one.
+// but mapIsBusy is added to that of s, and the value of src goes only into s
+// without one.
 func (s *SampleItem) copyFrom(src *SampleItem) {
 	s.K = src.K
 	v := src.V.Load()
@@ -99,7 +100,7 @@ func (s *SampleItem) copyFrom(src *SampleItem) {
 	if v != nil {
 		s.V.CompareAndSwap(nil, v)
 	}
-	atomic.OrUint32((*uint32)(&s.state), state)
+	atomic.OrUint32((*uint32)(&s.state), state&^uint32(mapIsBusy))
 	s.conflict = atomic.LoadUint64(&src.conflict)
 	s.reverse = atomic.LoadUint64(&src.reverse)
 }

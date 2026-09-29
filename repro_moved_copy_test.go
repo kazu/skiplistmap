@@ -49,14 +49,20 @@ func testSetCopiesAfterAMove(t *testing.T, stopOther string, other func(m *WrapH
 	return m, keys[1]
 }
 
-// other is a Delete of k: it claims O and deletes C before G1 writes C. k
-// must stay deleted; the copy of G1 wrote over the delete, and Get found k.
-func Test_SetCopyAfterAMoveKeepsADelete(t *testing.T) {
+// other is a Delete of k: it finds O, but G1 holds the mapIsBusy of O, so it
+// must return false without writing O or C, and Get finds k. Before the
+// flag, it claimed O and deleted C before G1 wrote C, and k had to stay
+// deleted; the copy of G1 wrote over the delete, and Get found k.
+func Test_SetCopyAfterAMoveRefusesADelete(t *testing.T) {
+	var deleted bool
 	m, k := testSetCopiesAfterAMove(t, "map.delete.found", func(m *WrapHMap, k string) {
-		m.base.Delete(k)
+		deleted = m.base.Delete(k)
 	})
-	if _, found := m.Get(k); found {
-		t.Errorf("Get(k) found after Delete(k) returned true")
+	if deleted {
+		t.Errorf("Delete(k) returned true while Set(k) held its item")
+	}
+	if _, found := m.Get(k); !found {
+		t.Errorf("Get(k) not found after Delete(k) returned false")
 	}
 }
 

@@ -107,17 +107,16 @@ func NilMapEntry() HMapEntry {
 // insertInOrder links center just before right in one attempt, only if the
 // entry that is before right when center is linked does not come after center.
 // It returns an error without linking center otherwise; the caller finds the
-// position again. It calls took, when it is not nil, after center is taken for
-// this insert and before center is linked.
-func insertInOrder(right, center *elist_head.ListHead, took func()) error {
+// position again.
+func insertInOrder(right, center *elist_head.ListHead) error {
 
 	if err := checkLinkBefore(right, center); err != nil {
 		return err
 	}
 	centermHead := mapheadFromLListHead(center)
-	return right.TryInsertBeforeTaking(center, func(left *elist_head.ListHead) bool {
+	return right.TryInsertBefore(center, func(left *elist_head.ListHead) bool {
 		return canLinkAfter(mapheadFromLListHead(left), centermHead)
-	}, took)
+	})
 }
 
 // checkLinkBefore returns an error unless center is not linked and its key

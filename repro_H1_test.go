@@ -31,8 +31,10 @@ type sameItemStores struct {
 // p < c < b < a in a map that holds p, and returns with b stopped at
 // elist.add.rollback, or, since the fix of D3, with b linked.
 //
-//  1. G2: StoreItem(a) does not find a and stops at map.set.beforeInit, after
-//     it chose p as the node to find the position from, before a.Init().
+//  1. G2: StoreItem(a) finds a not linked and stops at map.storeItem.checked,
+//     before it takes the mapIsBusy of a. Before the flag, it stopped at
+//     map.set.beforeInit, after it chose p as the node to find the position
+//     from, before a.Init(); since the flag, G1 returns false there.
 //  2. G1: StoreItem(a) runs to the end: p -> a -> tail.
 //  3. I3: StoreItem(b) finds a as the position, reads p as its previous node,
 //     moves p.next from a to b by its first CAS and stops at elist.add.cas2.
@@ -54,12 +56,9 @@ func startSameItemStores(t *testing.T) *sameItemStores {
 
 	x.s = newStepper(t)
 	s := x.s
-	lateInit := s.stopAt("map.set.beforeInit", isNode(nodeOf(itA)))
+	lateInit := s.stopAt("map.storeItem.checked", isNode(nodeOf(itA)))
 	x.aDone = goStep(t, func() { m.base.StoreItem(itA) })
 	lateInit.waitReached(t, x.aDone)
-	if _, start := s.args("map.set.beforeInit"); start != nodeOf(itP) {
-		t.Fatalf("late StoreItem(a) starts from %p, want p %p", start, nodeOf(itP))
-	}
 
 	m.base.StoreItem(itA)
 	if x.p.DirectNext() != x.a || x.a.DirectPrev() != x.p {

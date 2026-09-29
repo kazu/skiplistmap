@@ -6,6 +6,7 @@ package skiplistmap
 import (
 	"fmt"
 	"math/bits"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -30,8 +31,14 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 	// insertToPool may put a new array into the pool while the search reads
 	// the old one; the search starts again when the array changed under it
 	for {
+		version := pool.publication.Load()
 		data := atomic.LoadPointer(&items.data)
 		l := items.Len()
+		stepAt("bsearch.snapshot", unsafe.Pointer(pool), nil)
+		if version&1 != 0 {
+			runtime.Gosched()
+			continue
+		}
 
 		idx := sort.Search(l, func(i int) bool {
 			item := items._at(i, true, true)
@@ -56,7 +63,7 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 			found = item
 			break
 		}
-		if atomic.LoadPointer(&items.data) != data {
+		if atomic.LoadPointer(&items.data) != data || pool.publication.Load() != version {
 			continue
 		}
 		if found != nil {
@@ -436,10 +443,9 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem
 		}
 
 		oldItems := sp.ptrItems().dup()
-		spItems := sp.ptrItems()
 		newItemSlice := toItemSlice(newItems)
 		stepAt("insertToPool.publish", unsafe.Pointer(sp), nil)
-		spItems.CopyFrom(&newItemSlice, 0, newItemSlice.Len())
+		sp.publishItems(&newItemSlice)
 
 		// for debug
 		oldItemFirst := oldItems.at(0).Prev().Next().PtrMapHead()
@@ -551,7 +557,7 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu sync.Locker) (new MapIte
 		}
 		atomic.StoreUint64(&new.PtrMapHead().conflict, 0)
 
-		if !atomic.CompareAndSwapUint32((*uint32)(&(new.PtrMapHead().state)), oState, 0) {
+		if !atomic.CompareAndSwapUint32((*uint32)(&(new.PtrMapHead().state)), oState, uint32(mapIsDeleted)) {
 			atomic.StoreUint64(&new.PtrMapHead().reverse, oReverse)
 			goto RETRY
 		}
@@ -624,8 +630,7 @@ func (sp *samepleItemPool) expand(mu sync.Locker) (unlocker, error) {
 	}
 
 	oldItems := sp.ptrItems().dup()
-	spItems := sp.ptrItems()
-	spItems.CopyFrom(toPtrItemSlice(&newItems), 0, toPtrItemSlice(&newItems).Len())
+	sp.publishItems(toPtrItemSlice(&newItems))
 
 	// for debug
 	oldItemFirst := oldItems.at(0).Prev().Next().PtrMapHead()
@@ -792,6 +797,14 @@ func (sp *samepleItemPool) ptrItems() (result *itemSlice) {
 	return (*itemSlice)(unsafe.Add(unsafe.Pointer(sp), sampleItemItemsOffset))
 }
 
+// publishItems replaces the array under the bucket lock. An odd publication
+// means readers cannot yet pair its data pointer with its length.
+func (sp *samepleItemPool) publishItems(items *itemSlice) {
+	sp.publication.Add(1)
+	sp.ptrItems().CopyFrom(items, 0, items.Len())
+	sp.publication.Add(1)
+}
+
 func (sp *samepleItemPool) itemSlice(isNoneZero bool) (result itemSlice) {
 	for {
 		//result = *sp.ptrItems()
@@ -871,6 +884,7 @@ func (list *itemSlice) CopyFrom(slist *itemSlice, head, len int) {
 	if !atomic.CompareAndSwapPointer(&list.data, list.data, unsafe.Pointer(slist._at(head, false, false))) {
 		goto FAIL
 	}
+	stepAt("slice.dataPublished", unsafe.Pointer(list), nil)
 	if !atomic_util.CompareAndSwapInt(&list.cap, list.cap, scap-head) {
 		goto FAIL
 	}

@@ -803,6 +803,7 @@ func (h *Map) Set(key, value interface{}) bool {
 		if !atomic.CompareAndSwapUint64(&item.PtrMapHead().conflict, 0, conflict) {
 			Log(LogDebug, "already set conflict")
 		}
+		stepAt("set.identity", unsafe.Pointer(s.PtrListHead()), nil)
 	} else {
 		var wg sync.WaitGroup
 		var fn func()
@@ -1938,12 +1939,29 @@ func (h *Map) Delete(key interface{}) bool {
 func (h *Map) deleteItem(key interface{}) (MapItem, *bucket, *MapHead, bool) {
 
 	k, conflict := KeyToHash(key)
-	item, bucket, ok := h._loadItem(k, conflict, nil)
-	if !ok {
-		return nil, nil, nil, false
+	var item MapItem
+	var bucket *bucket
+	var lock *trylock.Mutex
+	for {
+		var ok bool
+		item, bucket, ok = h._loadItem(k, conflict, nil)
+		if !ok {
+			return nil, nil, nil, false
+		}
+		if stepEnabled {
+			stepAt("delete.found", unsafe.Pointer(item.PtrListHead()), nil)
+		}
+		if !h.isEmbededItemInBucket {
+			break
+		}
+		lock, ok = h.lockFoundItem(key, item, bucket)
+		if ok {
+			break
+		}
+		runtime.Gosched()
 	}
-	if stepEnabled {
-		stepAt("delete.found", unsafe.Pointer(item.PtrListHead()), nil)
+	if lock != nil {
+		defer lock.Unlock()
 	}
 	// the item pool moves the item to a larger array: a delete that found
 	// the item and one that found its copy claim one node

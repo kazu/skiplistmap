@@ -1,7 +1,6 @@
 package skiplistmap_test
 
 import (
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -205,13 +204,6 @@ func Test_PurgeAndSetFewKeysManyTimes(t *testing.T) {
 func Test_ConcurrentDeleteWhileGrowing(t *testing.T) {
 	for _, p := range crashMapParams() {
 		t.Run(p.name, func(t *testing.T) {
-			if strings.HasPrefix(p.name, "skiplistmap5") {
-				// FIXME: on a map with the embedded pool 10 to 40 of the
-				// 20000 deleted keys are found, in every run, also with
-				// the code before this test was added. The cause is not
-				// known.
-				t.Skip("Delete is lost on a map with the embedded pool")
-			}
 			const present = 20000
 			const writers = 8
 			m := p.newMap()

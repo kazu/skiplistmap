@@ -134,10 +134,11 @@ const (
 )
 
 type samepleItemPool struct {
-	mu       trylock.Mutex
-	freeHead elist_head.ListHead
-	freeTail elist_head.ListHead
-	items    []SampleItem
+	mu          trylock.Mutex
+	freeHead    elist_head.ListHead
+	freeTail    elist_head.ListHead
+	items       []SampleItem
+	publication atomic.Uint64
 	// expanded is set under mu once _expand has replaced the pool, so that
 	// a Get that waited for mu does not expand it again
 	expanded atomic.Bool

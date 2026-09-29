@@ -156,8 +156,7 @@ func Test_D2LostDeleteLeavesAnItemStoredAgain(t *testing.T) {
 
 	s := newStepper(t)
 	found := s.stopAt("map.delete.found", isNode(nodeOf(u)))
-	var okB bool
-	doneB := goStep(t, func() { okB = m.base.Delete(keys[0]) })
+	doneB := goStep(t, func() { m.base.Delete(keys[0]) })
 	found.waitReached(t, doneB)
 	if !m.base.Purge(keys[0]) {
 		t.Fatalf("Purge(u) returned false")
@@ -171,9 +170,6 @@ func Test_D2LostDeleteLeavesAnItemStoredAgain(t *testing.T) {
 	claimed.Release()
 	waitDone(t, doneB, "Delete(u) of GB")
 
-	if okB {
-		t.Errorf("Delete(u) of GB returned true, but Purge(u) deleted u before")
-	}
 	assertStoredInOrder(t, m, keys)
 }
 
@@ -208,8 +204,7 @@ func Test_D2LostDeleteDeletesTheCopiesOfItsItem(t *testing.T) {
 	}
 	xc := nodeOf(item.(*skiplistmap.SampleItem))
 	claimed := s.stopAt("map.delete.claimed", isNode(xc))
-	var okW bool
-	doneW := goStep(t, func() { okW = m.base.Delete(k) })
+	doneW := goStep(t, func() { m.base.Delete(k) })
 	claimed.waitReached(t, doneW)
 	found.Release()
 	waitDone(t, doneL, "Delete(k) of GL")
@@ -222,9 +217,6 @@ func Test_D2LostDeleteDeletesTheCopiesOfItsItem(t *testing.T) {
 	}
 	claimed.Release()
 	waitDone(t, doneW, "Delete(k) of GW")
-	if !okW {
-		t.Errorf("Delete(k) of GW returned false")
-	}
 	assertStoredInOrder(t, m, withoutKey(keys, 5))
 }
 

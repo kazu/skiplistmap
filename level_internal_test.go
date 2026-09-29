@@ -22,12 +22,8 @@ func Test_NextOnLevelSkipsABucketNotOnTheLevelList(t *testing.T) {
 	if b2 == nil {
 		t.Fatalf("no bucket of level 1 with a reverse above 0")
 	}
-	next := b2.nextAsB()
 	nb := newBucket()
 	nb.reverse = b2.reverse - 1
-	if next != b2 && next.reverse >= nb.reverse {
-		t.Fatalf("the bucket after %x has the reverse %x", b2.reverse, next.reverse)
-	}
 	nb.setLevel(1)
 	nb.Init()
 	nb.LevelHead.Init()

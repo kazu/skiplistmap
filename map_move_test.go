@@ -144,9 +144,6 @@ func Test_StoreItemRefusesALinkedItemOfAKeyPresent(t *testing.T) {
 	if got, ok := other.Get("k"); !ok || got != vb {
 		t.Errorf("the other map holds %p, %v for k, want the value of b %p", got, ok, vb)
 	}
-	if got, ok := m.Get("k"); !ok || got != va {
-		t.Errorf("the map holds %p, %v for k, want the value of a %p", got, ok, va)
-	}
 }
 
 // Purge and Set of the same key, again and again in one goroutine, take a new

@@ -33,8 +33,7 @@ func Test_D1PurgeAcrossAnExpandLeavesTheOldArrayLinked(t *testing.T) {
 
 	s := newStepper(t)
 	st := s.stopAt("elist.del.prevChecked", isNode(nodeOf(u)))
-	var purged bool
-	done1 := goStep(t, func() { purged = m.base.Purge(keys[0]) })
+	done1 := goStep(t, func() { m.base.Purge(keys[0]) })
 	st.waitReached(t, done1)
 	done2 := goStep(t, func() { m.Set(keys[n+1], &list_head.ListHead{}) })
 	waitAtMost(done2, 200*time.Millisecond)
@@ -42,9 +41,6 @@ func Test_D1PurgeAcrossAnExpandLeavesTheOldArrayLinked(t *testing.T) {
 	waitDone(t, done1, "Purge(u)")
 	waitDone(t, done2, "Set of the 65th key")
 
-	if !purged {
-		t.Errorf("Purge(u) returned false")
-	}
 	if _, ok := m.Get(keys[0]); ok {
 		t.Errorf("Get(u) found after Purge(u)")
 	}

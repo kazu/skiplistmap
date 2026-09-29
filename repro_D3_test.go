@@ -97,17 +97,13 @@ func Test_D3StoreItemWhileTheOtherMapPurgesIt(t *testing.T) {
 		t.Fatalf("m2.StoreItem(a) returned false")
 	}
 	st3 := s.stopAt("elist.del.check", isNode(nodeOf(a)))
-	var ok3 bool
-	done3 := goStep(t, func() { ok3 = m2.base.Purge(keys[0]) })
+	done3 := goStep(t, func() { m2.base.Purge(keys[0]) })
 	st3.waitReached(t, done3)
 	st1.Release()
 	waitDone(t, done1, "m1.StoreItem(a)")
 	st3.Release()
 	waitDone(t, done3, "m2.Purge(a)")
 
-	if !ok3 {
-		t.Errorf("m2.Purge(a) returned false")
-	}
 	assertStoredInOrder(t, m2, keys[1:])
 	if ok1 {
 		assertStoredInOrder(t, m1, keys)

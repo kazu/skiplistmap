@@ -16,7 +16,8 @@ Skip List Map is a concurrent map.  this Map is goroutine safety for reading/upd
 
 ## requirement
 
-` golang >= 1.17`
+Go 1.27.1 for this development branch. Its local dependency checkouts and
+verification commands are described in [stability checks](docs/stability-checks.md).
 
 ## install 
 

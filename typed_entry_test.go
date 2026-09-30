@@ -12,6 +12,25 @@ type reuseValue struct {
 	Pointer *uint64
 }
 
+func TestTypedEmbeddedUpdatesReuseSlots(t *testing.T) {
+	m := New[Uint64Key, int](UseEmbeddedPool[Uint64Key, int](true))
+	for i := 0; i < 64; i++ {
+		if !m.Set(1, i) {
+			t.Fatal("Set failed")
+		}
+	}
+	if value, ok := m.Get(1); !ok || value != 63 {
+		t.Fatalf("Get=(%d,%v)", value, ok)
+	}
+	if m.Len() != 1 {
+		t.Fatalf("Len=%d", m.Len())
+	}
+	pool := m.findBucket(uint64(1) << 63).itemPool()
+	if got := pool.len(); got > 2 {
+		t.Fatalf("single-key updates retained %d slots; retired slots were not reused", got)
+	}
+}
+
 func makeReuseValue(n uint64) reuseValue {
 	v := reuseValue{Text: fmt.Sprint(n), Pointer: &n}
 	for i := range v.Words {

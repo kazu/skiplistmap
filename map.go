@@ -842,13 +842,14 @@ func (h *Map[K, V]) Set(key K, value V) bool {
 		}
 		stepAt("set.identity", unsafe.Pointer(s.PtrListHead()), nil)
 	} else {
+		var pooled *SampleItem[K, V]
 		var wg sync.WaitGroup
 		var fn func()
 		fn = nil
 		wg.Add(1)
 		pooler := (*Pool[K, V])(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&h.pooler))))
 		pooler.Get(bits.Reverse64(k), func(item MapItem[K, V], mu sync.Locker) {
-			s = item
+			pooled = item
 			if mu != nil {
 				fn = func() {
 					mu.Unlock()
@@ -860,10 +861,11 @@ func (h *Map[K, V]) Set(key K, value V) bool {
 			defer fn()
 		}
 
+		wg.Wait()
+		s = pooled
 		if s != nil && !s.IsSingle() {
 			Log(LogWarn, "get not single entry?")
 		}
-		wg.Wait()
 		if IsExtended {
 			useDump = true
 			IsExtended = false

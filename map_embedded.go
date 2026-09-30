@@ -292,9 +292,9 @@ func (sp *samepleItemPool[K, V]) state4get(reverse uint64, len int, cap int) byt
 
 }
 
-// bsearchFromFreeList returns a deleted item that can take reverse without
-// breaking the order of items, deleted ones included: the last item not
-// above reverse, or items[0] when every item is above it.
+// bsearchFromFreeList finds a deleted slot without breaking hash order. Check
+// the equal-reverse run and its immediate predecessor, or the first slot when
+// every item is above reverse. Replacements leave free slots inside that run.
 func (sp *samepleItemPool[K, V]) bsearchFromFreeList(reverse uint64) (int, bool) {
 
 	items := sp.ptrItems()
@@ -306,11 +306,14 @@ func (sp *samepleItemPool[K, V]) bsearchFromFreeList(reverse uint64) (int, bool)
 	if idx < 1 {
 		idx = 1
 	}
-	mItem := items._at(idx-1, true, false)
-
-	if mItem != nil && mItem.IsDeleted() {
-		//mItem.Init()
-		return idx - 1, true
+	for i := idx - 1; i >= 0; i-- {
+		item := items._at(i, true, false)
+		if item != nil && item.IsDeleted() {
+			return i, true
+		}
+		if item == nil || atomic.LoadUint64(&item.reverse) != reverse {
+			break
+		}
 	}
 	return -1, false
 }
@@ -506,7 +509,7 @@ func (sp *samepleItemPool[K, V]) getWithFn(reverse uint64, mu sync.Locker) (new 
 		if !found {
 			goto RETRY
 		}
-		items := sp.itemSlice(false)
+		items := sp.ptrItems()
 		new = items._at(idx, true, false)
 		if new == nil {
 			goto RETRY
@@ -528,7 +531,9 @@ func (sp *samepleItemPool[K, V]) getWithFn(reverse uint64, mu sync.Locker) (new 
 			atomic.StoreUint64(&new.PtrMapHead().reverse, oReverse)
 			goto RETRY
 		}
-		new.PtrListHead().MarkForDelete()
+		if !new.PtrListHead().IsSingle() {
+			new.PtrListHead().MarkForDelete()
+		}
 		return new, nil, fn
 	}
 

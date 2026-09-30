@@ -7,7 +7,7 @@
 Nushellで親worktreeから実行する。全24ケース（16/1024要素、Readme/Typed/RuntimeOffset/Local、対象操作）を検査し、各3回の交互測定と別実行のCPU profileを保存する。
 
 ```nu
-nu tools/elist-perf/typed.nu deps/elist_head /tmp/elist-013-offset-final --benchtime 300ms --profiletime 2s
+nu tools/elist-perf/typed.nu ../elist_head /tmp/elist-013-offset-final --benchtime 300ms --profiletime 2s
 ```
 
 サイズ・allocationはsizes.txt、中央値はsummary.nuon、条件はmanifest.nuon、profileと対応binaryは同じ出力先に保存する。全方式が型付き終端と比較する。Typedは外で構築したviewを渡し、Localは計測関数内で定数offsetからviewを構築する。RuntimeOffsetもWalk/DirectWalkを測り、動的offsetの影響を切り分ける。遅い条件も残し、どの呼び出し方でも同等とは扱わない。
@@ -15,6 +15,10 @@ nu tools/elist-perf/typed.nu deps/elist_head /tmp/elist-013-offset-final --bench
 元の実装と変更後を別バイナリで交互に測り、操作別のCPU・メモリプロファイルを保存する。性能修正前の比較点として使う。依存本体の最適化はこのベンチ修正に含めない。
 
 ## 測定対象
+
+以下は013当時の比較条件と再現手順。010以降の通常ビルドは兄弟checkoutの
+`../elist_head`を使う。過去の`deps/elist_head`を前提とする手順は、記載されたcommitの
+checkoutで再現する。現在の依存準備は[検証手順](../../docs/stability-checks.md)を参照する。
 
 - 元の本体: `eefadded7d74d2d4badce57bbf9541264d386ded`。ベンチ修正済み比較branchは`baseline/013`、`5a278c4`。
 - 変更後: `deps/elist_head`の`task/013-generics`、`3a11215`。本体は`be6e62b`と同一。

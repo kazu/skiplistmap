@@ -9,6 +9,8 @@ export GOMAXPROCS="${GOMAXPROCS:-4}"
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/skiplistmap-ci.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
 root=$PWD
+elist_root=$(go list -m -f '{{.Dir}}' github.com/kazu/elist_head)
+loncha_root=$(go list -m -f '{{.Dir}}' github.com/kazu/loncha)
 modes=("$@")
 if ((${#modes[@]} == 0)); then
 	modes=(normal race checkptr step)
@@ -23,10 +25,10 @@ for mode in "${modes[@]}"; do
 		step) flags=(-race -tags=stephook) ;;
 		*) echo "Unknown mode: $mode" >&2; exit 2 ;;
 	esac
-	for module in . deps/elist_head ../loncha; do
-		cd "$root/$module"
+	for module in "$root" "$elist_root" "$loncha_root"; do
+		cd "$module"
 		pattern=./...
-		if [[ "$module" == ../loncha ]]; then
+		if [[ "$module" == "$loncha_root" ]]; then
 			# This is the loncha package imported by skiplistmap.
 			pattern=./lista_encabezado
 		fi

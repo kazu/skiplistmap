@@ -1,7 +1,17 @@
 # Stability checks
 
-リポジトリと elist_head submodule を checkout し、隣の `../loncha` に
-対応する loncha の変更を checkout した状態で、ルートから実行する。
+この開発ブランチはGo 1.27.1と隣の`elist_head`・`loncha`のcheckoutを使う。
+elist_headは`cab6a1bff65b540c8a777c20e9a41cb8899b6d4c`、lonchaは
+`1a71ffebf3c97146f935f257d249261470a54b46`を比較の基準とする。
+`deps/elist_head`のsubmoduleは使わない。
+
+既存checkoutを切り替えず依存側の専用worktreeで検証する場合は、Go workspaceで
+対象を選ぶ。CIスクリプトは`go list -m`が返す実際の依存ディレクトリを検証するため、
+workspaceによる選択にも従う。GitHub Actionsは上記のcommitを隣のディレクトリへ
+checkoutする設定であり、依存commitがremoteで取得可能になるまでは実行できない。
+
+リポジトリの隣の `../elist_head` と `../loncha` に上記commitをcheckoutした状態で、
+リポジトリのルートから実行する。
 009 の検証対象は loncha の `task/009-list-stability`、コミット `1a71ffe`。
 
 ```bash
@@ -10,7 +20,7 @@ make ci
 
 Nushell でも `make ci` を実行する。
 
-対象は本体の全パッケージ、`deps/elist_head` の全パッケージ、本体が import する
+対象は本体の全パッケージ、隣の `elist_head` の全パッケージ、本体が import する
 `../loncha/lista_encabezado`。Go 1.27.1、Bash、GNU time が必要。
 デフォルトの `GOMAXPROCS` は4、プロセスの仮想メモリ上限は4 GiB。
 

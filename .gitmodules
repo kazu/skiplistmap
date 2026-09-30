@@ -1,3 +1,0 @@
-[submodule "deps/elist_head"]
-	path = deps/elist_head
-	url = https://github.com/kazu/elist_head.git

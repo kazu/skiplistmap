@@ -8,14 +8,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
+      with:
+        path: skiplistmap
+
+    - uses: actions/checkout@v2
+      with:
+        repository: kazu/elist_head
+        ref: cab6a1bff65b540c8a777c20e9a41cb8899b6d4c
+        path: elist_head
+
+    - uses: actions/checkout@v2
+      with:
+        repository: kazu/loncha
+        ref: 1a71ffebf3c97146f935f257d249261470a54b46
+        path: loncha
 
     - name: Set up Go
       uses: actions/setup-go@v2
       with:
-        go-version: 1.17
+        go-version: 1.27.1
 
     - name: Build
-      run: go build -v ./...
+      working-directory: skiplistmap
+      run: |
+        ulimit -v 4194304
+        go build -v ./...
 
     - name: Test
-      run: go test -v ./
+      working-directory: skiplistmap
+      run: make ci

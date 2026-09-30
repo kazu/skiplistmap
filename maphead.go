@@ -10,7 +10,7 @@ import (
 	"github.com/kazu/elist_head"
 )
 
-type mapState uint32
+type mapState uint64
 
 const (
 	mapIsDummy mapState = 1 << iota
@@ -21,6 +21,9 @@ const (
 	// mapIsBusy marks an entry that a StoreItem, a Set, a Delete or a Purge
 	// is writing, which the others refuse
 	mapIsBusy
+	// Adding mapKeyWriting before and after replacing a pooled key/value
+	// pair makes this bit odd during publication and advances its version.
+	mapKeyWriting
 )
 
 type MapHead struct {
@@ -37,7 +40,7 @@ func (mh *MapHead) KeyInHmap() uint64 {
 }
 
 func (mh *MapHead) IsIgnored() bool {
-	return mapState(atomic.LoadUint32((*uint32)(&mh.state)))&(mapIsDummy|mapIsDeleted) > 0
+	return mapState(atomic.LoadUint64((*uint64)(&mh.state)))&(mapIsDummy|mapIsDeleted) > 0
 }
 
 // claimDelete sets mapIsDeleted and hold and reports whether this call set
@@ -45,14 +48,14 @@ func (mh *MapHead) IsIgnored() bool {
 // that it set nothing as another call holds mapIsBusy.
 func (mh *MapHead) claimDelete(hold mapState) (won, busy bool) {
 	for {
-		s := atomic.LoadUint32((*uint32)(&mh.state))
+		s := atomic.LoadUint64((*uint64)(&mh.state))
 		if mapState(s)&mapIsDeleted != 0 {
 			return false, false
 		}
 		if mapState(s)&mapIsBusy != 0 {
 			return false, true
 		}
-		if atomic.CompareAndSwapUint32((*uint32)(&mh.state), s, s|uint32(mapIsDeleted|hold)) {
+		if atomic.CompareAndSwapUint64((*uint64)(&mh.state), s, s|uint64(mapIsDeleted|hold)) {
 			return true, false
 		}
 	}
@@ -61,30 +64,30 @@ func (mh *MapHead) claimDelete(hold mapState) (won, busy bool) {
 // claimBusy sets mapIsBusy and reports whether this call set it.
 func (mh *MapHead) claimBusy() bool {
 	for {
-		s := atomic.LoadUint32((*uint32)(&mh.state))
+		s := atomic.LoadUint64((*uint64)(&mh.state))
 		if mapState(s)&mapIsBusy != 0 {
 			return false
 		}
-		if atomic.CompareAndSwapUint32((*uint32)(&mh.state), s, s|uint32(mapIsBusy)) {
+		if atomic.CompareAndSwapUint64((*uint64)(&mh.state), s, s|uint64(mapIsBusy)) {
 			return true
 		}
 	}
 }
 
 func (mh *MapHead) releaseBusy() {
-	atomic.AndUint32((*uint32)(&mh.state), ^uint32(mapIsBusy))
+	atomic.AndUint64((*uint64)(&mh.state), ^uint64(mapIsBusy))
 }
 
 func (mh *MapHead) isPoolItem() bool {
-	return mapState(atomic.LoadUint32((*uint32)(&mh.state)))&mapIsPoolItem > 0
+	return mapState(atomic.LoadUint64((*uint64)(&mh.state)))&mapIsPoolItem > 0
 }
 
 func (mh *MapHead) IsDummy() bool {
-	return mapState(atomic.LoadUint32((*uint32)(&mh.state)))&mapIsDummy > 0
+	return mapState(atomic.LoadUint64((*uint64)(&mh.state)))&mapIsDummy > 0
 }
 
 func (mh *MapHead) IsDeleted() bool {
-	return mapState(atomic.LoadUint32((*uint32)(&mh.state)))&mapIsDeleted > 0
+	return mapState(atomic.LoadUint64((*uint64)(&mh.state)))&mapIsDeleted > 0
 }
 
 func (mh *MapHead) ConflictInHamp() uint64 {

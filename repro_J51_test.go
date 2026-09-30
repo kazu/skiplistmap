@@ -31,8 +31,8 @@ func Test_J51StoreSameNewKeyNoPositionLinkedTwice(t *testing.T) {
 		skiplistmap.BucketMode(skiplistmap.CombineSearch4),
 		skiplistmap.ItemFn(func() skiplistmap.MapItem { return (*a8Item)(nil) }),
 	)
-	m1 := newA8Item("m1", ^uint64(0), 1)
-	m2 := newA8Item("m2", ^uint64(0), 1)
+	m1 := newA8Item("same", ^uint64(0), 1)
+	m2 := newA8Item("same", ^uint64(0), 1)
 
 	s := newStepper(t)
 	stop := s.stopAt("map.add2.bucketInsert", isNode(nodeOf(&m2.SampleItem)))
@@ -87,8 +87,8 @@ func Test_J51TailPathNotTakenDuringSplit(t *testing.T) {
 	for _, point := range points {
 		t.Run(point, func(t *testing.T) {
 			items := newStepItems(regionKeys(0x3, 0xc, 16))
-			m1 := newA8Item("m1", ^uint64(0), 1)
-			m2 := newA8Item("m2", ^uint64(0), 1)
+			m1 := newA8Item("same", ^uint64(0), 1)
+			m2 := newA8Item("same", ^uint64(0), 1)
 			m := newWrapHMap(skiplistmap.NewHMap())
 			skiplistmap.MaxPefBucket(2)(m.base)
 			skiplistmap.BucketMode(skiplistmap.CombineSearch4)(m.base)

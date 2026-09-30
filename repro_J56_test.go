@@ -18,7 +18,8 @@ func newJ56Map(mode skiplistmap.SearchMode, max int) *skiplistmap.Map {
 	return m
 }
 
-// The claim: Delete(k) runs entryHMap.Delete on the entry of k, which sets
+// Delete now preserves the key, so reusing an entry cannot retarget key 0.
+// The original claim: Delete(k) runs entryHMap.Delete on the entry of k, which sets
 // its key to nil, and KeyToHash(nil) is (0, 0), the hash pair of the key 0.
 // If the caller then stores the same entry again with StoreItem, its lookup
 // looks for (0, 0), finds the entry of the key 0 and stores the value of the
@@ -59,8 +60,8 @@ func Test_J56StoreAfterEntryDeleteDoesNotOverwriteKeyZero(t *testing.T) {
 			if !m.Delete(k) {
 				t.Fatalf("mode %d max %d: Delete(k) = false", mode, max)
 			}
-			if e.Key() != nil {
-				t.Fatalf("mode %d max %d: the key of the entry of k is %v after Delete(k), want nil", mode, max, e.Key())
+			if e.Key() != k {
+				t.Fatalf("mode %d max %d: the key of the entry of k changed to %v after Delete(k), want %v", mode, max, e.Key(), k)
 			}
 			stored := m.StoreItem(e)
 			if v := zero.Value(); v != "zero" {

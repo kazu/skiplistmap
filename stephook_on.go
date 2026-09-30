@@ -58,7 +58,10 @@ import (
 //   - "set.newKeyLock" (bucket, mutex): Set in a map with the embedded pool found bucket and is about to lock mutex, the muPool that guards the pool; before it locks mutex and looks the key up.
 //   - "makeBucket2.added" (new bucket, bucket): makeBucket2 of bucket returned from addBucket of new bucket; before it turns a negative level of new bucket positive.
 //   - "set.slotTaken" (item, bucket): Set of a key not present in a map with the embedded pool took item, a slot of the pool of bucket, from getWithFn; before it stores the reverse and the conflict of the key into item.
-//   - "get.found" (item, nil): _get found item by searchKey; before it compares the reverse and the conflict of item with the key.
+//   - "get.found" (item, nil): a lookup found item by searchKey, before checking its key identity.
+//   - "get.beforeValue" (item, nil): Get or GetByHash found a candidate, before reading its key/value publication.
+//   - "key.dataRead" (item, data): a key/value read loaded the string data pointer, before loading its length.
+//   - "range.keyRead" (item, nil): Range captured the key and value, before calling the visitor.
 //   - "delete.found" (item, nil): Delete found item by LoadItem; before it runs Delete on item.
 //   - "purge.lenLowered" (item, pool): purgeInEmbedded found item in the last slot of pool and lowered the length of pool over it; before it runs shrinkLen.
 //   - "update.found" (item, nil): _update was given item, the item of the key that Set, StoreItem or storeIntoSameKey found; before it stores the value into item.

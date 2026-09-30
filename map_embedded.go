@@ -35,16 +35,14 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 		data := atomic.LoadPointer(&items.data)
 		l := items.Len()
 		stepAt("bsearch.snapshot", unsafe.Pointer(pool), nil)
-		if version&1 != 0 {
+		if version&1 != 0 || pool.publication.Load() != version {
 			runtime.Gosched()
 			continue
 		}
+		snapshot := unsafe.Slice((*SampleItem)(data), l)
 
 		idx := sort.Search(l, func(i int) bool {
-			item := items._at(i, true, true)
-			if item == nil {
-				return true
-			}
+			item := skipDeletedItems(&snapshot[i], &snapshot[0])
 			return atomic.LoadUint64(&item.reverse) >= reverseNoMask
 			//return items.reverseAt(i) >= reverseNoMask
 		})
@@ -52,18 +50,17 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 		// Equal reverses sit next to each other; a purged placeholder may
 		// precede the live entry of the same key, so skip ignored matches.
 		var found *SampleItem
-		for ; idx < l && items.reverseAt(idx) == reverseNoMask; idx++ {
-			item := items._at(idx, true, false)
-			if item == nil {
-				break
-			}
-			if ignoreBucketEnry && item.IsIgnored() {
+		for ; idx < l && atomic.LoadUint64(&snapshot[idx].reverse) == reverseNoMask; idx++ {
+			item := &snapshot[idx]
+			// A reused slot can expose its new hash before Set links it.
+			// Such a slot is not yet a search result, even if its state is live.
+			if ignoreBucketEnry && (item.IsIgnored() || !linkedEntry(item.PtrListHead())) {
 				continue
 			}
 			found = item
 			break
 		}
-		if atomic.LoadPointer(&items.data) != data || pool.publication.Load() != version {
+		if pool.publication.Load() != version {
 			continue
 		}
 		if found != nil {
@@ -352,7 +349,7 @@ func (sp *samepleItemPool) appendLast(reverse uint64, mu sync.Locker) (newItem M
 	// identity and give it reverse while it is past the length, where no
 	// reader looks at it yet
 	slot := items._at(l, false, false)
-	atomic.StoreUint32((*uint32)(&slot.PtrMapHead().state), 0)
+	atomic.AndUint64((*uint64)(&slot.PtrMapHead().state), ^uint64(mapIsDummy|mapIsDeleted|mapIsPoolItem|mapIsBusy))
 	atomic.StoreUint64(&slot.PtrMapHead().conflict, 0)
 	atomic.StoreUint64(&slot.PtrMapHead().reverse, reverse)
 	if atomic_util.CompareAndSwapInt(&items.len, l, l+1) {
@@ -544,10 +541,10 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu sync.Locker) (new MapIte
 		if new == nil {
 			goto RETRY
 		}
-		oState := atomic.LoadUint32((*uint32)(&(new.PtrMapHead().state)))
+		oState := atomic.LoadUint64((*uint64)(&(new.PtrMapHead().state)))
 		oReverse := atomic.LoadUint64(&new.PtrMapHead().reverse)
 
-		if oState&uint32(mapIsDeleted) == 0 {
+		if oState&uint64(mapIsDeleted) == 0 {
 			goto RETRY
 		}
 		// the free slot takes the reverse of the new key at once, so that
@@ -557,7 +554,7 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu sync.Locker) (new MapIte
 		}
 		atomic.StoreUint64(&new.PtrMapHead().conflict, 0)
 
-		if !atomic.CompareAndSwapUint32((*uint32)(&(new.PtrMapHead().state)), oState, uint32(mapIsDeleted)) {
+		if !atomic.CompareAndSwapUint64((*uint64)(&(new.PtrMapHead().state)), oState, (oState&^uint64(mapIsDummy|mapIsDeleted|mapIsPoolItem|mapIsBusy))|uint64(mapIsDeleted)) {
 			atomic.StoreUint64(&new.PtrMapHead().reverse, oReverse)
 			goto RETRY
 		}
@@ -842,18 +839,14 @@ func (list *itemSlice) _at(i int, checklen bool, skipOnDelete bool) (result *Sam
 		return (*SampleItem)(pCur)
 	}
 
-	for {
-		result = (*SampleItem)(pCur)
-		if !result.IsDeleted() {
-			break
-		}
-		if pCur == data {
-			break
-		}
-		pCur = unsafe.Add(pCur, -int(itemSize))
-	}
+	return skipDeletedItems((*SampleItem)(pCur), (*SampleItem)(data))
+}
 
-	return result
+func skipDeletedItems(item, first *SampleItem) *SampleItem {
+	for item.IsDeleted() && item != first {
+		item = (*SampleItem)(unsafe.Add(unsafe.Pointer(item), -int(itemSize)))
+	}
+	return item
 }
 
 func (list *itemSlice) Len() int {

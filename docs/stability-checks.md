@@ -10,8 +10,8 @@ elist_headは`cab6a1bff65b540c8a777c20e9a41cb8899b6d4c`、lonchaは
 workspaceによる選択にも従う。GitHub Actionsは上記のcommitを隣のディレクトリへ
 checkoutする設定であり、依存commitがremoteで取得可能になるまでは実行できない。
 
-リポジトリと elist_head submodule を checkout し、隣の `../loncha` に
-対応する loncha の変更を checkout した状態で、ルートから実行する。
+リポジトリの隣の `../elist_head` と `../loncha` に上記commitをcheckoutした状態で、
+リポジトリのルートから実行する。
 009 の検証対象は loncha の `task/009-list-stability`、コミット `1a71ffe`。
 
 ```bash

@@ -28,9 +28,12 @@ it.SetValue(3) // lost update: m.Get("a") は 2 のまま
 
 - **公開時点**:
   - 埋め込み pool の無い mode: K と値を入れ、`_set` が reverse と conflict を書いてから list につなぐ。つないだ時点から reader に見える。
-  - skiplistmap5: `bsearchBybucket` が配列を二分探索し、`matchConflict` がリンクと削除状態と conflict を確認する。`appendLast` と `insertToPool` は公開前に reverse を設定する。`foundFree` で再利用する slot は、新しい K と値の準備が済むまで削除印を残す。`Purge` 後の slot はリンクも初期化されている。
+  - skiplistmap5: `bsearchBybucket` が配列を二分探索し、`readMatchingEntry` がリンク・削除状態・ハッシュ対と、キーを指定した操作では実キーを確認する。`appendLast` と `insertToPool` は公開前に reverse を設定する。`foundFree` で再利用する slot は、新しい K と値の準備が済むまで削除印を残す。`Purge` 後の slot はリンクも初期化されている。
   - skiplistmap5 の配列置換は `publishItems` が世代番号を進めて data・cap・len を公開する。`bsearchBybucket` は公開途中、または検索中に世代が変わった場合に検索し直す。新しい配列と古い長さを組み合わせた取りこぼしは `Test_EmbeddedSearchDuringSlicePublication` で検証する。
 - **旧 reader の寿命**: 先に得たポインタが指す古い配列は、そのポインタが GC から生かすので、解放済みのメモリにはならない。読めるが、Map の今の状態ではない。
+  - `Get` と `GetByHash` は slot のキー・値の公開世代を確認してから結果を返す。`Range` も同じ世代のキーと値を callback に渡す。`Range` 全体のスナップショットは保証しない。`Len` は更新中には途中の件数を返し得るが、更新完了後には正確な件数を返す。
+  - `KeyToHash` の対応キーと比較可能な独自キーは実キーを比較し、同じハッシュ対でも別キーの item が共存できる。string と []byte は内容を比較し、対応する整数型は従来の数値の正規化を維持する。独自 `KeyHash` だけで扱うその他の比較不能なキーは、従来のハッシュ対による同一性を使う。実キーを受け取らない `GetByHash` と `LoadItemByHash` は、その対に一致する item の一つを返す。
+  - `NewEntryMap` の item は、削除してもキーを変更しない。値は atomic に公開し、nil や異なる型の値への更新も受け付ける。
 - **移動中の更新**: 利用者が古いコピーへ直接書いても、Map の現在の item には届かない。変更は Map のメソッドを通す。
   - 埋め込み pool の無い mode(skiplistmap4 など): `_update` は値を移動先にも書き、`deleteItem` は移動元・移動先へ削除状態を反映する。`FreezeSlice` が固定するのはリンクで、値や `MapHead.state` への書き込みを禁止するものではない。
   - skiplistmap5: `Set` は `muPool` を取ってから検索する。`Purge` と `Delete` は `lockFoundItem` でロック取得後のキー・枠・所有 bucket を確認し、確認できなければ検索し直す。削除処理中もロックを保持するため、その間に配列を移動したり枠を再利用したりしない。

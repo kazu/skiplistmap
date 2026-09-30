@@ -12,10 +12,9 @@ import (
 // made by NewEntryMap, stored with StoreItem. G1 deletes k1: LoadItem finds
 // the entry of k1 and Delete stops at delete.found, before it runs Delete of
 // the entry. G2 then gets k1 alone on the only P: Get takes no lock, finds the
-// entry and reads its state with the plain read in MapHead.IsIgnored, and
-// returns. G1 then runs entryHMap.Delete, which writes nil to the key and the
-// deleted bit to the state with plain writes. Nothing orders the reads of G2
-// before the writes of G1, so the race detector reports them.
+// entry and reads its key and state, and returns. Nothing orders those reads
+// before G1 resumes entryHMap.Delete. Delete therefore retains the immutable
+// key and changes only the atomic deleted bit.
 func Test_J62EntryDeleteRacesLockFreeGet(t *testing.T) {
 	m := skiplistmap.NewHMap()
 	skiplistmap.MaxPefBucket(1 << 20)(m)

@@ -13,17 +13,24 @@ import (
 )
 
 type entryHMap struct {
-	key   interface{}
-	value interface{}
-
+	entryPayload
 	MapHead
 }
 
+type entryPayload struct {
+	key, value interface{}
+}
+
+// NewEntryMap creates a caller-owned root for copy-on-update entries.
+// Keep the root reachable while any copy is linked. Map.Set retains a fresh
+// copy on every update. Replaced entries are deleted (no longer members of
+// the map); earlier references keep their earlier values. Look up the key
+// again to obtain the current entry. IsDeleted is a point-in-time check.
+// Values may be nil or change type. SetValue only initializes unlinked items.
 func NewEntryMap(key, value interface{}) *entryHMap {
-	return &entryHMap{
-		key:   key,
-		value: value,
-	}
+	s := &copyEntry{entryHMap: entryHMap{entryPayload: entryPayload{key: key, value: value}}}
+	s.root = s
+	return &s.entryHMap
 }
 
 var (
@@ -57,6 +64,9 @@ func (s *entryHMap) Value() interface{} {
 }
 
 func (s *entryHMap) SetValue(v interface{}) bool {
+	if !s.PtrListHead().IsSingle() {
+		return false
+	}
 	s.value = v
 	return true
 }
@@ -79,8 +89,7 @@ func (s *entryHMap) Offset() uintptr {
 }
 
 func (s *entryHMap) Delete() {
-	s.key = nil
-	atomic.OrUint32((*uint32)(&s.MapHead.state), uint32(mapIsDeleted))
+	atomic.OrUint64((*uint64)(&s.MapHead.state), uint64(mapIsDeleted))
 }
 
 func (s *entryHMap) KeyHash() (uint64, uint64) {

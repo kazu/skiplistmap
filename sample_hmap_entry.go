@@ -22,7 +22,7 @@ type SampleItem struct {
 
 var sampleItem MapItem = &SampleItem{}
 
-//var EmptySampleHMapEntry SampleItem = SampleItem{}
+// var EmptySampleHMapEntry SampleItem = SampleItem{}
 var EmptySampleHMapEntry *SampleItem = (*SampleItem)(unsafe.Pointer(uintptr(0)))
 
 const SampleItemOffsetOf = unsafe.Offsetof(EmptySampleHMapEntry.ListHead)
@@ -49,7 +49,8 @@ func (s *SampleItem) HmapEntryFromListHead(lhead *elist_head.ListHead) HMapEntry
 }
 
 func (s *SampleItem) Key() interface{} {
-	return s.K
+	key, _, _ := s.loadKeyValue(false)
+	return key
 }
 
 func (s *SampleItem) Value() interface{} {
@@ -81,32 +82,32 @@ func (s *SampleItem) PtrMapHead() *MapHead {
 }
 
 func (s *SampleItem) Delete() {
-	atomic.OrUint32((*uint32)(&s.state), uint32(mapIsDeleted))
+	atomic.OrUint64((*uint64)(&s.state), uint64(mapIsDeleted))
 }
 
 // copyFrom copies the key, the value and the state of src, and not its
 // links, to s, which the list does not lead to yet. A Delete or a Set that
 // found src may write the state or the value of s once the move of src is
-// done, before a Set that copies src itself then writes s: the state of src
-// but mapIsBusy is added to that of s, and the value of src goes only into s
-// without one.
+// done, before a Set that copies src itself then writes s: persistent flags
+// are added to those of s, and the value of src goes only into s without one.
+// The busy flag and key publication version belong to their original slot.
 func (s *SampleItem) copyFrom(src *SampleItem) {
-	s.K = src.K
-	v := src.V.Load()
-	state := atomic.LoadUint32((*uint32)(&src.state))
+	key, v, state := src.loadKeyValue(true)
+	s.K = key
 	if stepEnabled {
 		stepAt("item.copy.read", unsafe.Pointer(s.PtrListHead()), unsafe.Pointer(src.PtrListHead()))
 	}
 	if v != nil {
 		s.V.CompareAndSwap(nil, v)
 	}
-	atomic.OrUint32((*uint32)(&s.state), state&^uint32(mapIsBusy))
+	atomic.OrUint64((*uint64)(&s.state), uint64(state&(mapIsDummy|mapIsDeleted|mapIsPoolItem)))
 	s.conflict = atomic.LoadUint64(&src.conflict)
 	s.reverse = atomic.LoadUint64(&src.reverse)
 }
 
 func (s *SampleItem) KeyHash() (uint64, uint64) {
-	return MemHashString(s.K), xxhash.Sum64String(s.K)
+	key, _, _ := s.loadKeyValue(false)
+	return MemHashString(key), xxhash.Sum64String(key)
 }
 
 func NewSampleItem(key string, value interface{}) (item *SampleItem) {

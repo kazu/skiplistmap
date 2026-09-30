@@ -33,7 +33,7 @@ type MapHead struct {
 	elist_head.ListHead
 }
 
-var EmptyMapHead *MapHead = (*MapHead)(unsafe.Pointer(uintptr(0)))
+var EmptyMapHead *MapHead
 
 func (mh *MapHead) KeyInHmap() uint64 {
 	return bits.Reverse64(mh.reverse)

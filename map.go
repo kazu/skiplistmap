@@ -419,21 +419,16 @@ SKIP_FETCH_BUCKET:
 	})
 	_ = cnt
 
-	var pEntry HMapEntry
 	var tStart *elist_head.ListHead
 	if entry != nil {
-		pEntry = entry.Prev()
-		erk := entry.PtrMapHead().reverse
-		prk := pEntry.PtrMapHead().reverse
-		rk := bits.Reverse64(k)
-		_, _, _ = erk, prk, rk
-
 		if entry.PtrMapHead().reverse < bits.Reverse64(k) {
 			tStart = entry.PtrListHead()
-		} else if pEntry.PtrMapHead().reverse < bits.Reverse64(k) {
-			tStart = pEntry.PtrListHead()
 		} else {
-			Log(LogDebug, "hash key == reverse hash key")
+			prev := entry.PtrListHead().DirectPrev()
+			// The front sentinel has no enclosing map entry.
+			if !prev.Empty() && mapheadFromLListHead(prev).reverse < bits.Reverse64(k) {
+				tStart = prev
+			}
 		}
 	}
 	if tStart == nil {
@@ -2407,8 +2402,11 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 			goto RETRY_INITIALIZE
 		}
 	RETRY_SETUP:
-		if atomic.LoadInt32(&b.cntOfActiveLevels) <= int32(idx) && atomic.CompareAndSwapInt32(&b.cntOfActiveLevels, int32(b.ptrDownLevels().Len()), int32(idx)+1) {
-			cidx := int(atomic.LoadInt32(&b.cntOfActiveLevels)) - 1
+		active := atomic.LoadInt32(&b.cntOfActiveLevels)
+		if active <= int32(idx) && active == int32(b.ptrDownLevels().Len()) && atomic.CompareAndSwapInt32(&b.cntOfActiveLevels, active, int32(idx)+1) {
+			// The successful CAS claimed idx. Another splitter may already have
+			// advanced the shared count before this goroutine initializes its slot.
+			cidx := idx
 			if cidx > 32 || cidx < -32 {
 				Log(LogWarn, "invalid cidx ")
 			}
@@ -2424,7 +2422,7 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 			if onOk != nil {
 				Log(LogWarn, "found old fn ")
 			}
-			nDownLevel.onOkFn = func() {
+			finish := func() {
 				oDownLevels := oBucket.ptrDownLevels()
 				olen, ocap := oDownLevels.Len(), oDownLevels.Cap()
 				if olen > oIdx || ocap <= oIdx { // MENTION: should check ocap <= oIdx
@@ -2446,7 +2444,8 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 					Log(LogDebug, "fail bucket state change to finish ")
 				}
 			}
-			onOk = nDownLevel.onOkFn
+			nDownLevel.onOkFn.Store(&finish)
+			onOk = finish
 
 			if !opt.onOk {
 				onOk()
@@ -2464,7 +2463,9 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 			}
 
 			if last.isRequireOnOk() {
-				last.onOkFn()
+				if finish := last.onOkFn.Load(); finish != nil {
+					(*finish)()
+				}
 			}
 
 			goto RETRY_SETUP
@@ -2489,7 +2490,8 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 					Log(LogWarn, "fail bucket state change to finish ")
 				}
 			}
-			down.onOkFn = onOk
+			finish := onOk
+			down.onOkFn.Store(&finish)
 
 			b = down
 			if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {
@@ -2513,7 +2515,6 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 		b = down
 	}
 	if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {
-		h.DumpBucket(logio)
 		Log(LogWarn, "already inited")
 	}
 	// obucketNotInits := bucketNotInits
@@ -2525,8 +2526,8 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 	// 	h.setupBcukets(bucketNotInits)
 	// }
 	if onOk == nil {
-		if b.onOkFn != nil {
-			onOk = b.onOkFn
+		if finish := b.onOkFn.Load(); finish != nil {
+			onOk = *finish
 		} else {
 			Log(LogWarn, "not set reverse?")
 		}

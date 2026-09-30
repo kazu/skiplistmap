@@ -139,13 +139,14 @@ type samepleItemPool struct {
 	freeTail    elist_head.ListHead
 	items       []SampleItem
 	publication atomic.Uint64
+	initialized atomic.Bool
 	// expanded is set under mu once _expand has replaced the pool, so that
 	// a Get that waited for mu does not expand it again
 	expanded atomic.Bool
 	list_head.ListHead
 }
 
-var EmptysamepleItemPool *samepleItemPool = (*samepleItemPool)(unsafe.Pointer(uintptr(0)))
+var EmptysamepleItemPool *samepleItemPool
 
 const samepleItemPoolOffset = unsafe.Offsetof(EmptysamepleItemPool.ListHead)
 
@@ -166,7 +167,11 @@ func (sp *samepleItemPool) hasNoFree() bool {
 }
 
 func (sp *samepleItemPool) init() {
-	sp._init(CntOfPersamepleItemPool)
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+	if !sp.initialized.Load() {
+		sp._init(CntOfPersamepleItemPool)
+	}
 }
 
 func (sp *samepleItemPool) _init(cap int) {
@@ -174,6 +179,7 @@ func (sp *samepleItemPool) _init(cap int) {
 	elist_head.InitAsEmpty(&sp.freeHead, &sp.freeTail)
 
 	sp.items = make([]SampleItem, 0, cap)
+	sp.initialized.Store(true)
 	//sp.Init()
 }
 
@@ -221,7 +227,7 @@ func (sp *samepleItemPool) validateItems() error {
 }
 
 func (sp *samepleItemPool) Get() (new MapItem, isExpanded bool, lock sync.Locker) {
-	if sp.freeHead.DirectNext() == &sp.freeHead {
+	if !sp.initialized.Load() {
 		sp.init()
 	}
 
@@ -380,6 +386,7 @@ NO_DELETE:
 	}
 
 	nPool.Init()
+	nPool.initialized.Store(true)
 
 	// link the new pool after sp before sp leaves the pool list, so that a
 	// Get walking the list always finds a pool there

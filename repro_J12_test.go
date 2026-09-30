@@ -58,11 +58,11 @@ func Test_ReproJ12NewKeySetsLockTwoMutexesOfOnePool(t *testing.T) {
 	lowest := uint64(3) << 60
 
 	// Find n: the Set of seq[n] splits P for the first time.
-	probe := newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true), skiplistmap.MaxPefBucket(16)))
+	probe := newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true), skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](16)))
 	n := -1
 	for i, k := range seq {
 		probe.Set(k, &list_head.ListHead{})
-		if found, base := skiplistmap.StepLockBuckets(probe.base, lowest); found != base {
+		if found, base := skiplistmap.StepLockBuckets[skiplistmap.StringKey, any](probe.base, lowest); found != base {
 			n = i
 			break
 		}
@@ -82,13 +82,13 @@ func Test_ReproJ12NewKeySetsLockTwoMutexesOfOnePool(t *testing.T) {
 		t.Fatalf("no key stored before the split lies above a and b in the pool of P")
 	}
 
-	m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true), skiplistmap.MaxPefBucket(16)))
+	m := newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true), skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](16)))
 	for _, k := range seq[:n] {
 		if !m.Set(k, &list_head.ListHead{}) {
 			t.Fatalf("Set(%q) failed", k)
 		}
 	}
-	if found, base := skiplistmap.StepLockBuckets(m.base, lowest); found != base {
+	if found, base := skiplistmap.StepLockBuckets[skiplistmap.StringKey, any](m.base, lowest); found != base {
 		t.Fatalf("the bucket of 0x3.. has split before the test")
 	}
 
@@ -97,11 +97,11 @@ func Test_ReproJ12NewKeySetsLockTwoMutexesOfOnePool(t *testing.T) {
 	var ok1, ok2, ok3 bool
 	done2 := goStep(t, func() { ok2 = m.Set(b, &list_head.ListHead{}) })
 	lock2.waitReached(t, done2)
-	t.Logf("Set(b) found the bucket %016x", skiplistmap.StepBucketReverse(lock2.a))
+	t.Logf("Set(b) found the bucket %016x", skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](lock2.a))
 
 	done1 := goStep(t, func() { ok1 = m.Set(x, &list_head.ListHead{}) })
 	waitDone(t, done1, "Set(x)")
-	found, base := skiplistmap.StepLockBuckets(m.base, reverseOf(a))
+	found, base := skiplistmap.StepLockBuckets[skiplistmap.StringKey, any](m.base, reverseOf(a))
 	if found == base {
 		t.Fatalf("Set(x) did not split the bucket of 0x3..")
 	}
@@ -113,7 +113,7 @@ func Test_ReproJ12NewKeySetsLockTwoMutexesOfOnePool(t *testing.T) {
 	lock3 := s.stopAt("map.set.newKeyLock", nil)
 	done3 := goStep(t, func() { ok3 = m.Set(a, &list_head.ListHead{}) })
 	lock3.waitReached(t, done3)
-	t.Logf("Set(a) found the bucket %016x; the lookup of a finds firstDown: %v", skiplistmap.StepBucketReverse(lock3.a), lock3.a == found)
+	t.Logf("Set(a) found the bucket %016x; the lookup of a finds firstDown: %v", skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](lock3.a), lock3.a == found)
 	t.Logf("Set(a) locks the muPool that Set(b) holds: %v", lock3.b == lock2.b)
 	lock3.Release()
 	if waitAtMost(done3, 2*time.Second) {

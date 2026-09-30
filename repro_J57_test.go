@@ -35,7 +35,7 @@ func Test_J57StoreItemLinkedInOtherMapBreaksIt(t *testing.T) {
 	stored := mb.base.StoreItem(&items[1])
 	t.Logf("StoreItem(b) into B = %v", stored)
 
-	if err := skiplistmap.StepCheckLists(ma.base); err != nil {
+	if err := skiplistmap.StepCheckLists[skiplistmap.StringKey, any](ma.base); err != nil {
 		t.Errorf("A after StoreItem(b) into B: %v", err)
 	}
 	for _, k := range keys {
@@ -47,8 +47,8 @@ func Test_J57StoreItemLinkedInOtherMapBreaksIt(t *testing.T) {
 	}
 	var got []string
 	runWithDeadline(t, 10*time.Second, func() {
-		ma.base.RangeItem(func(item skiplistmap.MapItem) bool {
-			got = append(got, item.Key().(string))
+		ma.base.RangeItem(func(item skiplistmap.MapItem[skiplistmap.StringKey, any]) bool {
+			got = append(got, string(item.Key()))
 			return len(got) < 16
 		})
 	})

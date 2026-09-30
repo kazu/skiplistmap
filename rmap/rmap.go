@@ -11,7 +11,7 @@ import (
 type baseMap struct {
 	sync.RWMutex
 	read        atomic.Pointer[readMap]
-	onNewStores []func(smap.MapItem)
+	onNewStores []func(smap.MapItem[smap.StringKey, any])
 }
 
 type RMap struct {
@@ -26,7 +26,7 @@ type RMap struct {
 // A generation owns one dirty map. Once closed, its structure is immutable;
 // shared readSlot values can still be updated through the next generation.
 type mapGeneration struct {
-	dirty  *smap.Map
+	dirty  *smap.Map[smap.StringKey, *readSlot]
 	next   atomic.Pointer[readMap]
 	misses atomic.Uint64
 	phase  atomic.Uint32
@@ -42,7 +42,7 @@ type readMap struct {
 	generation *mapGeneration
 	m          map[uint64]*readSlot
 	collisions map[uint64][]*readSlot
-	frozen     *smap.Map
+	frozen     *smap.Map[smap.StringKey, *readSlot]
 }
 
 type readSlot struct {
@@ -76,12 +76,11 @@ func New() *RMap {
 	return m
 }
 
-func newDirty() *smap.Map {
-	return smap.New(
-		smap.UsePool(true),
-		smap.BucketMode(smap.CombineSearch4),
-		smap.MaxPefBucket(16),
-		smap.ItemFn(func() smap.MapItem { return smap.EmptySampleHMapEntry }),
+func newDirty() *smap.Map[smap.StringKey, *readSlot] {
+	return smap.New[smap.StringKey, *readSlot](
+		smap.UsePool[smap.StringKey, *readSlot](true),
+		smap.BucketMode[smap.StringKey, *readSlot](smap.CombineSearch4),
+		smap.MaxPefBucket[smap.StringKey, *readSlot](16),
 	)
 }
 
@@ -104,15 +103,15 @@ func (m *RMap) acquireDirty() *readMap {
 	}
 }
 
-func loadDirtySlot(dirty *smap.Map, k, conflict uint64, key string, full bool) *readSlot {
+func loadDirtySlot(dirty *smap.Map[smap.StringKey, *readSlot], k, conflict uint64, key string, full bool) *readSlot {
 	item, ok := dirty.GetByHash(k, conflict)
-	if ok && full && item.(*readSlot).key != key {
-		item, ok = dirty.Get(key)
+	if ok && full && item.key != key {
+		item, ok = dirty.Get(smap.StringKey(key))
 	}
 	if !ok {
 		return nil
 	}
-	return item.(*readSlot)
+	return item
 }
 
 func (r *readMap) loadSlot(k, conflict uint64, key string, full bool) *atomic.Pointer[storedValue] {
@@ -198,7 +197,7 @@ func (m *RMap) Set2(k, conflict uint64, key string, v interface{}) bool {
 				stepAt("set.dirtyMissing")
 				slot := &readSlot{key: key, conflict: conflict}
 				slot.value.Store(newStoredValue(v))
-				ok = g.dirty.Set(key, slot)
+				ok = g.dirty.Set(smap.StringKey(key), slot)
 			}
 			g.users.Add(-1)
 			return ok
@@ -206,7 +205,7 @@ func (m *RMap) Set2(k, conflict uint64, key string, v interface{}) bool {
 		g.users.Add(-1)
 	}
 	if len(m.onNewStores) != 0 {
-		item := smap.NewSampleItem(key, v)
+		item := smap.NewSampleItem(smap.StringKey(key), v)
 		item.PtrListHead().Init()
 		item.Setup()
 		for _, fn := range m.onNewStores {
@@ -286,7 +285,7 @@ func (m *RMap) Delete(key string) bool {
 		g.users.Add(-1)
 		return ok
 	}
-	ok := g.dirty.Delete(key)
+	ok := g.dirty.Delete(smap.StringKey(key))
 	g.users.Add(-1)
 	m.missLocked(g)
 	return ok
@@ -393,10 +392,10 @@ func (m *RMap) promote(g *mapGeneration) {
 			read.addSlot(k, slot)
 		}
 	}
-	g.dirty.RangeItem(func(item smap.MapItem) bool {
-		e := item.(*smap.SampleItem)
+	g.dirty.RangeItem(func(item smap.MapItem[smap.StringKey, *readSlot]) bool {
+		e := item
 		k, _ := e.KeyHash()
-		read.addSlot(k, e.Value().(*readSlot))
+		read.addSlot(k, e.Value())
 		return true
 	})
 	stepAt("promote.copied")

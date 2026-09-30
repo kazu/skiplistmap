@@ -43,22 +43,22 @@ func Test_ReproJ9LookupMissesKeyWhileSplitLinksNewBucket(t *testing.T) {
 	stored := append([]string{last}, keys[:9]...)
 	rest := keys[9 : len(keys)-1]
 
-	m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true), skiplistmap.MaxPefBucket(16)))
+	m := newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true), skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](16)))
 	for _, k := range stored {
 		if !m.Set(k, &list_head.ListHead{}) {
 			t.Fatalf("Set(%q) failed", k)
 		}
 	}
-	if found, base := skiplistmap.StepLockBuckets(m.base, reverseOf(last)); found != base {
+	if found, base := skiplistmap.StepLockBuckets[skiplistmap.StringKey, any](m.base, reverseOf(last)); found != base {
 		t.Fatalf("the bucket of %q has split before the test", last)
 	}
 
 	s := newStepper(t)
 	lookup := s.stopAt("map.bsearch.begin", nil)
 	var got bool
-	done1 := goStep(t, func() { _, got = m.base.Get(last) })
+	done1 := goStep(t, func() { _, got = m.base.Get(skiplistmap.StringKey(last)) })
 	lookup.waitReached(t, done1)
-	t.Logf("the lookup of last found the bucket %016x", skiplistmap.StepBucketReverse(lookup.a))
+	t.Logf("the lookup of last found the bucket %016x", skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](lookup.a))
 
 	link := s.stopAt("map.insertBucket.begin", nil)
 	done2 := goStep(t, func() {
@@ -67,7 +67,7 @@ func Test_ReproJ9LookupMissesKeyWhileSplitLinksNewBucket(t *testing.T) {
 		}
 	})
 	link.waitReached(t, done2)
-	if rn := skiplistmap.StepBucketReverse(link.a); rn > reverseOf(last) {
+	if rn := skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](link.a); rn > reverseOf(last) {
 		t.Fatalf("the new bucket %016x is above last %016x", rn, reverseOf(last))
 	} else {
 		t.Logf("the split links the new bucket %016x, which holds last %016x", rn, reverseOf(last))

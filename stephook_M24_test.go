@@ -94,7 +94,7 @@ func m24HoldGC(t *testing.T) {
 // lookup on a broken list may not end), that every key is found.
 func m24CheckStored(t *testing.T, m *WrapHMap, keys []string) {
 	t.Helper()
-	if err := skiplistmap.StepCheckLists(m.base); err != nil {
+	if err := skiplistmap.StepCheckLists[skiplistmap.StringKey, any](m.base); err != nil {
 		t.Errorf("%v", err)
 		return
 	}
@@ -147,7 +147,7 @@ func startDummyRace(t *testing.T, extra []string, k int) (*twoSplits, *dummyRace
 	r.k = nodeOf(item)
 	r.kCas2 = s.stopAt("elist.add.cas2", isNode(r.k))
 	r.kDone = goStep(t, func() { sp.m.base.StoreItem(item) })
-	sp.stored = append(sp.stored, item.K)
+	sp.stored = append(sp.stored, string(item.Key()))
 	r.kCas2.waitReached(t, r.kDone)
 	r.p = r.kCas2.b
 	if m24Next(r.k) != r.d || m24Next(r.p) != r.k || m24Prev(r.d) != r.p {

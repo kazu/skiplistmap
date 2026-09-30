@@ -1,117 +1,60 @@
-// Copyright 2019-2201 Kazuhisa TAKEI<xtakei@rytr.jp>. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
-// Package loncha/list_head is like a kernel's LIST_HEAD
-// list_head is used by loncha/gen/containers_list
 package skiplistmap
 
 import (
+	"github.com/kazu/elist_head"
 	"sync/atomic"
 	"unsafe"
-
-	"github.com/cespare/xxhash"
-	"github.com/kazu/elist_head"
 )
 
-type SampleItem struct {
-	K string
-	V atomic.Value
-	MapHead
+func NewSampleItem[K Key[K], V any](key K, value V) *Entry[K, V] {
+	return NewEntry(key, value)
+}
+func EmptySampleHMapEntry[K Key[K], V any]() *Entry[K, V] { return nil }
+func SampleItemOffsetOf[K Key[K], V any]() uintptr        { return entryHMapOffset[K, V]() }
+func SampleItemSize[K Key[K], V any]() uintptr            { var e Entry[K, V]; return unsafe.Sizeof(e) }
+func SampleItemFromListHead[K Key[K], V any](head *elist_head.ListHead) *Entry[K, V] {
+	return entryHMapFromListHead[K, V](head)
+}
+func (e *Entry[K, V]) HmapEntryFromListHead(head *elist_head.ListHead) *Entry[K, V] {
+	return entryHMapFromListHead[K, V](head)
+}
+func (e *Entry[K, V]) Next() *Entry[K, V] {
+	for head := e.PtrListHead().DirectNext(); !head.Empty(); head = head.DirectNext() {
+		if !mapheadFromLListHead(head).IsDummy() {
+			return entryHMapFromListHead[K, V](head)
+		}
+	}
+	return nil
+}
+func (e *Entry[K, V]) Prev() *Entry[K, V] {
+	for head := e.PtrListHead().DirectPrev(); !head.Empty(); head = head.DirectPrev() {
+		if !mapheadFromLListHead(head).IsDummy() {
+			return entryHMapFromListHead[K, V](head)
+		}
+	}
+	return nil
 }
 
-var sampleItem MapItem = &SampleItem{}
-
-// var EmptySampleHMapEntry SampleItem = SampleItem{}
-var EmptySampleHMapEntry *SampleItem
-
-const SampleItemOffsetOf = unsafe.Offsetof(EmptySampleHMapEntry.ListHead)
-const SampleItemSize = unsafe.Sizeof(*EmptySampleHMapEntry)
-
-func SampleItemFromListHead(head *elist_head.ListHead) *SampleItem {
-	return (*SampleItem)(ElementOf(unsafe.Pointer(head), SampleItemOffsetOf))
-}
-
-func (s *SampleItem) Offset() uintptr {
-	return SampleItemOffsetOf
-}
-
-func (s *SampleItem) PtrMapeHead() *MapHead {
-	return &(s.MapHead)
-}
-
-func (s *SampleItem) hmapEntryFromListHead(lhead *elist_head.ListHead) *SampleItem {
-	return SampleItemFromListHead(lhead)
-}
-
-func (s *SampleItem) HmapEntryFromListHead(lhead *elist_head.ListHead) HMapEntry {
-	return s.hmapEntryFromListHead(lhead)
-}
-
-func (s *SampleItem) Key() interface{} {
-	key, _, _ := s.loadKeyValue(false)
-	return key
-}
-
-func (s *SampleItem) Value() interface{} {
-	return s.V.Load()
-}
-
-func (s *SampleItem) SetValue(v interface{}) bool {
-	if v == nil {
+// SetValue initializes an unlinked Entry. Change linked entries through Map.Set.
+func (e *Entry[K, V]) SetValue(value V) bool {
+	if !e.PtrListHead().IsSingle() {
 		return false
 	}
-	s.V.Store(v)
+	e.storeTypedKeyValue(e.Key(), value)
 	return true
 }
+func (e *Entry[K, V]) Delete() { atomic.OrUint64((*uint64)(&e.state), uint64(mapIsDeleted)) }
+func (e *Entry[K, V]) Setup()  { e.reverse, e.conflict = e.KeyHash() }
 
-func (s *SampleItem) Setup() {
-	s.reverse, s.conflict = KeyToHash(s.Key())
-
-}
-
-func (s *SampleItem) Next() HMapEntry {
-	return s.hmapEntryFromListHead(s.PtrListHead().DirectNext())
-}
-func (s *SampleItem) Prev() HMapEntry {
-	return s.hmapEntryFromListHead(s.PtrListHead().DirectPrev())
-}
-
-func (s *SampleItem) PtrMapHead() *MapHead {
-	return &s.MapHead
-}
-
-func (s *SampleItem) Delete() {
-	atomic.OrUint64((*uint64)(&s.state), uint64(mapIsDeleted))
-}
-
-// copyFrom copies the key, the value and the state of src, and not its
-// links, to s, which the list does not lead to yet. A Delete or a Set that
-// found src may write the state or the value of s once the move of src is
-// done, before a Set that copies src itself then writes s: persistent flags
-// are added to those of s, and the value of src goes only into s without one.
-// The busy flag and key publication version belong to their original slot.
-func (s *SampleItem) copyFrom(src *SampleItem) {
-	key, v, state := src.loadKeyValue(true)
-	s.K = key
+func (e *Entry[K, V]) copyFrom(src *Entry[K, V]) {
+	key, value, state := src.loadTypedKeyValue()
 	if stepEnabled {
-		stepAt("item.copy.read", unsafe.Pointer(s.PtrListHead()), unsafe.Pointer(src.PtrListHead()))
+		stepAt("item.copy.read", unsafe.Pointer(e.PtrListHead()), unsafe.Pointer(src.PtrListHead()))
 	}
-	if v != nil {
-		s.V.CompareAndSwap(nil, v)
+	if src.waitPayload() {
+		e.initializePayload(key, value, src.root, src.reusable)
 	}
-	atomic.OrUint64((*uint64)(&s.state), uint64(state&(mapIsDummy|mapIsDeleted|mapIsPoolItem)))
-	s.conflict = atomic.LoadUint64(&src.conflict)
-	s.reverse = atomic.LoadUint64(&src.reverse)
-}
-
-func (s *SampleItem) KeyHash() (uint64, uint64) {
-	key, _, _ := s.loadKeyValue(false)
-	return MemHashString(key), xxhash.Sum64String(key)
-}
-
-func NewSampleItem(key string, value interface{}) (item *SampleItem) {
-	item = &SampleItem{K: key}
-	item.SetValue(value)
-	return
+	atomic.OrUint64((*uint64)(&e.state), uint64(state&(mapIsDummy|mapIsDeleted|mapIsPoolItem)))
+	e.conflict = atomic.LoadUint64(&src.conflict)
+	e.reverse = atomic.LoadUint64(&src.reverse)
 }

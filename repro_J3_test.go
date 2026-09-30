@@ -35,9 +35,9 @@ func Test_ReproJ3RejectedDummyMakesBucketHeadEmpty(t *testing.T) {
 	items := newStepItems(keys)
 	lowerItems, u, x := items[:4], &items[4], &items[5]
 
-	m := newWrapHMap(skiplistmap.NewHMap())
-	skiplistmap.MaxPefBucket(4)(m.base)
-	skiplistmap.BucketMode(skiplistmap.CombineSearch4)(m.base)
+	m := newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any]())
+	skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](4)(m.base)
+	skiplistmap.BucketMode[skiplistmap.StringKey, any](skiplistmap.CombineSearch4)(m.base)
 	for i := range lowerItems {
 		m.base.StoreItem(&lowerItems[i])
 	}
@@ -47,8 +47,8 @@ func Test_ReproJ3RejectedDummyMakesBucketHeadEmpty(t *testing.T) {
 	done := goStep(t, func() { m.base.StoreItem(u) })
 	begin.waitReached(t, done)
 	b := begin.a
-	t.Logf("split: %016x", skiplistmap.StepBucketReverse(b))
-	if r := skiplistmap.StepBucketReverse(b) >> 56; r != 0x38 {
+	t.Logf("split: %016x", skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](b))
+	if r := skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](b) >> 56; r != 0x38 {
 		begin.Release()
 		t.Fatalf("the store of U split at %02x.., want 38..", r)
 	}

@@ -54,7 +54,7 @@ func testSetCopiesAfterAMove(t *testing.T, stopOther string, other func(m *WrapH
 func Test_SetCopyAfterAMoveRefusesADelete(t *testing.T) {
 	var deleted bool
 	m, k := testSetCopiesAfterAMove(t, "map.delete.found", func(m *WrapHMap, k string) {
-		deleted = m.base.Delete(k)
+		deleted = m.base.Delete(skiplistmap.StringKey(k))
 	})
 	if deleted {
 		t.Errorf("Delete(k) returned true while Set(k) held its item")

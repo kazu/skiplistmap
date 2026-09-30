@@ -34,7 +34,7 @@ import (
 // The bucket after b on the level list then has a reverse above b.reverse:
 // the level list is out of order.
 func Test_StepJ64LevelListCapInsertsOutOfOrder(t *testing.T) {
-	h := skiplistmap.NewHMap()
+	h := skiplistmap.NewHMap[skiplistmap.StringKey, any]()
 
 	var (
 		found  bool
@@ -50,7 +50,7 @@ func Test_StepJ64LevelListCapInsertsOutOfOrder(t *testing.T) {
 		}
 		l := skiplistmap.StepM27BucketLevel(a)
 		_, pr := skiplistmap.StepM27LevelOf(b)
-		br := skiplistmap.StepBucketReverse(a)
+		br := skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](a)
 		if pr <= br {
 			return
 		}
@@ -73,7 +73,7 @@ func Test_StepJ64LevelListCapInsertsOutOfOrder(t *testing.T) {
 	defer skiplistmap.SetStepHook(nil)
 
 	for i := 0; i < 1<<20 && !found; i++ {
-		h.Set(crashKey(i), &list_head.ListHead{})
+		h.Set(skiplistmap.StringKey(crashKey(i)), &list_head.ListHead{})
 	}
 	skiplistmap.SetStepHook(nil)
 	if !found {

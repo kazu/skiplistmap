@@ -2,6 +2,8 @@
 
 package skiplistmap_test
 
+import "github.com/kazu/skiplistmap"
+
 import (
 	"testing"
 
@@ -27,7 +29,7 @@ func Test_J60FoundFreeZeroSlotHidesKey(t *testing.T) {
 			t.Fatalf("Set(%q) failed", keys[i])
 		}
 	}
-	if !m.base.Delete(keys[1]) {
+	if !m.base.Delete(skiplistmap.StringKey(keys[1])) {
 		t.Fatalf("Delete(k1) failed")
 	}
 

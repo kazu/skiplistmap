@@ -15,9 +15,9 @@ import (
 // run on with nothing ordering them.
 
 func newSplitMap() *WrapHMap {
-	m := newWrapHMap(skiplistmap.NewHMap())
-	skiplistmap.MaxPefBucket(2)(m.base)
-	skiplistmap.BucketMode(skiplistmap.CombineSearch4)(m.base)
+	m := newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any]())
+	skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](2)(m.base)
+	skiplistmap.BucketMode[skiplistmap.StringKey, any](skiplistmap.CombineSearch4)(m.base)
 	return m
 }
 
@@ -61,7 +61,7 @@ func splitTogether(t *testing.T, first, second string, secondAlone bool) {
 	waitDone(t, done2, "second split")
 	for ; next < len(items); next++ {
 		m.base.StoreItem(&items[next])
-		stored = append(stored, items[next].K)
+		stored = append(stored, string(items[next].Key()))
 	}
 
 	assertStoredInOrder(t, m, stored)
@@ -93,7 +93,7 @@ func Test_StepRaceSplitChecksDummy(t *testing.T) {
 	stored, next, done1 := storeUntilStop(t, m, items, stop1)
 	stop2 := s.stopAt("map.add2.found", isNode(nodeOf(&before[0])))
 	done2 := goStep(t, func() { m.base.StoreItem(&before[0]) })
-	stored = append(stored, before[0].K)
+	stored = append(stored, string(before[0].Key()))
 	stop2.waitReached(t, done2)
 
 	runOn(t, stop1, stop2, true)
@@ -101,7 +101,7 @@ func Test_StepRaceSplitChecksDummy(t *testing.T) {
 	waitDone(t, done2, "store before the dummy")
 	for ; next < len(items); next++ {
 		m.base.StoreItem(&items[next])
-		stored = append(stored, items[next].K)
+		stored = append(stored, string(items[next].Key()))
 	}
 
 	assertStoredInOrder(t, m, stored)

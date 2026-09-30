@@ -14,7 +14,7 @@ import (
 )
 
 func newDefaultMap() *WrapHMap {
-	return newWrapHMap(skiplistmap.New())
+	return newWrapHMap(skiplistmap.New[skiplistmap.StringKey, any]())
 }
 
 // poolMapParams are the configurations without the embedded pool: Set takes
@@ -71,10 +71,9 @@ func Test_ConcurrentFirstStoreItem(t *testing.T) {
 		t.Run(p.name, func(t *testing.T) {
 			for round := 0; round < 200; round++ {
 				m := p.newMap()
-				items := make([]skiplistmap.SampleItem, goroutines)
+				items := make([]skiplistmap.SampleItem[skiplistmap.StringKey, any], goroutines)
 				for g := range items {
-					items[g].K = keys[g]
-					items[g].SetValue(&list_head.ListHead{})
+					items[g].InitEntry(skiplistmap.StringKey(keys[g]), &list_head.ListHead{})
 				}
 				runWithDeadline(t, time.Minute, func() {
 					runTogether(goroutines, func(g int) {
@@ -145,10 +144,9 @@ func Test_SearchDuringSplit(t *testing.T) {
 			const stored = 1000
 			const added = 20000
 			m := p.newMap()
-			items := make([]skiplistmap.SampleItem, stored+added)
+			items := make([]skiplistmap.SampleItem[skiplistmap.StringKey, any], stored+added)
 			for i := range items {
-				items[i].K = crashKey(i)
-				items[i].SetValue(&list_head.ListHead{})
+				items[i].InitEntry(skiplistmap.StringKey(crashKey(i)), &list_head.ListHead{})
 			}
 			for i := 0; i < stored; i++ {
 				m.base.StoreItem(&items[i])
@@ -229,10 +227,9 @@ func Test_ConcurrentStoreItem(t *testing.T) {
 			const perGoroutine = 2000
 			const cnt = goroutines * perGoroutine
 			m := p.newMap()
-			items := make([]skiplistmap.SampleItem, cnt)
+			items := make([]skiplistmap.SampleItem[skiplistmap.StringKey, any], cnt)
 			for i := range items {
-				items[i].K = crashKey(i)
-				items[i].SetValue(&list_head.ListHead{})
+				items[i].InitEntry(skiplistmap.StringKey(crashKey(i)), &list_head.ListHead{})
 			}
 			runWithDeadline(t, 2*time.Minute, func() {
 				runTogether(goroutines, func(g int) {

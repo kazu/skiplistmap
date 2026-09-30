@@ -40,9 +40,9 @@ func Test_G3DeleteStoppedAfterItsLookupLeavesTheItemOfItsKeyStoredMeanwhile(t *t
 	s := newStepper(t)
 	stD := s.stopAt("map.delete.found", isNode(nodeOf(u)))
 	var okD bool
-	doneD := goStep(t, func() { okD = m.base.Delete(keys[1]) })
+	doneD := goStep(t, func() { okD = m.base.Delete(skiplistmap.StringKey(keys[1])) })
 	stD.waitReached(t, doneD)
-	if !m.base.Purge(keys[1]) {
+	if !m.base.Purge(skiplistmap.StringKey(keys[1])) {
 		t.Fatalf("Purge(k) returned false")
 	}
 	stS := s.stopAt("elist.add.cas1", isNode(nodeOf(u)))
@@ -66,11 +66,13 @@ func Test_G3DeleteStoppedAfterItsLookupLeavesTheItemOfItsKeyStoredMeanwhile(t *t
 	if got := m.base.Len(); got != found {
 		t.Errorf("Len() = %d, but Get finds %d keys (StoreItem(u) = %v, Delete(k) = %v)", got, found, okS, okD)
 	}
-	item, ok := m.base.LoadItem(keys[1])
+	item, ok := m.base.LoadItem(skiplistmap.StringKey(keys[1]))
 	if okD && ok {
 		switch {
-		case item == skiplistmap.MapItem(u) && item.Value() == uValue:
-		case item == skiplistmap.MapItem(v) && item.Value() == vValue:
+		case item ==
+			skiplistmap.MapItem[skiplistmap.StringKey, any](u) && item.Value() == uValue:
+		case item ==
+			skiplistmap.MapItem[skiplistmap.StringKey, any](v) && item.Value() == vValue:
 		default:
 			t.Errorf("after Delete(k) returned true, the item of k is %p with the value %p; want u %p with the value of u %p, or v %p with the value of v %p (StoreItem(u) = %v)",
 				item, item.Value(), u, uValue, v, vValue, okS)

@@ -19,7 +19,7 @@ import (
 // walks on from a. When it reaches the node before b, Next(WaitNoM()) reads
 // b, marked, 100 times and returns nil, and RangeItem calls Empty on nil.
 func Test_ReproJ33_RangeItemGetsNilBesideItemBeingPurged(t *testing.T) {
-	h := New(UseEmbeddedPool(true))
+	h := New[StringKey, any](UseEmbeddedPool[StringKey, any](true))
 	m23DirectModes(t)
 	k1, k2 := m23KeyWithTop(1), m23KeyWithTop(2)
 	n1, n2 := m23StoredNode(t, h, k1), m23StoredNode(t, h, k2)
@@ -27,7 +27,7 @@ func Test_ReproJ33_RangeItemGetsNilBesideItemBeingPurged(t *testing.T) {
 	reached, release := make(chan struct{}), make(chan struct{})
 	var first unsafe.Pointer
 	done1, p1 := m23Go(func() {
-		h.RangeItem(func(item MapItem) bool {
+		h.RangeItem(func(item MapItem[StringKey, any]) bool {
 			if first == nil {
 				first = unsafe.Pointer(item.PtrListHead())
 				close(reached)
@@ -54,7 +54,7 @@ func Test_ReproJ33_RangeItemGetsNilBesideItemBeingPurged(t *testing.T) {
 
 	stB := m23At("elist.del.marked", m23IsNode(nodeB))
 	m23Hooks(t, stB)
-	done2, p2 := m23Go(func() { h.Purge(other) })
+	done2, p2 := m23Go(func() { h.Purge(StringKey(other)) })
 	stB.waitReached(t, done2)
 
 	close(release)

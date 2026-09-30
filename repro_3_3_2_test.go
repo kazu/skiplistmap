@@ -25,14 +25,16 @@ import (
 
 // r332LevelReverses returns the reverses of the buckets in the level list of
 // level, walked forward from its head.
-func r332LevelReverses(h *Map, level int32) []uint64 {
+func r332LevelReverses(h *Map[StringKey, any],
+
+	level int32) []uint64 {
 	var got []uint64
 	if h.isEmptyBylevel(level) {
 		return nil
 	}
 	head := h.levelBucket(level)
 	for cur := head.LevelHead.DirectPrev().DirectNext(); !cur.Empty(); {
-		b := bucketFromLevelHead(cur)
+		b := bucketFromLevelHead[StringKey, any](cur)
 		got = append(got, b.reverse)
 		cur = b.LevelHead.DirectNext()
 		if len(got) > 1000 {
@@ -54,7 +56,9 @@ func r332Hex(rs []uint64) string {
 }
 
 // r332AssertLevel checks that the level list of level holds exactly want.
-func r332AssertLevel(t *testing.T, h *Map, level int32, want []uint64) {
+func r332AssertLevel(t *testing.T, h *Map[StringKey, any],
+
+	level int32, want []uint64) {
 	t.Helper()
 	got := r332LevelReverses(h, level)
 	for i := 1; i < len(got); i++ {
@@ -69,7 +73,9 @@ func r332AssertLevel(t *testing.T, h *Map, level int32, want []uint64) {
 
 // r332Claim claims the bucket of reverse from the pool and activates it, as
 // makeBucket does, without linking it into the list of buckets.
-func r332Claim(t *testing.T, h *Map, reverse uint64) {
+func r332Claim(t *testing.T, h *Map[StringKey, any],
+
+	reverse uint64) {
 	t.Helper()
 	b, ok := h.bucketFromPool(reverse, useOnOk(true))
 	if b == nil {
@@ -106,16 +112,18 @@ func r332Keys(top uint64, n int) []string {
 // two keys whose reverses are 0x11<<56 and a bit more, and the list node of
 // the larger key. makeBucket(node) splits the bucket of the smaller key: its
 // new bucket is the middle of the buckets around that key.
-func r332SplitMap(t *testing.T) (*Map, func() error) {
+func r332SplitMap(t *testing.T) (*Map[StringKey, any],
+
+	func() error) {
 	t.Helper()
-	h := New(MaxPefBucket(1 << 20))
+	h := New[StringKey, any](MaxPefBucket[StringKey, any](1 << 20))
 	keys := r332Keys(0x11, 2)
 	for _, k := range keys {
-		if !h.Set(k, k) {
+		if !h.Set(StringKey(k), k) {
 			t.Fatalf("Set(%q) failed", k)
 		}
 	}
-	item, ok := h.LoadItem(keys[1])
+	item, ok := h.LoadItem(StringKey(keys[1]))
 	if !ok {
 		t.Fatalf("LoadItem(%q) not found", keys[1])
 	}
@@ -173,7 +181,7 @@ func r332Go(fn func()) <-chan struct{} {
 // the last bucket of the list and NextOnLevel returns D2 itself; it never
 // compares D1 with D2. D1 is linked before D2: [D1, D2], in ascending order.
 func Test_Repro_3_3_2_FirstDownLevelSkipsLastOnLevel(t *testing.T) {
-	h := New()
+	h := New[StringKey, any]()
 	r332Claim(t, h, 0x28<<56)
 	r332Claim(t, h, 0x18<<56)
 	r332AssertLevel(t, h, 2, []uint64{2 << 60, 1 << 60})
@@ -182,7 +190,7 @@ func Test_Repro_3_3_2_FirstDownLevelSkipsLastOnLevel(t *testing.T) {
 // The control of the test above: claiming 0x18<<56 first and 0x28<<56 next
 // links D2 before D1, which is the right place by chance.
 func Test_Repro_3_3_2_FirstDownLevelAscendingParents(t *testing.T) {
-	h := New()
+	h := New[StringKey, any]()
 	r332Claim(t, h, 0x18<<56)
 	r332Claim(t, h, 0x28<<56)
 	r332AssertLevel(t, h, 2, []uint64{2 << 60, 1 << 60})
@@ -206,7 +214,7 @@ func Test_Repro_3_3_2_FindNextLevelBucketReturnsSecond(t *testing.T) {
 		t.Logf("makeBucket: %v", err)
 	}
 	r332AssertLevel(t, h, 2, []uint64{4 << 60, 3 << 60, 2 << 60, 0x18 << 56, 1 << 60})
-	if err := StepCheckLists(h); err != nil {
+	if err := StepCheckLists[StringKey, any](h); err != nil {
 		t.Errorf("%v", err)
 	}
 }
@@ -218,10 +226,10 @@ func Test_Repro_3_3_2_FindNextLevelBucketReturnsSecond(t *testing.T) {
 // it links D2 before D1: [D2, D1]. When G3 resumes, the insertion reads the
 // prev of D1 again, now D2, and links D3 between D2 and D1: [D2, D3, D1].
 func Test_Repro_3_3_2_FirstDownLevelsInsertIntoSameGap(t *testing.T) {
-	h := New()
+	h := New[StringKey, any]()
 	r332Claim(t, h, 0x18<<56)
 	reached, release := r332StopAt(t, "bucketFromPool.levelFound", func(a, _ unsafe.Pointer) bool {
-		return StepBucketReverse(a) == 3<<60
+		return StepBucketReverse[StringKey, any](a) == 3<<60
 	})
 	g3 := r332Go(func() { r332Claim(t, h, 0x38<<56) })
 	r332Wait(t, reached, "G3 at bucketFromPool.levelFound")
@@ -235,10 +243,10 @@ func Test_Repro_3_3_2_FirstDownLevelsInsertIntoSameGap(t *testing.T) {
 // the end first. G3 walks to D1 and links D3 before it; G2 resumes and links
 // D2 before D1, after D3: [D3, D2, D1].
 func Test_Repro_3_3_2_FirstDownLevelsSmallerStops(t *testing.T) {
-	h := New()
+	h := New[StringKey, any]()
 	r332Claim(t, h, 0x18<<56)
 	reached, release := r332StopAt(t, "bucketFromPool.levelFound", func(a, _ unsafe.Pointer) bool {
-		return StepBucketReverse(a) == 2<<60
+		return StepBucketReverse[StringKey, any](a) == 2<<60
 	})
 	g2 := r332Go(func() { r332Claim(t, h, 0x28<<56) })
 	r332Wait(t, reached, "G2 at bucketFromPool.levelFound")
@@ -250,7 +258,9 @@ func Test_Repro_3_3_2_FirstDownLevelsSmallerStops(t *testing.T) {
 
 // r332ClaimEmbedded claims the bucket of reverse from the pool of a map with
 // embedded item pools, without linking it into the list of buckets.
-func r332ClaimEmbedded(t *testing.T, h *Map, reverse uint64) {
+func r332ClaimEmbedded(t *testing.T, h *Map[StringKey, any],
+
+	reverse uint64) {
 	t.Helper()
 	if b := h.bucketFromPoolEmbedded(reverse); b == nil {
 		t.Errorf("bucketFromPoolEmbedded(%#x<<56) = nil", reverse>>56)
@@ -260,7 +270,7 @@ func r332ClaimEmbedded(t *testing.T, h *Map, reverse uint64) {
 // The same as Test_Repro_3_3_2_FirstDownLevelSkipsLastOnLevel, in
 // bucketFromPoolEmbedded of a map with embedded item pools (skiplistmap5).
 func Test_Repro_3_3_2_EmbeddedFirstDownLevelSkipsLastOnLevel(t *testing.T) {
-	h := New(UseEmbeddedPool(true))
+	h := New[StringKey, any](UseEmbeddedPool[StringKey, any](true))
 	r332ClaimEmbedded(t, h, 0x28<<56)
 	r332ClaimEmbedded(t, h, 0x18<<56)
 	r332AssertLevel(t, h, 2, []uint64{2 << 60, 1 << 60})
@@ -271,10 +281,10 @@ func Test_Repro_3_3_2_EmbeddedFirstDownLevelSkipsLastOnLevel(t *testing.T) {
 // before it inserts D3 before D1, G2 links D2 before D1, and G3 links D3
 // between D2 and D1: [D2, D3, D1].
 func Test_Repro_3_3_2_EmbeddedFirstDownLevelsInsertIntoSameGap(t *testing.T) {
-	h := New(UseEmbeddedPool(true))
+	h := New[StringKey, any](UseEmbeddedPool[StringKey, any](true))
 	r332ClaimEmbedded(t, h, 0x18<<56)
 	reached, release := r332StopAt(t, "bucketFromPoolEmbedded.levelFound", func(a, _ unsafe.Pointer) bool {
-		return StepBucketReverse(a) == 3<<60
+		return StepBucketReverse[StringKey, any](a) == 3<<60
 	})
 	g3 := r332Go(func() { r332ClaimEmbedded(t, h, 0x38<<56) })
 	r332Wait(t, reached, "G3 at bucketFromPoolEmbedded.levelFound")
@@ -300,7 +310,7 @@ func Test_Repro_3_3_2_MakeBucketLevelInsertIntoSameGap(t *testing.T) {
 	}
 	r332AssertLevel(t, h, 2, []uint64{0x18 << 56, 1 << 60})
 	reached, release := r332StopAt(t, "makeBucket.levelFound", func(a, _ unsafe.Pointer) bool {
-		return StepBucketReverse(a) == 0x14<<56
+		return StepBucketReverse[StringKey, any](a) == 0x14<<56
 	})
 	g1 := r332Go(func() { split() })
 	r332Wait(t, reached, "G1 at makeBucket.levelFound")
@@ -310,7 +320,7 @@ func Test_Repro_3_3_2_MakeBucketLevelInsertIntoSameGap(t *testing.T) {
 	release()
 	r332Wait(t, g1, "G1 to finish")
 	r332AssertLevel(t, h, 2, []uint64{0x18 << 56, 0x14 << 56, 0x12 << 56, 1 << 60})
-	if err := StepCheckLists(h); err != nil {
+	if err := StepCheckLists[StringKey, any](h); err != nil {
 		t.Errorf("%v", err)
 	}
 }
@@ -332,7 +342,7 @@ func Test_Repro_3_3_2_MakeBucketLevelSequential(t *testing.T) {
 func Test_Repro_3_3_2_AddBucketErrorsAfterInsert(t *testing.T) {
 	h, split := r332SplitMap(t)
 	err := split()
-	if cerr := StepCheckLists(h); cerr != nil {
+	if cerr := StepCheckLists[StringKey, any](h); cerr != nil {
 		t.Errorf("%v", cerr)
 	}
 	if got := r332BucketReverses(h); !r332Has(got, 0x18<<56) {
@@ -520,10 +530,13 @@ func r332NextPrefix(choices [][2]int) []int {
 
 // r332BucketReverses returns the reverses of the list of buckets, walked
 // forward from its head.
-func r332BucketReverses(h *Map) []uint64 {
+func r332BucketReverses[K interface {
+	~string
+	Key[K]
+}](h *Map[K, any]) []uint64 {
 	var got []uint64
 	for cur := h.headBucket.DirectNext(); cur != h.tailBucket && len(got) < 1000; cur = cur.DirectNext() {
-		got = append(got, bucketFromListHead(cur).reverse)
+		got = append(got, bucketFromListHead[K, any](cur).reverse)
 	}
 	return got
 }
@@ -531,15 +544,20 @@ func r332BucketReverses(h *Map) []uint64 {
 // r332SplitNode stores two keys whose reverses have top as their top 8 bits
 // and returns them with a split: makeBucket of the list node of the larger
 // key splits the bucket of the smaller key.
-func r332SplitNode(t *testing.T, h *Map, top uint64) ([]string, func() error) {
+func r332SplitNode[K interface {
+	~string
+	Key[K]
+}](t *testing.T, h *Map[K, any],
+
+	top uint64) ([]string, func() error) {
 	t.Helper()
 	keys := r332Keys(top, 2)
 	for _, k := range keys {
-		if !h.Set(k, k) {
+		if !h.Set(K(k), k) {
 			t.Fatalf("Set(%q) failed", k)
 		}
 	}
-	item, ok := h.LoadItem(keys[1])
+	item, ok := h.LoadItem(K(keys[1]))
 	if !ok {
 		t.Fatalf("LoadItem(%q) not found", keys[1])
 	}
@@ -577,7 +595,7 @@ func r332ExploreSplits(t *testing.T, g2tops ...uint64) {
 			played, levelBroken := 0, 0
 			finals := map[string]int{}
 			for {
-				h := New(MaxPefBucket(1 << 20))
+				h := New[StringKey, any](MaxPefBucket[StringKey, any](1 << 20))
 				keys, g1 := r332SplitNode(t, h, 0x11)
 				g2 := g1
 				if g2top != 0x11 {
@@ -597,14 +615,14 @@ func r332ExploreSplits(t *testing.T, g2tops ...uint64) {
 				fail := func(format string, args ...interface{}) {
 					t.Errorf("schedule %v: %s\nerrors %v\n%s", choices, fmt.Sprintf(format, args...), errs, strings.Join(r.trace, "\n"))
 				}
-				if err := StepCheckLists(h); err != nil {
+				if err := StepCheckLists[StringKey, any](h); err != nil {
 					fail("%v", err)
 				}
 				if !r332Has(got, 0x14<<56) {
 					fail("list of buckets %s does not hold 0x14<<56", r332Hex(got))
 				}
 				for _, k := range keys {
-					if _, found := h.Get(k); !found {
+					if _, found := h.Get(StringKey(k)); !found {
 						fail("Get(%q) not found", k)
 					}
 				}

@@ -9,28 +9,13 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/kazu/elist_head"
 	"github.com/kazu/skiplistmap"
 )
 
-// a8Item is a user-defined item whose KeyHash returns k and c as they are,
-// so that a test can choose the reversed hash of an item.
-type a8Item struct {
-	skiplistmap.SampleItem
-	k, c uint64
-}
+type a8Item = skiplistmap.Entry[fixedHashKey, any]
 
-func (x *a8Item) KeyHash() (uint64, uint64) { return x.k, x.c }
-
-func (x *a8Item) HmapEntryFromListHead(l *elist_head.ListHead) skiplistmap.HMapEntry {
-	return (*a8Item)(unsafe.Pointer(skiplistmap.SampleItemFromListHead(l)))
-}
-
-func newA8Item(key string, r, c uint64) *a8Item {
-	x := &a8Item{k: bits.Reverse64(r), c: c}
-	x.K = key
-	x.SetValue(key)
-	return x
+func newA8Item(key string, r uint64, c uint64) *a8Item {
+	return skiplistmap.NewEntry[fixedHashKey, any](fixedHashKey{key, bits.Reverse64(r), c}, key)
 }
 
 // Test_ReproA8StoreNotFoundPositionCountsFailedInsert stores M, whose reversed
@@ -50,16 +35,12 @@ func newA8Item(key string, r, c uint64) *a8Item {
 // returned true and Len is 2.
 func Test_ReproA8StoreNotFoundPositionCountsFailedInsert(t *testing.T) {
 	s := newStepper(t)
-	m := skiplistmap.New(
-		skiplistmap.MaxPefBucket(1<<20),
-		skiplistmap.BucketMode(skiplistmap.CombineSearch4),
-		skiplistmap.ItemFn(func() skiplistmap.MapItem { return (*a8Item)(nil) }),
-	)
+	m := skiplistmap.New[fixedHashKey, any](skiplistmap.MaxPefBucket[fixedHashKey, any](1<<20), skiplistmap.BucketMode[fixedHashKey, any](skiplistmap.CombineSearch4))
 	a := newA8Item("a", 0xf000000000000001, 1)
 	if !m.StoreItem(a) {
 		t.Fatalf("StoreItem(a) returned false")
 	}
-	if _, found := m.LoadItemByHash(a.k, a.c); !found {
+	if _, found := m.LoadItemByHash(a.Key().k, a.Key().c); !found {
 		t.Fatalf("a is not found after StoreItem(a)")
 	}
 
@@ -67,13 +48,13 @@ func Test_ReproA8StoreNotFoundPositionCountsFailedInsert(t *testing.T) {
 	var stored bool
 	runWithDeadline(t, 10*time.Second, func() { stored = m.StoreItem(mItem) })
 
-	n := s.count("map.add2.bucketInsert", nodeOf(&mItem.SampleItem))
+	n := s.count("map.add2.bucketInsert", nodeOf(mItem))
 	_, right := s.args("map.add2.bucketInsert")
-	t.Logf("add2.bucketInsert of m: %d times, right is a: %v", n, right == nodeOf(&a.SampleItem))
+	t.Logf("add2.bucketInsert of m: %d times, right is a: %v", n, right == nodeOf(a))
 
-	_, found := m.LoadItemByHash(mItem.k, mItem.c)
+	_, found := m.LoadItemByHash(mItem.Key().k, mItem.Key().c)
 	linked := 0
-	m.RangeItem(func(item skiplistmap.MapItem) bool {
+	m.RangeItem(func(item skiplistmap.MapItem[fixedHashKey, any]) bool {
 		linked++
 		return true
 	})
@@ -108,14 +89,10 @@ func Test_ReproA8StoreNotFoundPositionCountsFailedInsert(t *testing.T) {
 // M is not linked: LoadItemByHash does not find M, while StoreItem(M)
 // returned true and Len is 2.
 func Test_ReproA8InsertBeforeGivesUpNextToUnfinishedInsert(t *testing.T) {
-	m := skiplistmap.New(
-		skiplistmap.MaxPefBucket(1<<20),
-		skiplistmap.BucketMode(skiplistmap.CombineSearch4),
-		skiplistmap.ItemFn(func() skiplistmap.MapItem { return (*a8Item)(nil) }),
-	)
+	m := skiplistmap.New[fixedHashKey, any](skiplistmap.MaxPefBucket[fixedHashKey, any](1<<20), skiplistmap.BucketMode[fixedHashKey, any](skiplistmap.CombineSearch4))
 	mItem := newA8Item("m", ^uint64(0), 1)
 	x := newA8Item("x", 0xf800000000000000, 1)
-	mNode, xNode := nodeOf(&mItem.SampleItem), nodeOf(&x.SampleItem)
+	mNode, xNode := nodeOf(mItem), nodeOf(x)
 
 	s := newStepper(t)
 	var rightOfM, nextOfX unsafe.Pointer
@@ -172,10 +149,10 @@ func Test_ReproA8InsertBeforeGivesUpNextToUnfinishedInsert(t *testing.T) {
 	waitDone(t, doneM, "StoreItem(m)")
 	waitDone(t, doneX, "StoreItem(x)")
 
-	_, foundM := m.LoadItemByHash(mItem.k, mItem.c)
-	_, foundX := m.LoadItemByHash(x.k, x.c)
+	_, foundM := m.LoadItemByHash(mItem.Key().k, mItem.Key().c)
+	_, foundX := m.LoadItemByHash(x.Key().k, x.Key().c)
 	linked := 0
-	m.RangeItem(func(item skiplistmap.MapItem) bool {
+	m.RangeItem(func(item skiplistmap.MapItem[fixedHashKey, any]) bool {
 		linked++
 		return true
 	})
@@ -187,7 +164,7 @@ func Test_ReproA8InsertBeforeGivesUpNextToUnfinishedInsert(t *testing.T) {
 	if m.Len() != linked {
 		t.Fatalf("Len is %d, but %d items are in the list", m.Len(), linked)
 	}
-	if err := skiplistmap.StepCheckLists(m); err != nil {
+	if err := skiplistmap.StepCheckLists[fixedHashKey, any](m); err != nil {
 		t.Fatalf("lists are broken: %v", err)
 	}
 }

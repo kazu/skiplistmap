@@ -80,7 +80,17 @@ func TestReadCollisionsSurvivePromotion(t *testing.T) {
 func TestReadUpdateCallback(t *testing.T) {
 	m := New()
 	var values []interface{}
-	m.onNewStores = []func(smap.MapItem){func(item smap.MapItem) {
+	m.onNewStores = []func(smap.MapItem[smap.StringKey,
+
+		any,
+	],
+
+	){func(item smap.MapItem[smap.StringKey,
+
+		any,
+	],
+
+	) {
 		if item.Key() != "key" {
 			t.Errorf("callback key = %v", item.Key())
 		}

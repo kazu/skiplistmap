@@ -5,9 +5,9 @@
 User自身にリンクやキー取得メソッドを要求しない。値のサイズ制限や、サイズによる
 自動的なポインタへの切替は設けない。
 
-この文書はtask010の設計と検証範囲を示す。`internal/typedapi`は制約・配置・
-実体復元・iteratorを実行する試作であり、別のMap実装ではない。
-本体の公開APIはまだ型付きへ移行していない。
+task017で公開Map・Entry・options・pool・bucketを型付きにした。
+`internal/typedapi`はtask010の配置・復元の試作を残したもので、本体Mapとは別である。
+以下は公開APIの仕様であり、検証結果はtask017の記録に分ける。
 
 ## 型そのものにキーの条件を置く
 
@@ -79,14 +79,27 @@ Mapがpool内の要素を移動・再利用する場合、以前取得したポ�
 限らない。変更はMapのメソッドを通す。保持のためだけの新しいregistryや所有者表は
 追加しない。
 
-既存NewEntryMapのコピー公開経路は、呼び出し側が保持するrootから新しいコピーを
-保持し、古い参照が古い値を指す形である。型付きEntryへの移行でもこの寿命を保つ。
-試作NewEntryは配置の検証用であり、このコピー公開・保持処理は実装していない。
-したがって試作のEntryサイズやallocationは、完成Map全体の保持コストではない。
+非embedded modeは更新ごとに新しいEntryを公開し、rootから更新コピーを保持する。
+古いEntryの参照は古い値を指す。保持したrootの更新履歴は自動回収しないため、
+更新回数に応じて保持メモリが増える。pool配列を移動した場合もrootの参照を引き継ぐ。
 
-## 011へ渡す公開API定義
+embedded modeも更新を別slotにコピーして公開し、旧slotを削除して再利用する。
+再利用時には任意のK/Vの読み取りと書き換えが競合するため、再利用対象のEntryだけに
+atomicカウンタによる読み取り保護を置く。読み手の終了を待ってpayloadを書き換える。
+RWMutexは使わないが、embedded modeの読み取りにはatomic操作が増える。
+slotの公開世代・削除状態も再確認する。LoadItemで得たslotを現在値の固定snapshotとして
+保持することはできない。キーと値の組はGetまたはRangeで取得する。
 
-以下を型付き本体へ接続する。現在呼べる公開APIではなく、011の実装仕様である。
+外部Entryは `NewEntry[K,V](key,value)` で作るか、所有者のstructや配列内のゼロEntryを
+`InitEntry(key,value)` で初期化する。InitEntryは初回だけtrueを返す。
+初期化済みEntryを値コピーしない。キーや値の参照先を利用者が書き換える場合の同期は
+利用者が行う。Mapはslice、map、pointerの参照先を深くコピーしない。
+
+`internal/typedapi` のEntryサイズ・allocationは本体のコピー保持コストを含まない。
+
+## 型付き本体の公開API
+
+以下はtask017で接続した公開APIである。
 ハッシュ値のビット反転順と各modeの目的を維持する。
 
 | 操作 | 型付きの定義 |
@@ -94,7 +107,6 @@ Mapがpool内の要素を移動・再利用する場合、以前取得したポ�
 | 生成 | `New[K Key[K], V any](opts ...OptHMap[K,V]) *Map[K,V]` |
 | 値を設定 | `Set(key K, value V) bool` |
 | 値を取得 | `Get(key K) (V, bool)` |
-| callback内で値を更新 | `Update(key K, edit func(*V)) bool` |
 | 外部のEntryを登録 | `StoreItem(item *Entry[K,V]) bool` |
 | Entryを取得 | `LoadItem(key K) (*Entry[K,V], bool)` |
 | 削除 | `Delete(key K) bool`、`Purge(key K) bool` |
@@ -113,15 +125,8 @@ Go 1.27.1でもinterfaceのメソッドには型パラメータを付けられ�
 非genericなオプションinterfaceのgeneric methodで適用する案は使えない。
 ItemFnによる実体型の復元はEntry[K,V]と型付きListで置き換える。
 
-Updateはキーが存在するときだけeditを1回呼び、更新完了時にtrueを返す。存在しなければ
-呼ばずにfalseを返す。editが受け取るのは値だけで、キーやリンクを変更する入口にしない。
-渡されたポインタはcallback内だけで使用し、保持・返却・別goroutineへの受け渡しをしない。
-これは利用規約であり、Goの型システムがポインタの持ち出しを禁止できるとはしない。
-同じMapの操作をcallbackから再入しない。Vにslice/map/pointerが含まれる場合、その参照先の
-所有権や同期を新たに保証しない。nil callbackはプログラムの誤りとしてpanicする。
-011では現在値の取得から更新までの同期とslotの保護を一体で実装する。探索の再試行は
-callbackの前に行い、callbackを再実行しない。panic時は保護を解放し、値の巻き戻しは保証しない。
-既存のmodeごとの同期方式を前提に検証し、全mode共通の大域ロックを追加する仕様にはしない。
+callbackを受け取る新しい `Update` APIはtask019の対象で、まだ提供しない。
+task017の更新は既存のSet/_updateを指す。
 
 All/Keys/Valuesは型付きRangeItemに被せる。走査順と削除状態の扱いはRangeItemに
 従い、走査全体のsnapshotを新たに保証しない。yieldがfalseなら生産側を止める。
@@ -129,12 +134,28 @@ KeysはVを取り出さず、不要な値コピーを避ける。
 maps.CollectはGo標準mapが受け取れるcomparableなKで使え、slices.Sortedは順序付けできる
 Kで使える。BytesKeyや独自Keyすべてが、それらの標準関数で使えるとはしない。
 
+## task019で実装するUpdateの契約
+
+以下は010で確定した `Update(key K, edit func(*V)) bool` の契約であり、
+task019で実装する。現在の公開Mapにはまだ提供していない。
+
+Updateはキーが存在するときだけeditを1回呼び、更新完了時にtrueを返す。存在しなければ
+呼ばずにfalseを返す。editが受け取るのは値だけで、キーやリンクを変更する入口にしない。
+渡されたポインタはcallback内だけで使用し、保持・返却・別goroutineへの受け渡しをしない。
+これは利用規約であり、Goの型システムがポインタの持ち出しを禁止できるとはしない。
+同じMapの操作をcallbackから再入しない。Vにslice/map/pointerが含まれる場合、その参照先の
+所有権や同期を新たに保証しない。nil callbackはプログラムの誤りとしてpanicする。
+019では現在値の取得から更新までの同期とslotの保護を一体で実装する。探索の再試行は
+callbackの前に行い、callbackを再実行しない。panic時は保護を解放し、値の巻き戻しは保証しない。
+既存のmodeごとの同期方式を前提に検証し、全mode共通の大域ロックを追加する仕様にはしない。
+
 ## 型付き実体の復元とgeneric method
 
-EntryViewは既存のelist_head.List[Entry[K,V]]を使う。EntryのMapHead位置と
+本体のnewEntryListは既存のelist_head.List[Entry[K,V]]を使う。EntryのMapHead位置と
 MapHead内のListHead位置を合わせたoffsetで、リンクから元のEntryへ戻る。
 K/Vのサイズを固定せず、値・ポインタ・大きいstructを同じ規則で扱う。
 
+本体のgeneric method `MapHead.recoverEntry[K,V]` は型付きListによって実体を復元する。
 本体の探索では、front/tail sentinelとdummyを確認してから実Entryへ戻す。
 bare ListHeadやbucketのMapHeadを、Entryの内部とみなして逆変換しない。
 
@@ -144,7 +165,7 @@ bare ListHeadやbucketのMapHeadを、Entryの内部とみなして逆変換し�
 Vが指す別allocation内のフィールドからEntryへは戻らない。この低水準機能の
 公開名・入口はまだ確定していない。
 
-## 本体への具体的な接続点
+## 本体の接続点
 
 | 現在の関数・型 | 型付き化で行うこと |
 |---|---|
@@ -156,32 +177,34 @@ Vが指す別allocation内のフィールドからEntryへは戻らない。こ�
 | Set、_update、storeKeyValue、loadKeyValue | Vの公開とpool移動を型付きにする。Vへ単純に非atomic代入する置換では済ませない |
 | samepleItemPool、Pool、bucket、bucketFromPool | slotの型・stride・sliceの復元をK/Vに合わせ、配列の公開世代と連続配置を保つ |
 | StoreItem、setItem | 呼び出し側のEntryをコピーせずに登録し、pool由来のitemの再登録を引き続き拒否する |
-| bsearchBybucket、getItemWithBucket | 外部Entryとpool内Entryの混在を検索で扱う。配列の二分探索だけで外部Entryを見落とさない |
+| bsearchBybucket、getItemWithBucket | 型付きpoolを検索する。外部Entryとembedded poolの混在はtask018の対象 |
 | lockFoundItem、deleteItem、purgeItem | owner bucket・slot・世代の再確認を保ち、外部Entryをpool slotと取り違えない |
 | RangeItem、Range、First、Last | 実Entryの型を統一し、sentinel/dummyを返さない。All/Keys/Valuesを接続する |
 
-## 011で実装・検証する本体動作
+## 後続タスクの範囲
 
-2026-09-30のkazuの承認により、010ではAPIを確定し、E3修正とUpdateの本体実装は
-011の型付き化と一緒に行う。以下は011の受入条件であり、この試作の検証済み動作ではない。
+E3（embedded poolと外部Entryの混在）はtask018、新しいUpdate callback APIは
+task019に分割した。task017では通常のSetによるembedded更新と、
+非embedded modeのStoreItemを扱う。E3の修正完了を意味しない。
 
-1. **E3**: UseEmbeddedPoolを有効にしたMapへStoreItemした外部要素が検索で見つからない
-   不具合は残っている。setItemはembedded modeでハッシュ設定を省き、bsearchBybucketは
-   pool配列を検索する。型付きEntryを宣言しただけでは直らない。外部要素を配列へコピーする
-   ことで実体の同一性を失わせたり、検索を全面的に走査へ置き換えたりしない。
-   現行本体でNewEntryMapをStoreItemする再現テストは、Map.add2内で20秒の
-   タイムアウトになった。登録完了と、pool要素との混在時の検索・更新・削除を検証する。
-2. **Update**: callbackで現在の値を更新するAPIは未実装。poolの移動・slotの再利用と
-   callbackの実行範囲を合わせる必要がある。embedded modeの既存muPoolと再確認処理、
-   非embedded modeの更新・コピー公開処理を元に、上記callbackの寿命と実行回数を
-   満たす。コピーを受け取ってから再検索せずに書く形ではlost updateを防げない。
-3. **poolの型付き値公開**: 現在のSampleItemはatomic.Valueを使う。Vを直接置くには、
-   大きい値やpointerを含む値についても並行読み書き・コピー・GCを検証する必要がある。
-   試作の配置テストは、この並行性を証明するものではない。
+rmapは本体に接続する部分だけを型付きにした。read/dirty/callbackの型消去と
+測定器全体の移行はtask012に残す。
 
-この3点と、型付き公開Mapの登録・取得・削除の実行例は011で完成させる。
-010の試作は型制約・配置・復元・iteratorの検証であり、本体Mapの並行安全性や
-E3修正を証明しない。
+残した型消去は次のとおり。
+
+| 箇所 | 理由・後続 |
+|---|---|
+| `KeyToHash(interface{})` | rmapの既存入口と010の比較fixtureが使用する。本体MapはK.KeyHashを直接呼ぶ。rmapの移行は012 |
+| rmapのSet/Get、storedValue内のatomic.Value | rmapの公開APIとread側の型移行は012。dirty/frozenだけMap[StringKey,*readSlot]へ接続 |
+| rmapのonNewStores | 既存callbackのMapItem[StringKey,any]を維持。012で利用者側と一緒に変更 |
+| Log、DumpExpandInfoの可変引数 | fmtへ渡す診断用の異種引数。MapのK/V保存・比較には使用しない |
+
+HMapEntry、MapItem、SampleItem、entryHMap、copyEntryは型付きEntryの別名であり、
+interfaceへの変換は行わない。ItemFnは削除した。型パラメータの制約としてのanyと、
+利用者が明示的にVとして選んだanyは、内部でK/Vを型消去する経路とは区別する。
+
+First/Lastはsentinelやdummyを除いた実Entryを返し、空ならnilを返す。
+以前の末尾dummyをLastの結果として扱うコードは、実Entryを受け取るよう変更する。
 
 ## 試作で確認する範囲
 

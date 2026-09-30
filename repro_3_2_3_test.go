@@ -35,7 +35,7 @@ func Test_Repro_3_2_3_RangeItemLeavesWaitNoMark(t *testing.T) {
 	elist_head.SharedTrav(list_head.Direct())
 	t.Cleanup(func() { elist_head.SharedTrav(list_head.Direct()) })
 
-	m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true), skiplistmap.MaxPefBucket(16)))
+	m := newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true), skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](16)))
 	for i := 0; i < 8; i++ {
 		if !m.Set(crashKey(i), &list_head.ListHead{}) {
 			t.Fatalf("Set(%q) failed", crashKey(i))
@@ -44,7 +44,9 @@ func Test_Repro_3_2_3_RangeItemLeavesWaitNoMark(t *testing.T) {
 	if mode := r323ElistMode(); mode != list_head.TravDirect {
 		t.Fatalf("mode of elist before RangeItem = %v, want TravDirect", mode)
 	}
-	m.base.RangeItem(func(skiplistmap.MapItem) bool { return true })
+	m.base.RangeItem(func(skiplistmap.MapItem[skiplistmap.StringKey, any]) bool {
+		return true
+	})
 	if mode := r323ElistMode(); mode != list_head.TravDirect {
 		t.Errorf("mode of elist after RangeItem = %v (TravWaitNoMark = %v), want TravDirect %v", mode, list_head.TravWaitNoMark, list_head.TravDirect)
 	}
@@ -85,7 +87,7 @@ func newR323Map(t *testing.T) *r323Map {
 	elist_head.SharedTrav(list_head.Direct())
 	t.Cleanup(func() { elist_head.SharedTrav(list_head.Direct()) })
 
-	m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true), skiplistmap.MaxPefBucket(16)))
+	m := newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true), skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](16)))
 	// candL holds the keys of L; the first 4 in the order of their reversed
 	// hashes are stored, and the fifth is b.
 	var candL, inS, restS []string
@@ -110,8 +112,8 @@ func newR323Map(t *testing.T) *r323Map {
 			t.Fatalf("Set(%q) failed", k)
 		}
 	}
-	foundL, baseL := skiplistmap.StepLockBuckets(m.base, reverseOf(d))
-	foundS, baseS := skiplistmap.StepLockBuckets(m.base, reverseOf(inS[0]))
+	foundL, baseL := skiplistmap.StepLockBuckets[skiplistmap.StringKey, any](m.base, reverseOf(d))
+	foundS, baseS := skiplistmap.StepLockBuckets[skiplistmap.StringKey, any](m.base, reverseOf(inS[0]))
 	if foundL != baseL || foundS != baseS || foundL == foundS {
 		t.Fatalf("buckets of L and S are not two buckets that own their pools")
 	}
@@ -120,7 +122,7 @@ func newR323Map(t *testing.T) *r323Map {
 		if reverseOf(k)>>60 == 4 {
 			want = foundS
 		}
-		if f, _ := skiplistmap.StepLockBuckets(m.base, reverseOf(k)); f != want {
+		if f, _ := skiplistmap.StepLockBuckets[skiplistmap.StringKey, any](m.base, reverseOf(k)); f != want {
 			t.Fatalf("key %q is not in the bucket of the top 4 bits of its reversed hash", k)
 		}
 	}
@@ -143,12 +145,12 @@ func newR323Map(t *testing.T) *r323Map {
 func splitNextToMarkedEntry(t *testing.T, p *r323Map) {
 	t.Helper()
 	m := p.m
-	itemD, ok := m.base.LoadItem(p.d)
+	itemD, ok := m.base.LoadItem(skiplistmap.StringKey(p.d))
 	if !ok {
 		t.Fatalf("LoadItem(%q) not found", p.d)
 	}
 	nodeD := unsafe.Pointer(itemD.PtrListHead())
-	if !m.base.Delete(p.d) {
+	if !m.base.Delete(skiplistmap.StringKey(p.d)) {
 		t.Fatalf("Delete(%q) failed", p.d)
 	}
 
@@ -185,7 +187,7 @@ func splitNextToMarkedEntry(t *testing.T, p *r323Map) {
 		}
 	}
 	want = append(want, p.b, p.y)
-	if err := skiplistmap.StepCheckLists(m.base); err != nil {
+	if err := skiplistmap.StepCheckLists[skiplistmap.StringKey, any](m.base); err != nil {
 		t.Errorf("%v", err)
 		return
 	}
@@ -197,7 +199,9 @@ func splitNextToMarkedEntry(t *testing.T, p *r323Map) {
 // with a nil pointer dereference in _InsertBefore.
 func Test_Repro_3_2_3_SplitPanicsAfterRangeItem(t *testing.T) {
 	p := newR323Map(t)
-	p.m.base.RangeItem(func(skiplistmap.MapItem) bool { return true })
+	p.m.base.RangeItem(func(skiplistmap.MapItem[skiplistmap.StringKey, any]) bool {
+		return true
+	})
 	splitNextToMarkedEntry(t, p)
 }
 

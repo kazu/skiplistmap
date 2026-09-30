@@ -2,6 +2,8 @@
 
 package skiplistmap_test
 
+import "github.com/kazu/skiplistmap"
+
 import (
 	"runtime"
 	"strings"
@@ -17,7 +19,7 @@ import (
 // choose the pool.
 func fillPoolButLast(m *WrapHMap, keys []string) {
 	for _, k := range keys[:63] {
-		m.base.Set(k, &list_head.ListHead{})
+		m.base.Set(skiplistmap.StringKey(k), &list_head.ListHead{})
 	}
 }
 
@@ -65,9 +67,9 @@ func Test_Repro_3_1_6_PoolLastSlotLoserWaitsForItself(t *testing.T) {
 
 	s := newStepper(t)
 	stop := s.stopAt("map.pool.lastSlot", nil)
-	done := goStep(t, func() { m.base.Set(keys[63], &list_head.ListHead{}) })
+	done := goStep(t, func() { m.base.Set(skiplistmap.StringKey(keys[63]), &list_head.ListHead{}) })
 	stop.waitReached(t, done)
-	m.base.Set(keys[64], &list_head.ListHead{})
+	m.base.Set(skiplistmap.StringKey(keys[64]), &list_head.ListHead{})
 	stop.Release()
 	waitDone(t, done, "Set of the goroutine that lost the last item")
 
@@ -90,9 +92,9 @@ func Test_Repro_3_1_6_PoolLastSlotLoserWaitsForItselfAfterWaiting(t *testing.T) 
 	s := newStepper(t)
 	last := s.stopAt("map.pool.lastSlot", nil)
 	found := s.stopAt("map.add2.found", nil)
-	done2 := goStep(t, func() { m.base.Set(keys[63], &list_head.ListHead{}) })
+	done2 := goStep(t, func() { m.base.Set(skiplistmap.StringKey(keys[63]), &list_head.ListHead{}) })
 	last.waitReached(t, done2)
-	done1 := goStep(t, func() { m.base.Set(keys[64], &list_head.ListHead{}) })
+	done1 := goStep(t, func() { m.base.Set(skiplistmap.StringKey(keys[64]), &list_head.ListHead{}) })
 	found.waitReached(t, done1)
 	last.Release()
 	waitBlockedInPoolGet(t)

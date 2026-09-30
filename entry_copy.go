@@ -6,18 +6,8 @@ import (
 	"unsafe"
 )
 
-// Only NewEntryMap and tryReplaceEntry allocate this owner. Keep entryHMap's
-// original size: ordinary map traversal also uses it as a MapHead view.
-// A pointer to the embedded entry keeps the entire owner allocation alive.
-type copyEntry struct {
-	entryHMap
-	root     *copyEntry
-	retained atomic.Pointer[copyEntry]
-	previous *copyEntry
-}
-
-// replaceEntry publishes an immutable value copy for caller-owned entries.
-func (h *Map) replaceEntry(old *entryHMap, value interface{}) bool {
+// replaceEntry publishes an immutable value copy for nonembedded entries.
+func (h *Map[K, V]) replaceEntry(old *entryHMap[K, V], value V) bool {
 	stepAt("copy.update", unsafe.Pointer(old.PtrListHead()), nil)
 	stepAt("update.found", unsafe.Pointer(&old.ListHead), nil)
 	for {
@@ -37,23 +27,17 @@ func (h *Map) replaceEntry(old *entryHMap, value interface{}) bool {
 			// A concurrent delete won; this update does not resurrect it.
 			return true
 		}
-		var ok bool
-		old, ok = item.(*entryHMap)
-		if !ok {
-			return false
-		}
+		old = item
 	}
 }
 
-func (h *Map) tryReplaceEntry(old *entryHMap, value interface{}) bool {
-	fresh := new(copyEntry)
-	fresh.entryPayload = old.entryPayload
-	fresh.value = value
+func (h *Map[K, V]) tryReplaceEntry(old *entryHMap[K, V], value V) bool {
+	fresh := NewEntry(old.Key(), value)
 	*(*[2]uint64)(unsafe.Pointer(&fresh.conflict)) = *(*[2]uint64)(unsafe.Pointer(&old.conflict))
 	fresh.ListHead.Init()
-	fresh.root = (*copyEntry)(unsafe.Pointer(old)).root
-	fresh.state = mapIsBusy
-	// Relative links do not retain allocations. The caller-owned root retains
+	fresh.root = old.root
+	fresh.state = mapIsBusy | (mapState(atomic.LoadUint64((*uint64)(&old.state))) & mapIsPoolItem)
+	// Relative links do not retain allocations. The entry's root retains
 	// every copy, including copies briefly published before a failed rollback.
 	for {
 		fresh.previous = fresh.root.retained.Load()
@@ -69,13 +53,21 @@ func (h *Map) tryReplaceEntry(old *entryHMap, value interface{}) bool {
 	return true
 }
 
-func (h *Map) deleteEntry(entry *entryHMap, bucket *bucket) (MapItem, *bucket, *MapHead, bool) {
+func (h *Map[K, V]) deleteEntry(entry *entryHMap[K, V], bucket *bucket[K, V]) (MapItem[K, V], *bucket[K, V], *MapHead, bool) {
 	stepAt("copy.delete", unsafe.Pointer(entry.PtrListHead()), nil)
 	for {
 		if !entry.ListHead.IsMarked() {
 			won, busy := entry.claimDelete(mapIsBusy)
 			if busy {
-				return nil, nil, nil, false
+				if !entry.isPoolItem() {
+					// Preserve StoreItem's refusal while a caller-owned entry
+					// is still being published.
+					return nil, nil, nil, false
+				}
+				// A Set update does not make an existing pool key absent.
+				// Wait for its replacement, then retry on the current entry.
+				runtime.Gosched()
+				continue
 			}
 			if won {
 				stepAt("delete.claimed", unsafe.Pointer(&entry.ListHead), nil)
@@ -91,11 +83,48 @@ func (h *Map) deleteEntry(entry *entryHMap, bucket *bucket) (MapItem, *bucket, *
 		if !found {
 			return nil, nil, nil, false
 		}
-		var ok bool
-		entry, ok = item.(*entryHMap)
-		if !ok {
-			return nil, nil, nil, false
-		}
+		entry = item
 		bucket = b
 	}
+}
+
+// replacePoolEntry runs while Set owns the base bucket's muPool. It publishes
+// another array slot before retiring the old one; only slot reclamation waits
+// for readers of the old payload.
+func (h *Map[K, V]) replacePoolEntry(old *Entry[K, V], value V) bool {
+	key := old.Key()
+	hash, conflict := key.KeyHash()
+	owner := h.findBucket(old.reverse).toBase()
+	pool := owner.itemPool()
+	fresh, nextPool, _ := pool.getWithFn(old.reverse, nil)
+	if nextPool != nil {
+		owner.setItemPool(nextPool)
+	}
+	fresh.storeTypedKeyValue(key, value)
+	atomic.StoreUint64(&fresh.reverse, old.reverse)
+	atomic.StoreUint64(&fresh.conflict, conflict)
+	atomic.AndUint64((*uint64)(&fresh.state), ^uint64(mapIsDeleted|mapIsDummy))
+	atomic.OrUint64((*uint64)(&fresh.state), uint64(mapIsPoolItem|mapIsBusy))
+	fresh.ListHead.Init()
+	// Allocating the slot may have moved the old array.
+	current, _, found := h.getItemWithBucket(hash, conflict, key, true)
+	if !found {
+		fresh.Delete()
+		fresh.releaseBusy()
+		fresh.clearRetiredValue()
+		return false
+	}
+	old = current
+	stepAt("update.found", unsafe.Pointer(old.PtrListHead()), nil)
+	for {
+		if err := old.ListHead.ReplaceWith(&fresh.ListHead); err == nil {
+			break
+		}
+		runtime.Gosched()
+	}
+	old.Delete()
+	old.ListHead.Init()
+	old.clearRetiredValue()
+	fresh.releaseBusy()
+	return true
 }

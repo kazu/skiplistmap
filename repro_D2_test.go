@@ -26,11 +26,11 @@ func Test_D2DeletesAcrossAnExpandBothReturnTrue(t *testing.T) {
 	m := newStepMap()
 	setKeys(t, m, keys[:n])
 	k := keys[5]
-	item, ok := m.base.LoadItem(k)
+	item, ok := m.base.LoadItem(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found")
 	}
-	o := nodeOf(item.(*skiplistmap.SampleItem))
+	o := nodeOf(item)
 
 	s := newStepper(t)
 	expand := s.stopAt("map.pool.expand.copied", nil)
@@ -38,11 +38,11 @@ func Test_D2DeletesAcrossAnExpandBothReturnTrue(t *testing.T) {
 	expand.waitReached(t, done0)
 	stA := s.stopAt("elist.move.waitDone", isNode(o))
 	var okA bool
-	doneA := goStep(t, func() { okA = m.base.Delete(k) })
+	doneA := goStep(t, func() { okA = m.base.Delete(skiplistmap.StringKey(k)) })
 	stA.waitReached(t, doneA)
 	expand.Release()
 	waitDone(t, done0, "Set of the 65th key")
-	okB := m.base.Delete(k)
+	okB := m.base.Delete(skiplistmap.StringKey(k))
 	// GB lost to GA, which has not deleted C yet: GB deleted C before it
 	// returned
 	if _, ok := m.Get(k); ok {
@@ -70,11 +70,11 @@ func Test_D2DeleteOfTheCopyGetsAheadOfTheOldItem(t *testing.T) {
 	m := newStepMap()
 	setKeys(t, m, keys[:n])
 	k := keys[5]
-	item, ok := m.base.LoadItem(k)
+	item, ok := m.base.LoadItem(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found")
 	}
-	o := nodeOf(item.(*skiplistmap.SampleItem))
+	o := nodeOf(item)
 
 	s := newStepper(t)
 	expand := s.stopAt("map.pool.expand.copied", nil)
@@ -82,11 +82,11 @@ func Test_D2DeleteOfTheCopyGetsAheadOfTheOldItem(t *testing.T) {
 	expand.waitReached(t, done0)
 	stA := s.stopAt("map.delete.found", isNode(o))
 	var okA bool
-	doneA := goStep(t, func() { okA = m.base.Delete(k) })
+	doneA := goStep(t, func() { okA = m.base.Delete(skiplistmap.StringKey(k)) })
 	stA.waitReached(t, doneA)
 	expand.Release()
 	waitDone(t, done0, "Set of the 65th key")
-	okB := m.base.Delete(k)
+	okB := m.base.Delete(skiplistmap.StringKey(k))
 	stA.Release()
 	waitDone(t, doneA, "Delete(k) of GA")
 
@@ -110,25 +110,25 @@ func Test_D2OriginStaysUntilTheCopyIsDeleted(t *testing.T) {
 	m := newStepMap()
 	setKeys(t, m, keys)
 	k := keys[5]
-	item, ok := m.base.LoadItem(k)
+	item, ok := m.base.LoadItem(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found")
 	}
-	c := (*elist_head.ListHead)(nodeOf(item.(*skiplistmap.SampleItem)))
+	c := (*elist_head.ListHead)(nodeOf(item))
 	if elist_head.FindOrigin(c) == c {
 		t.Fatalf("the move of k is not known before the Delete")
 	}
 
 	s := newStepper(t)
-	stA := s.stopAt("map.delete.claimed", isNode(nodeOf(item.(*skiplistmap.SampleItem))))
+	stA := s.stopAt("map.delete.claimed", isNode(nodeOf(item)))
 	var okA bool
-	doneA := goStep(t, func() { okA = m.base.Delete(k) })
+	doneA := goStep(t, func() { okA = m.base.Delete(skiplistmap.StringKey(k)) })
 	stA.waitReached(t, doneA)
 	for i := 0; i < 20 && elist_head.FindOrigin(c) != c; i++ {
 		runtime.GC()
 		time.Sleep(time.Millisecond)
 	}
-	okB := m.base.Delete(k)
+	okB := m.base.Delete(skiplistmap.StringKey(k))
 	stA.Release()
 	waitDone(t, doneA, "Delete(k) of GA")
 
@@ -153,9 +153,9 @@ func Test_D2LostDeleteLeavesAnItemStoredAgain(t *testing.T) {
 
 	s := newStepper(t)
 	found := s.stopAt("map.delete.found", isNode(nodeOf(u)))
-	doneB := goStep(t, func() { m.base.Delete(keys[0]) })
+	doneB := goStep(t, func() { m.base.Delete(skiplistmap.StringKey(keys[0])) })
 	found.waitReached(t, doneB)
-	if !m.base.Purge(keys[0]) {
+	if !m.base.Purge(skiplistmap.StringKey(keys[0])) {
 		t.Fatalf("Purge(u) returned false")
 	}
 	claimed := s.stopAt("map.delete.claimed", isNode(nodeOf(u)))
@@ -182,24 +182,24 @@ func Test_D2LostDeleteDeletesTheCopiesOfItsItem(t *testing.T) {
 	m := newStepMap()
 	setKeys(t, m, keys[:n])
 	k := keys[5]
-	item, ok := m.base.LoadItem(k)
+	item, ok := m.base.LoadItem(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found")
 	}
-	x := nodeOf(item.(*skiplistmap.SampleItem))
+	x := nodeOf(item)
 
 	s := newStepper(t)
 	found := s.stopAt("map.delete.found", isNode(x))
-	doneL := goStep(t, func() { m.base.Delete(k) })
+	doneL := goStep(t, func() { m.base.Delete(skiplistmap.StringKey(k)) })
 	found.waitReached(t, doneL)
 	m.Set(keys[n], &list_head.ListHead{})
-	item, ok = m.base.LoadItem(k)
+	item, ok = m.base.LoadItem(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found after the expand")
 	}
-	xc := nodeOf(item.(*skiplistmap.SampleItem))
+	xc := nodeOf(item)
 	claimed := s.stopAt("map.delete.claimed", isNode(xc))
-	doneW := goStep(t, func() { m.base.Delete(k) })
+	doneW := goStep(t, func() { m.base.Delete(skiplistmap.StringKey(k)) })
 	claimed.waitReached(t, doneW)
 	found.Release()
 	waitDone(t, doneL, "Delete(k) of GL")
@@ -224,27 +224,27 @@ func Test_D2DeleteOfAMiddleCopyAfterTheOriginIsGone(t *testing.T) {
 	m := newStepMap()
 	setKeys(t, m, keys[:n+1])
 	k := keys[5]
-	item, ok := m.base.LoadItem(k)
+	item, ok := m.base.LoadItem(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found")
 	}
-	x1 := nodeOf(item.(*skiplistmap.SampleItem))
+	x1 := nodeOf(item)
 
 	s := newStepper(t)
 	stB := s.stopAt("map.delete.found", isNode(x1))
 	var okB bool
-	doneB := goStep(t, func() { okB = m.base.Delete(k) })
+	doneB := goStep(t, func() { okB = m.base.Delete(skiplistmap.StringKey(k)) })
 	stB.waitReached(t, doneB)
 	setKeys(t, m, keys[n+1:])
-	item, ok = m.base.LoadItem(k)
+	item, ok = m.base.LoadItem(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found after the second expand")
 	}
-	x2 := (*elist_head.ListHead)(nodeOf(item.(*skiplistmap.SampleItem)))
+	x2 := (*elist_head.ListHead)(nodeOf(item))
 	if elist_head.FindOrigin(x2) == x2 {
 		t.Fatalf("the moves of k are not known")
 	}
-	okA := m.base.Delete(k)
+	okA := m.base.Delete(skiplistmap.StringKey(k))
 	for i := 0; i < 20 && elist_head.FindOrigin(x2) != (*elist_head.ListHead)(x1); i++ {
 		runtime.GC()
 		time.Sleep(time.Millisecond)
@@ -272,19 +272,19 @@ func Test_D2DeletesAcrossTwoExpands(t *testing.T) {
 	m := newStepMap()
 	setKeys(t, m, keys[:n])
 	k := keys[5]
-	item, ok := m.base.LoadItem(k)
+	item, ok := m.base.LoadItem(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found")
 	}
-	o := nodeOf(item.(*skiplistmap.SampleItem))
+	o := nodeOf(item)
 
 	s := newStepper(t)
 	stA := s.stopAt("map.delete.found", isNode(o))
 	var okA bool
-	doneA := goStep(t, func() { okA = m.base.Delete(k) })
+	doneA := goStep(t, func() { okA = m.base.Delete(skiplistmap.StringKey(k)) })
 	stA.waitReached(t, doneA)
 	setKeys(t, m, keys[n:])
-	okB := m.base.Delete(k)
+	okB := m.base.Delete(skiplistmap.StringKey(k))
 	stA.Release()
 	waitDone(t, doneA, "Delete(k) of GA")
 

@@ -8,9 +8,9 @@ import (
 )
 
 func Test_EntryMapConcurrentValue(t *testing.T) {
-	m := skiplistmap.NewHMap()
-	skiplistmap.ItemFn(func() skiplistmap.MapItem { return skiplistmap.EmptyEntryHMap })(m)
-	e := skiplistmap.NewEntryMap("value", 0)
+	m := skiplistmap.NewHMap[skiplistmap.StringKey, any]()
+
+	e := skiplistmap.NewEntryMap[skiplistmap.StringKey, any]("value", 0)
 	if !m.StoreItem(e) {
 		t.Fatal("initial StoreItem failed")
 	}
@@ -35,9 +35,9 @@ func Test_EntryMapConcurrentValue(t *testing.T) {
 }
 
 func BenchmarkEntryMapSet(b *testing.B) {
-	m := skiplistmap.NewHMap()
-	skiplistmap.ItemFn(func() skiplistmap.MapItem { return skiplistmap.EmptyEntryHMap })(m)
-	e := skiplistmap.NewEntryMap("value", 0)
+	m := skiplistmap.NewHMap[skiplistmap.StringKey, any]()
+
+	e := skiplistmap.NewEntryMap[skiplistmap.StringKey, any]("value", 0)
 	if !m.StoreItem(e) {
 		b.Fatal("initial StoreItem failed")
 	}

@@ -10,7 +10,7 @@ import (
 // lookup of its keys must not find it and must reach the bucket that still
 // holds the items.
 func Test_ClaimedBucketIsNotFound(t *testing.T) {
-	h := New(UseEmbeddedPool(true))
+	h := New[StringKey, any](UseEmbeddedPool[StringKey, any](true))
 	parent := &h.buckets[3]
 	r := parent.reverse | 8<<56
 	if b := h.bucketFromPoolEmbedded(r); b == nil || b == parent {
@@ -24,8 +24,8 @@ func Test_ClaimedBucketIsNotFound(t *testing.T) {
 // A lookup that found its bucket before a split moved the key to a new
 // bucket must still find the key.
 func Test_LookupFromBucketFoundBeforeSplit(t *testing.T) {
-	h := New(UseEmbeddedPool(true))
-	MaxPefBucket(16)(h)
+	h := New[StringKey, any](UseEmbeddedPool[StringKey, any](true))
+	MaxPefBucket[StringKey, any](16)(h)
 	var keys []string
 	for i := 0; len(keys) < 200; i++ {
 		k := fmt.Sprintf("%d", i)
@@ -40,13 +40,13 @@ func Test_LookupFromBucketFoundBeforeSplit(t *testing.T) {
 		}
 	}
 	rev := bits.Reverse64(MemHashString(last))
-	h.Set(last, 1)
+	h.Set(StringKey(last), 1)
 	found := h.findBucket(rev)
 	for _, k := range keys {
 		if k == last {
 			continue
 		}
-		h.Set(k, 1)
+		h.Set(StringKey(k), 1)
 		if h.findBucket(rev).toBase() != found.toBase() {
 			break
 		}

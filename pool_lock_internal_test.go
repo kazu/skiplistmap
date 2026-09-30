@@ -12,8 +12,8 @@ import (
 // is the last one of the new pool: otherwise the lock stays locked, and the
 // next expand of the new pool waits for ever.
 func Test_PoolGetAfterExpandHandsOnTheLock(t *testing.T) {
-	p := newPool()
-	first := samepleItemPoolFromListHead(p.itemPool[0].Next())
+	p := newPool[StringKey, any]()
+	first := samepleItemPoolFromListHead[StringKey, any](p.itemPool[0].Next())
 	// one item per pool, so that the item taken after an expand to two
 	// items is the last one
 	first._init(1)
@@ -22,7 +22,9 @@ func Test_PoolGetAfterExpandHandsOnTheLock(t *testing.T) {
 	go func() {
 		defer close(done)
 		for i := 0; i < 3; i++ {
-			p.Get(0, func(item MapItem, mu sync.Locker) {
+			p.Get(0, func(item MapItem[StringKey, any],
+
+				mu sync.Locker) {
 				if item == nil {
 					t.Errorf("Get %d returned no item", i)
 				}

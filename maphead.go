@@ -140,21 +140,27 @@ func (c *MapHead) PrevtWithNil() *MapHead {
 	return c.fromListHead(c.Prev())
 }
 
-func (mhead *MapHead) dump(w io.Writer) {
+func (mhead *MapHead) dump[K Key[K], V any](w io.Writer) {
 
-	e := fromMapHead(mhead)
+	e := fromMapHead[K, V](mhead)
 
-	var ekey interface{}
-	ekey = e.Key()
+	var ekey K
+	if e != nil {
+		ekey = e.Key()
+	}
 	fmt.Fprintf(w, "  entryHMap{key: %+10v, k: 0x%16x, reverse: 0x%16x), conflict: 0x%x, cur: %p, prev: %p, next: %p}\n",
 		ekey, bits.Reverse64(mhead.reverse), mhead.reverse, mhead.conflict, mhead.PtrListHead(), mhead.PtrListHead().DirectPrev(), mhead.PtrListHead().DirectNext())
 
 }
 
-func fromMapHead(mhead *MapHead) MapItem {
+func fromMapHead[K Key[K], V any](mhead *MapHead) *Entry[K, V] {
+	return mhead.recoverEntry[K, V]()
+}
 
-	if mhead.IsDummy() {
-		return entryHMapFromListHead(mhead.PtrListHead())
+func (mhead *MapHead) PtrMapHead() *MapHead { return mhead }
+func (mhead *MapHead) recoverEntry[K Key[K], V any]() *Entry[K, V] {
+	if mhead == nil || mhead.IsDummy() {
+		return nil
 	}
-	return SampleItemFromListHead(mhead.PtrListHead())
+	return newEntryList[K, V]().Element(mhead.PtrListHead())
 }

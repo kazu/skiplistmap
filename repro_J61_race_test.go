@@ -2,6 +2,8 @@
 
 package skiplistmap_test
 
+import "github.com/kazu/skiplistmap"
+
 import (
 	"testing"
 
@@ -33,7 +35,7 @@ func Test_J61GetPlainReadRacesFoundFree(t *testing.T) {
 	done2 := goStep(t, func() { m.Get(keys[1]) })
 	stop2.waitReached(t, done2)
 
-	if !m.base.Delete(keys[1]) {
+	if !m.base.Delete(skiplistmap.StringKey(keys[1])) {
 		t.Fatalf("Delete(k1) failed")
 	}
 	stop1 := s.stopAt("map.set.newKeyLock", nil)

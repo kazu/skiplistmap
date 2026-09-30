@@ -16,26 +16,26 @@ import (
 // before G1 resumes entryHMap.Delete. Delete therefore retains the immutable
 // key and changes only the atomic deleted bit.
 func Test_J62EntryDeleteRacesLockFreeGet(t *testing.T) {
-	m := skiplistmap.NewHMap()
-	skiplistmap.MaxPefBucket(1 << 20)(m)
-	skiplistmap.BucketMode(skiplistmap.CombineSearch4)(m)
-	skiplistmap.ItemFn(func() skiplistmap.MapItem { return skiplistmap.EmptyEntryHMap })(m)
+	m := skiplistmap.NewHMap[skiplistmap.StringKey, any]()
+	skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](1 << 20)(m)
+	skiplistmap.BucketMode[skiplistmap.StringKey, any](skiplistmap.CombineSearch4)(m)
+
 	keys := adjacentKeys(3)
 	for _, k := range keys {
-		if !m.StoreItem(skiplistmap.NewEntryMap(k, k)) {
+		if !m.StoreItem(skiplistmap.NewEntryMap[skiplistmap.StringKey, any](skiplistmap.StringKey(k), k)) {
 			t.Fatalf("StoreItem(%q) failed", k)
 		}
 	}
-	if _, ok := m.Get(keys[1]); !ok {
+	if _, ok := m.Get(skiplistmap.StringKey(keys[1])); !ok {
 		t.Fatalf("Get(k1) = false before the test")
 	}
 
 	s := newStepper(t)
 	stop1 := s.stopAt("map.delete.found", nil)
-	done1 := goStep(t, func() { m.Delete(keys[1]) })
+	done1 := goStep(t, func() { m.Delete(skiplistmap.StringKey(keys[1])) })
 	stop1.waitReached(t, done1)
 
-	done2 := runAloneThenRelease(t, stop1, func() { m.Get(keys[1]) })
+	done2 := runAloneThenRelease(t, stop1, func() { m.Get(skiplistmap.StringKey(keys[1])) })
 	waitDone(t, done2, "G2")
 	waitDone(t, done1, "G1")
 }

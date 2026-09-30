@@ -161,7 +161,7 @@ func Test_Repro_3_1_3_GetTakesTheMarkedNextAsAPool(t *testing.T) {
 		if uintptr(sn.b)&1 != 0 {
 			t.Errorf("Get took the next of the pool %p, %#x, as a next pool: the mark bit is set", sn.a, uintptr(sn.b))
 		}
-		if !skiplistmap.StepIsLinkedPool(m.base, sn.b) {
+		if !skiplistmap.StepIsLinkedPool[skiplistmap.StringKey, any](m.base, sn.b) {
 			t.Errorf("Get took %#x as a next pool, which is not a pool in the pool list", uintptr(sn.b))
 		}
 		sn.Release()
@@ -199,7 +199,7 @@ func Test_Repro_3_1_3_GetTakesTheTailOfThePoolListAsAPool(t *testing.T) {
 	if tail := (*list_head.ListHead)(sg.a); tail != nil && tail.DirectNext() == tail {
 		t.Errorf("Pool.Get took %p, the tail of the pool list, as a pool", sg.a)
 	}
-	if !skiplistmap.StepIsLinkedPool(m.base, sg.a) {
+	if !skiplistmap.StepIsLinkedPool[skiplistmap.StringKey, any](m.base, sg.a) {
 		t.Errorf("Pool.Get took %p, which is not a pool in the pool list", sg.a)
 	}
 	sg.Release()
@@ -234,7 +234,7 @@ func Test_Repro_3_1_3_GetTakesNilAsAPoolWhileMarking(t *testing.T) {
 	if sg.a == nil {
 		t.Errorf("Pool.Get took nil as the list node of a pool")
 	}
-	if !skiplistmap.StepIsLinkedPool(m.base, sg.a) {
+	if !skiplistmap.StepIsLinkedPool[skiplistmap.StringKey, any](m.base, sg.a) {
 		t.Errorf("Pool.Get took %p, which is not a pool in the pool list", sg.a)
 	}
 	sg.Release()

@@ -12,15 +12,13 @@ import (
 )
 
 func Test_OperationsDistinguishSameHashPair(t *testing.T) {
-	const key = "wanted"
-	hash, conflict := skiplistmap.KeyToHash(key)
+	hash, conflict := skiplistmap.KeyToHash("wanted")
+	key := fixedHashKey{"wanted", hash, conflict}
 	items := make([]hashedItem, 2)
-	for i, stored := range []string{"other", key} {
-		items[i].K = stored
-		items[i].k, items[i].conflict = hash, conflict
-		items[i].SetValue(i)
+	for i, stored := range []string{"other", key.name} {
+		items[i].InitEntry(fixedHashKey{stored, hash, conflict}, i)
 	}
-	m := newStepMap().base
+	m := newHashStepMap()
 	m.StoreItem(&items[0])
 	if value, ok := m.Get(key); ok {
 		t.Errorf("Get returned colliding other key: %v", value)
@@ -29,7 +27,7 @@ func Test_OperationsDistinguishSameHashPair(t *testing.T) {
 		t.Fatal("an operation accepted the colliding other key")
 	}
 	m.StoreItem(&items[1])
-	for _, lookup := range []interface{}{key, []byte(key)} {
+	for _, lookup := range []fixedHashKey{key} {
 		if value, ok := m.Get(lookup); !ok || value != 1 {
 			t.Errorf("Get(%v)=(%v,%v), want (1,true)", lookup, value, ok)
 		}
@@ -37,14 +35,17 @@ func Test_OperationsDistinguishSameHashPair(t *testing.T) {
 	if !m.Set(key, 2) {
 		t.Fatal("Set of the actual key failed")
 	}
-	if items[0].Value() != 0 || items[1].Value() != 2 || m.Len() != 2 {
+	if value, ok := m.Get(key); !ok || value != 2 {
+		t.Fatalf("updated Get=(%v,%v)", value, ok)
+	}
+	if items[0].Value() != 0 || items[1].Value() != 1 || m.Len() != 2 {
 		t.Fatalf("Set changed the wrong entry: other=%v wanted=%v Len=%d", items[0].Value(), items[1].Value(), m.Len())
 	}
 	if !m.Delete(key) || m.Delete(key) {
 		t.Fatal("Delete did not count the actual key exactly once")
 	}
 	remaining, ok := m.LoadItemByHash(hash, conflict)
-	if !ok || remaining.Key() != "other" || remaining.Value() != 0 || m.Len() != 1 {
+	if !ok || remaining.Key().name != "other" || remaining.Value() != 0 || m.Len() != 1 {
 		t.Fatalf("Delete lost the colliding entry: %v, %v, Len=%d", remaining, ok, m.Len())
 	}
 	runtime.KeepAlive(items)
@@ -70,10 +71,10 @@ func testEmbeddedGetReusedSlot(t *testing.T, point string, byHash bool) {
 		}
 	}
 	m := newJ11Map(t).base
-	if !m.Set(keys[0], 10) {
+	if !m.Set(skiplistmap.StringKey(keys[0]), 10) {
 		t.Fatal("initial Set failed")
 	}
-	old, ok := m.LoadItem(keys[0])
+	old, ok := m.LoadItem(skiplistmap.StringKey(keys[0]))
 	if !ok {
 		t.Fatal("initial key missing")
 	}
@@ -86,14 +87,14 @@ func testEmbeddedGetReusedSlot(t *testing.T, point string, byHash bool) {
 		if byHash {
 			value, found = m.GetByHash(hash, conflict)
 		} else {
-			value, found = m.Get(keys[0])
+			value, found = m.Get(skiplistmap.StringKey(keys[0]))
 		}
 	})
 	stop.waitReached(t, done)
-	if !m.Purge(keys[0]) || !m.Set(keys[1], 20) {
+	if !m.Purge(skiplistmap.StringKey(keys[0])) || !m.Set(skiplistmap.StringKey(keys[1]), 20) {
 		t.Fatal("slot reuse failed")
 	}
-	replacement, ok := m.LoadItem(keys[1])
+	replacement, ok := m.LoadItem(skiplistmap.StringKey(keys[1]))
 	if !ok || replacement != old {
 		t.Fatal("replacement did not reuse the slot")
 	}
@@ -107,18 +108,18 @@ func testEmbeddedGetReusedSlot(t *testing.T, point string, byHash bool) {
 func Test_EmbeddedRangeKeepsKeyAndValueTogether(t *testing.T) {
 	keys := adjacentKeys(2)
 	m := newJ11Map(t).base
-	m.Set(keys[0], 10)
+	m.Set(skiplistmap.StringKey(keys[0]), 10)
 	s := newStepper(t)
 	stop := s.stopAt("map.range.keyRead", nil)
 	var gotKey, gotValue interface{}
 	done := goStep(t, func() {
-		m.Range(func(key, value interface{}) bool {
-			gotKey, gotValue = key, value
+		m.Range(func(key skiplistmap.StringKey, value any) bool {
+			gotKey, gotValue = string(key), value
 			return false
 		})
 	})
 	stop.waitReached(t, done)
-	if !m.Purge(keys[0]) || !m.Set(keys[1], 20) {
+	if !m.Purge(skiplistmap.StringKey(keys[0])) || !m.Set(skiplistmap.StringKey(keys[1]), 20) {
 		t.Fatal("slot reuse failed")
 	}
 	stop.Release()
@@ -133,20 +134,18 @@ func Test_DifferentKeysWithSameHashPair(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			items := make([]hashedItem, 2)
 			for i, key := range []string{"first", "second"} {
-				items[i].K = key
-				items[i].k, items[i].conflict = 0x0123456789abcdef, 1
-				items[i].SetValue(i)
+				items[i].InitEntry(fixedHashKey{key, 0x0123456789abcdef, 1}, i)
 			}
-			m := newStepMap()
+			m := newHashStepMap()
 			if mode == "concurrent" {
-				runTogether(len(items), func(i int) { m.base.StoreItem(&items[i]) })
+				runTogether(len(items), func(i int) { m.StoreItem(&items[i]) })
 			} else {
-				m.base.StoreItem(&items[0])
-				m.base.StoreItem(&items[1])
+				m.StoreItem(&items[0])
+				m.StoreItem(&items[1])
 			}
 			keys := make(map[interface{}]interface{})
-			m.base.Range(func(key, value interface{}) bool {
-				keys[key] = value
+			m.Range(func(key fixedHashKey, value any) bool {
+				keys[key.name] = value
 				return true
 			})
 			if len(keys) != 2 || keys["first"] != 0 || keys["second"] != 1 {
@@ -176,7 +175,7 @@ func Test_ConcurrentSetSameNewKey(t *testing.T) {
 	stop.Release()
 	waitDone(t, done, "Set(same)")
 	count := 0
-	m.base.Range(func(key, value interface{}) bool {
+	m.base.Range(func(key skiplistmap.StringKey, value any) bool {
 		if key == "same" {
 			count++
 		}

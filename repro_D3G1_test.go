@@ -37,16 +37,16 @@ func Test_D3G1DeleteBetweenTheCASesAndTheOtherStoreItemAreRefused(t *testing.T) 
 	u := &items[0]
 	m := newStepMap()
 	setKeys(t, m, []string{keys[0], keys[2]})
-	xItem, ok := m.base.LoadItem(keys[0])
+	xItem, ok := m.base.LoadItem(skiplistmap.StringKey(keys[0]))
 	if !ok {
 		t.Fatalf("LoadItem(x) not found")
 	}
-	x := nodeOf(xItem.(*skiplistmap.SampleItem))
-	zItem, ok := m.base.LoadItem(keys[2])
+	x := nodeOf(xItem)
+	zItem, ok := m.base.LoadItem(skiplistmap.StringKey(keys[2]))
 	if !ok {
 		t.Fatalf("LoadItem(z) not found")
 	}
-	z := nodeOf(zItem.(*skiplistmap.SampleItem))
+	z := nodeOf(zItem)
 
 	s := newStepper(t)
 	find1 := s.stopAt("map.find.begin", isNode(x))
@@ -56,19 +56,19 @@ func Test_D3G1DeleteBetweenTheCASesAndTheOtherStoreItemAreRefused(t *testing.T) 
 	if ok2 = m.base.StoreItem(u); ok2 {
 		t.Errorf("the second StoreItem(u) returned true while the first held u")
 	}
-	if !m.base.Purge(keys[0]) {
+	if !m.base.Purge(skiplistmap.StringKey(keys[0])) {
 		t.Fatalf("Purge(x) returned false")
 	}
 	cas2 := s.stopAt("elist.add.cas2", isNode(nodeOf(u)))
 	find1.Release()
 	cas2.waitReached(t, done1)
-	doneD := goStep(t, func() { okD = m.base.Delete(keys[1]) })
+	doneD := goStep(t, func() { okD = m.base.Delete(skiplistmap.StringKey(keys[1])) })
 	waitDone(t, doneD, "Delete(k)")
 	if okD {
 		t.Errorf("Delete(k) returned true while StoreItem(u) held u")
 	}
 	stZ := s.stopAt("elist.del.marked", isNode(z))
-	doneZ := goStep(t, func() { m.base.Purge(keys[2]) })
+	doneZ := goStep(t, func() { m.base.Purge(skiplistmap.StringKey(keys[2])) })
 	stZ.waitReached(t, doneZ)
 	again := s.stopAt("map.find.begin", isNode(x))
 	cas2.Release()

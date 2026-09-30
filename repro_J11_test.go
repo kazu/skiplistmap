@@ -26,7 +26,7 @@ func newJ11Map(t *testing.T) *WrapHMap {
 	t.Helper()
 	elist_head.SharedTrav(list_head.Direct())
 	t.Cleanup(func() { elist_head.SharedTrav(list_head.Direct()) })
-	return newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true), skiplistmap.MaxPefBucket(16)))
+	return newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true), skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](16)))
 }
 
 func j11Set(t *testing.T, m *WrapHMap, keys []string) {
@@ -89,7 +89,7 @@ func tryJ11Keys(t *testing.T, first, rest []string) (j11Keys, bool) {
 	before := map[string]unsafe.Pointer{}
 	nodes := map[string]unsafe.Pointer{}
 	for _, k := range first {
-		before[k], _ = skiplistmap.StepLockBuckets(m.base, reverseOf(k))
+		before[k], _ = skiplistmap.StepLockBuckets[skiplistmap.StringKey, any](m.base, reverseOf(k))
 		nodes[k] = j11Node(t, m, k)
 	}
 	for j := 0; j+1 < len(ext); j++ {
@@ -102,16 +102,16 @@ func tryJ11Keys(t *testing.T, first, rest []string) (j11Keys, bool) {
 			if !ok || j11Node(t, m, a) != nodes[a] {
 				continue
 			}
-			fa, ba := skiplistmap.StepLockBuckets(m.base, reverseOf(a))
+			fa, ba := skiplistmap.StepLockBuckets[skiplistmap.StringKey, any](m.base, reverseOf(a))
 			if fa != ba || ba == foundA {
 				continue
 			}
-			if _, bn := skiplistmap.StepLockBuckets(m.base, reverseOf(next)); bn != ba {
+			if _, bn := skiplistmap.StepLockBuckets[skiplistmap.StringKey, any](m.base, reverseOf(next)); bn != ba {
 				continue
 			}
 			for _, b := range rest {
 				if reverseOf(a) < reverseOf(b) && reverseOf(b) < reverseOf(next) {
-					if _, bb := skiplistmap.StepLockBuckets(m.base, reverseOf(b)); bb == ba {
+					if _, bb := skiplistmap.StepLockBuckets[skiplistmap.StringKey, any](m.base, reverseOf(b)); bb == ba {
 						return j11Keys{first: first, extra: ext[:j+1], a: a, next: next, b: b}, true
 					}
 				}
@@ -124,7 +124,7 @@ func tryJ11Keys(t *testing.T, first, rest []string) (j11Keys, bool) {
 // j11Node returns the list node of the item that holds key in m.
 func j11Node(t *testing.T, m *WrapHMap, key string) unsafe.Pointer {
 	t.Helper()
-	item, ok := m.base.LoadItem(key)
+	item, ok := m.base.LoadItem(skiplistmap.StringKey(key))
 	if !ok {
 		t.Fatalf("LoadItem(%q) not found", key)
 	}
@@ -154,7 +154,7 @@ func purgeWithSplitBeforeLock(t *testing.T, splitWhileFound bool, wait time.Dura
 	if !splitWhileFound {
 		j11Set(t, m, k.extra)
 	}
-	itemA, ok := m.base.LoadItem(k.a)
+	itemA, ok := m.base.LoadItem(skiplistmap.StringKey(k.a))
 	if !ok {
 		t.Fatalf("LoadItem(%q) not found", k.a)
 	}
@@ -173,7 +173,7 @@ func purgeWithSplitBeforeLock(t *testing.T, splitWhileFound bool, wait time.Dura
 		}
 	}
 	// found.b is the bucket whose muPool loadItem locks next.
-	_, ownerB := skiplistmap.StepLockBuckets(m.base, reverseOf(k.b))
+	_, ownerB := skiplistmap.StepLockBuckets[skiplistmap.StringKey, any](m.base, reverseOf(k.b))
 	if (ownerB != found.b) != splitWhileFound {
 		t.Fatalf("Purge(%q) locks %p, Set(%q) locks %p; want them different only with the split while found (%v)",
 			k.a, found.b, k.b, ownerB, splitWhileFound)
@@ -184,7 +184,7 @@ func purgeWithSplitBeforeLock(t *testing.T, splitWhileFound bool, wait time.Dura
 	done2 := goStep(t, func() { ok2 = m.Set(k.b, &list_head.ListHead{}) })
 	setFinished = waitAtMost(done2, wait)
 	if setFinished {
-		if itemB, ok := m.base.LoadItem(k.b); ok {
+		if itemB, ok := m.base.LoadItem(skiplistmap.StringKey(k.b)); ok {
 			t.Logf("Set(%q) finished while Purge(%q) was stopped; b reused the slot of a: %v",
 				k.b, k.a, unsafe.Pointer(itemB.PtrListHead()) == nodeA)
 		}

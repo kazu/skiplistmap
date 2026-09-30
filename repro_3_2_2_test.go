@@ -29,7 +29,7 @@ func newR322Map(t *testing.T) *r322Map {
 	elist_head.SharedTrav(list_head.Direct())
 	t.Cleanup(func() { elist_head.SharedTrav(list_head.Direct()) })
 
-	m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true), skiplistmap.MaxPefBucket(16)))
+	m := newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true), skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](16)))
 	var keys, rest []string
 	for i := 0; len(keys)+len(rest) < 1000; i++ {
 		k := crashKey(i)
@@ -51,16 +51,16 @@ func newR322Map(t *testing.T) *r322Map {
 
 	for i := 0; i+1 < len(keys); i++ {
 		prev, x := keys[i], keys[i+1]
-		foundX, baseX := skiplistmap.StepLockBuckets(m.base, reverseOf(x))
+		foundX, baseX := skiplistmap.StepLockBuckets[skiplistmap.StringKey, any](m.base, reverseOf(x))
 		if foundX == baseX {
 			continue
 		}
-		if foundP, _ := skiplistmap.StepLockBuckets(m.base, reverseOf(prev)); foundP != foundX {
+		if foundP, _ := skiplistmap.StepLockBuckets[skiplistmap.StringKey, any](m.base, reverseOf(prev)); foundP != foundX {
 			continue
 		}
 		for _, n := range rest {
 			if reverseOf(prev) < reverseOf(n) && reverseOf(n) < reverseOf(x) {
-				if _, baseN := skiplistmap.StepLockBuckets(m.base, reverseOf(n)); baseN == baseX {
+				if _, baseN := skiplistmap.StepLockBuckets[skiplistmap.StringKey, any](m.base, reverseOf(n)); baseN == baseX {
 					return &r322Map{m: m, stored: keys, prev: prev, x: x, n: n}
 				}
 			}
@@ -142,7 +142,7 @@ func Test_Repro_3_2_2_PurgeBesideUnfinishedInsert(t *testing.T) {
 		}
 	}
 	want = append(want, p.n)
-	if err := skiplistmap.StepCheckLists(m.base); err != nil {
+	if err := skiplistmap.StepCheckLists[skiplistmap.StringKey, any](m.base); err != nil {
 		// RangeItem does not end on a self-linked node, so check the rest
 		// without it.
 		t.Errorf("%v (the purged %q has reverse %016x)", err, p.x, revX)

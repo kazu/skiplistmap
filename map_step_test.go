@@ -3,6 +3,7 @@
 package skiplistmap_test
 
 import (
+	"fmt"
 	"math/bits"
 	"runtime"
 	"sort"
@@ -175,9 +176,9 @@ func waitDone(t *testing.T, done <-chan struct{}, what string) {
 // newStepMap returns a map without the embedded pool that never splits a
 // bucket, so that the tests below see only the insertions they make.
 func newStepMap() *WrapHMap {
-	m := newWrapHMap(skiplistmap.NewHMap())
-	skiplistmap.MaxPefBucket(1 << 20)(m.base)
-	skiplistmap.BucketMode(skiplistmap.CombineSearch4)(m.base)
+	m := newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any]())
+	skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](1 << 20)(m.base)
+	skiplistmap.BucketMode[skiplistmap.StringKey, any](skiplistmap.CombineSearch4)(m.base)
 	return m
 }
 
@@ -216,16 +217,15 @@ func regionKeys(top, second uint64, n int) []string {
 	return keys
 }
 
-func newStepItems(keys []string) []skiplistmap.SampleItem {
-	items := make([]skiplistmap.SampleItem, len(keys))
+func newStepItems(keys []string) []skiplistmap.SampleItem[skiplistmap.StringKey, any] {
+	items := make([]skiplistmap.SampleItem[skiplistmap.StringKey, any], len(keys))
 	for i := range items {
-		items[i].K = keys[i]
-		items[i].SetValue(&list_head.ListHead{})
+		items[i].InitEntry(skiplistmap.StringKey(keys[i]), &list_head.ListHead{})
 	}
 	return items
 }
 
-func nodeOf(item *skiplistmap.SampleItem) unsafe.Pointer {
+func nodeOf[K skiplistmap.Key[K], V any](item *skiplistmap.SampleItem[K, V]) unsafe.Pointer {
 	return unsafe.Pointer(item.PtrListHead())
 }
 
@@ -233,7 +233,7 @@ func nodeOf(item *skiplistmap.SampleItem) unsafe.Pointer {
 // holds exactly the keys in the order of their reversed hashes.
 func assertStoredInOrder(t *testing.T, m *WrapHMap, keys []string) {
 	t.Helper()
-	if err := skiplistmap.StepCheckLists(m.base); err != nil {
+	if err := skiplistmap.StepCheckLists[skiplistmap.StringKey, any](m.base); err != nil {
 		t.Errorf("%v", err)
 	}
 	for _, k := range keys {
@@ -243,8 +243,8 @@ func assertStoredInOrder(t *testing.T, m *WrapHMap, keys []string) {
 	}
 	var got []string
 	runWithDeadline(t, 10*time.Second, func() {
-		m.base.RangeItem(func(item skiplistmap.MapItem) bool {
-			got = append(got, item.Key().(string))
+		m.base.RangeItem(func(item skiplistmap.MapItem[skiplistmap.StringKey, any]) bool {
+			got = append(got, string(item.Key()))
 			return true
 		})
 	})
@@ -383,15 +383,15 @@ func Test_StepSplitLoserKeepsWinnersDummy(t *testing.T) {
 	lower := regionKeys(top, 0x0, 16)
 	items := newStepItems(append(append([]string{}, upper...), lower...))
 	upperItems, lowerItems := items[:len(upper)], items[len(upper):]
-	m := newWrapHMap(skiplistmap.NewHMap())
-	skiplistmap.MaxPefBucket(2)(m.base)
-	skiplistmap.BucketMode(skiplistmap.CombineSearch4)(m.base)
+	m := newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any]())
+	skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](2)(m.base)
+	skiplistmap.BucketMode[skiplistmap.StringKey, any](skiplistmap.CombineSearch4)(m.base)
 
 	s := newStepper(t)
 	var stored []string
 	for i := range upperItems {
 		m.base.StoreItem(&upperItems[i])
-		stored = append(stored, upperItems[i].K)
+		stored = append(stored, string(upperItems[i].Key()))
 		if s.total("map.makeBucket.claimed") > 0 {
 			break
 		}
@@ -400,7 +400,7 @@ func Test_StepSplitLoserKeepsWinnersDummy(t *testing.T) {
 	if first == nil {
 		t.Fatalf("storing %d keys did not split the region", len(stored))
 	}
-	t.Logf("first split: %016x", skiplistmap.StepBucketReverse(first))
+	t.Logf("first split: %016x", skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](first))
 
 	// The first lower key whose store splits the bucket stops as the winner.
 	var stop1 *stepStop
@@ -408,16 +408,16 @@ func Test_StepSplitLoserKeepsWinnersDummy(t *testing.T) {
 	next := 0
 	for ; next < len(lowerItems); next++ {
 		st := s.stopAt("map.makeBucket.claimed", isSecond(nodeOf(&lowerItems[next])))
-		d := goStep(t, func(it *skiplistmap.SampleItem) func() {
+		d := goStep(t, func(it *skiplistmap.SampleItem[skiplistmap.StringKey, any]) func() {
 			return func() { m.base.StoreItem(it) }
 		}(&lowerItems[next]))
-		stored = append(stored, lowerItems[next].K)
+		stored = append(stored, string(lowerItems[next].Key()))
 		select {
 		case <-st.reached:
 			stop1, done1 = st, d
 		case <-d:
 		case <-time.After(10 * time.Second):
-			t.Fatalf("StoreItem(%q) neither split nor finished", lowerItems[next].K)
+			t.Fatalf("StoreItem(%q) neither split nor finished", string(lowerItems[next].Key()))
 		}
 		if stop1 != nil {
 			next++
@@ -428,12 +428,12 @@ func Test_StepSplitLoserKeepsWinnersDummy(t *testing.T) {
 		t.Fatalf("no lower key split the bucket")
 	}
 	b1 := stop1.a
-	t.Logf("second split: %016x", skiplistmap.StepBucketReverse(b1))
+	t.Logf("second split: %016x", skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](b1))
 
 	// The next lower key splits the same bucket.
 	stop2 := s.stopAt("map.makeBucket.claimed", isSecond(nodeOf(&lowerItems[next])))
 	done2 := goStep(t, func() { m.base.StoreItem(&lowerItems[next]) })
-	stored = append(stored, lowerItems[next].K)
+	stored = append(stored, string(lowerItems[next].Key()))
 	stop2.waitReached(t, done2)
 	switch b2 := stop2.a; {
 	case b2 == nil:
@@ -456,7 +456,7 @@ func Test_StepSplitLoserKeepsWinnersDummy(t *testing.T) {
 		linked.Release()
 		waitDone(t, done1, "winner")
 	default:
-		t.Fatalf("the second store split another bucket: %016x", skiplistmap.StepBucketReverse(b2))
+		t.Fatalf("the second store split another bucket: %016x", skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](b2))
 	}
 
 	assertStoredInOrder(t, m, stored)
@@ -467,19 +467,25 @@ func Test_StepSplitLoserKeepsWinnersDummy(t *testing.T) {
 // of them stops at st. It returns the keys stored so far, the index of the
 // item after the stopped one, and the channel closed when the stopped store
 // finishes. It fails the test unless an item other than the last one stops.
-func storeUntilStop(t *testing.T, m *WrapHMap, items []skiplistmap.SampleItem, st *stepStop) (stored []string, next int, done <-chan struct{}) {
+func storeUntilStop(t *testing.T, m *WrapHMap, items []skiplistmap.SampleItem[skiplistmap.StringKey, any], st *stepStop) ([]string, int, <-chan struct{}) {
+	return storeTypedUntilStop(t, m.base, items, st)
+}
+
+func storeTypedUntilStop[K skiplistmap.Key[K]](t *testing.T, m *skiplistmap.Map[K, any], items []skiplistmap.SampleItem[K, any],
+
+	st *stepStop) (stored []string, next int, done <-chan struct{}) {
 	t.Helper()
 	for ; next < len(items) && done == nil; next++ {
-		d := goStep(t, func(it *skiplistmap.SampleItem) func() {
-			return func() { m.base.StoreItem(it) }
+		d := goStep(t, func(it *skiplistmap.SampleItem[K, any]) func() {
+			return func() { m.StoreItem(it) }
 		}(&items[next]))
-		stored = append(stored, items[next].K)
+		stored = append(stored, fmt.Sprint(items[next].Key()))
 		select {
 		case <-st.reached:
 			done = d
 		case <-d:
 		case <-time.After(10 * time.Second):
-			t.Fatalf("StoreItem(%q) neither reached %s nor finished", items[next].K, st.point)
+			t.Fatalf("StoreItem(%q) neither reached %s nor finished", fmt.Sprint(items[next].Key()), st.point)
 		}
 	}
 	if done == nil || next == len(items) {
@@ -497,16 +503,16 @@ func Test_StepSplitSeesDownLevelsCapacity(t *testing.T) {
 	const top = 0x3
 	keys := regionKeys(top, 0xc, 8)
 	items := newStepItems(keys)
-	m := newWrapHMap(skiplistmap.NewHMap())
-	skiplistmap.MaxPefBucket(2)(m.base)
-	skiplistmap.BucketMode(skiplistmap.CombineSearch4)(m.base)
+	m := newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any]())
+	skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](2)(m.base)
+	skiplistmap.BucketMode[skiplistmap.StringKey, any](skiplistmap.CombineSearch4)(m.base)
 
 	s := newStepper(t)
 	stop := s.stopAt("map.bucketFromPool.lenStored", nil)
 	stored, next, doneW := storeUntilStop(t, m, items, stop)
 
 	doneL := goStep(t, func() { m.base.StoreItem(&items[next]) })
-	stored = append(stored, items[next].K)
+	stored = append(stored, string(items[next].Key()))
 	waitDone(t, doneL, "loser")
 	stop.Release()
 	waitDone(t, doneW, "winner")

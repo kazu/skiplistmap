@@ -16,21 +16,22 @@ func Test_HmapEntry(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		wanted skiplistmap.MapItem
-		got    func(*elist_head.ListHead) skiplistmap.MapItem
+		wanted skiplistmap.MapItem[skiplistmap.StringKey, any]
+
+		got func(*elist_head.ListHead) skiplistmap.MapItem[skiplistmap.StringKey, any]
 	}{
 		{
 			name:   "SampleItem",
-			wanted: skiplistmap.NewSampleItem("hoge", "hoge value"),
-			got: func(lhead *elist_head.ListHead) skiplistmap.MapItem {
-				return (skiplistmap.EmptySampleHMapEntry).HmapEntryFromListHead(lhead).(skiplistmap.MapItem)
+			wanted: skiplistmap.NewSampleItem[skiplistmap.StringKey, any]("hoge", "hoge value"),
+			got: func(lhead *elist_head.ListHead) skiplistmap.MapItem[skiplistmap.StringKey, any] {
+				return (skiplistmap.EmptySampleHMapEntry[skiplistmap.StringKey, any]()).HmapEntryFromListHead(lhead)
 			},
 		},
 		{
 			name:   "entryHMap",
-			wanted: skiplistmap.NewEntryMap("hogeentry", "hogevalue"),
-			got: func(lhead *elist_head.ListHead) skiplistmap.MapItem {
-				return (skiplistmap.EmptyEntryHMap).HmapEntryFromListHead(lhead).(skiplistmap.MapItem)
+			wanted: skiplistmap.NewEntryMap[skiplistmap.StringKey, any]("hogeentry", "hogevalue"),
+			got: func(lhead *elist_head.ListHead) skiplistmap.MapItem[skiplistmap.StringKey, any] {
+				return (skiplistmap.EmptyEntryHMap[skiplistmap.StringKey, any]()).HmapEntryFromListHead(lhead)
 			},
 		},
 	}
@@ -46,9 +47,7 @@ func Test_HmapEntry(t *testing.T) {
 
 func Test_ConccurentWriteEmbeddedBucket(t *testing.T) {
 
-	m := skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32),
-		skiplistmap.UseEmbeddedPool(true),
-		skiplistmap.BucketMode(skiplistmap.CombineSearch3))
+	m := skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](32), skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true), skiplistmap.BucketMode[skiplistmap.StringKey, any](skiplistmap.CombineSearch3))
 
 	tests := []struct {
 		r uint64
@@ -74,9 +73,8 @@ func Test_ConccurentWriteEmbeddedBucket(t *testing.T) {
 					bucket.SetItemPool(pool)
 				}
 
-				s := item.(*skiplistmap.SampleItem)
-				s.K = "???"
-				s.SetValue(i)
+				s := item
+				s.InitEntry("???", i)
 				m.TestSet(bits.Reverse64(key+i), i, bucket, s)
 				if fn != nil {
 					bucket.RunLazyUnlocker(fn)
@@ -126,7 +124,7 @@ func Test_HMap(t *testing.T) {
 	}{
 		{
 			"embedded pool",
-			newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UseEmbeddedPool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch3))),
+			newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](32), skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true), skiplistmap.BucketMode[skiplistmap.StringKey, any](skiplistmap.CombineSearch3))),
 		},
 		// {
 		// 	"pool without goroutine",
@@ -134,7 +132,7 @@ func Test_HMap(t *testing.T) {
 		// },
 		{
 			"combine4",
-			newWrapHMap(skiplistmap.NewHMap(skiplistmap.MaxPefBucket(32), skiplistmap.UsePool(true), skiplistmap.BucketMode(skiplistmap.CombineSearch4))),
+			newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](32), skiplistmap.UsePool[skiplistmap.StringKey, any](true), skiplistmap.BucketMode[skiplistmap.StringKey, any](skiplistmap.CombineSearch4))),
 		},
 	}
 
@@ -173,22 +171,25 @@ func Test_HMap(t *testing.T) {
 				_, ok := m.Get(fmt.Sprintf("fuge%d", i))
 				assert.Truef(t, ok, "not found key=%s", fmt.Sprintf("fuge%d", i))
 				if !ok {
-					skiplistmap.BucketMode(skiplistmap.NestedSearchForBucket)(m.base)
+					skiplistmap.BucketMode[skiplistmap.StringKey, any](skiplistmap.NestedSearchForBucket)(m.base)
 					_, ok = m.Get(fmt.Sprintf("fuge%d", i))
-					skiplistmap.BucketMode(skiplistmap.CombineSearch)(m.base)
+					skiplistmap.BucketMode[skiplistmap.StringKey, any](skiplistmap.CombineSearch)(m.base)
 					_, ok = m.Get(fmt.Sprintf("fuge%d", i))
 				}
 			}
 
-			e := m.base.Last()
-			_ = e
-			assert.Equal(t, ^uint64(0), e.PtrMapHead().KeyInHmap())
+			var last *skiplistmap.Entry[skiplistmap.StringKey, any]
+			m.base.RangeItem(func(e *skiplistmap.Entry[skiplistmap.StringKey, any]) bool {
+				last = e
+				return true
+			})
+			assert.Same(t, last, m.base.Last())
 		})
 
 	}
 }
 
-func DumpHmap(h *skiplistmap.Map) {
+func DumpHmap(h *skiplistmap.Map[skiplistmap.StringKey, any]) {
 
 	fmt.Printf("---DumpBucketPerLevel---\n")
 	h.DumpBucketPerLevel(nil)

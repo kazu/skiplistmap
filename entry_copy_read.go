@@ -8,14 +8,17 @@ import (
 	"github.com/kazu/elist_head"
 )
 
-// These functions are exclusively for caller-owned entryHMap copies. Dispatch
-// uses the concrete entry type already obtained by the ordinary lookup. The
-// SampleItem and custom MapItem paths retain their original search predicates.
-func (h *Map) searchCopyEntry(b *bucket, start *entryHMap, reverse uint64, ignoreDummy bool) HMapEntry {
+// Nonembedded entries publish immutable copies, including entries allocated
+// by the map's pool. Searches follow replacements and skip bucket dummies.
+func (h *Map[K, V]) searchCopyEntry(b *bucket[K, V], start *MapHead, reverse uint64, ignoreDummy bool) HMapEntry[K, V] {
+	if start == nil {
+		return nil
+	}
 	stepAt("copy.search", unsafe.Pointer(start.PtrListHead()), nil)
 	forward := b.reverse < reverse
+SEARCH:
 	for {
-		cur := start.PtrMapHead()
+		cur := start
 		for cur != nil {
 			if cur.PtrListHead().IsMarked() {
 				break
@@ -31,8 +34,8 @@ func (h *Map) searchCopyEntry(b *bucket, start *entryHMap, reverse uint64, ignor
 			}
 			r := atomic.LoadUint64(&cur.reverse)
 			if r == reverse {
-				if !ignoreDummy || !cur.IsIgnored() {
-					return entryHMapFromListHead(cur.PtrListHead())
+				if !cur.IsDummy() && (!ignoreDummy || !cur.IsIgnored()) {
+					return entryHMapFromListHead[K, V](cur.PtrListHead())
 				}
 				// A replacement may have retired this cursor after the
 				// first mark check. Do not skip it and report a missing key.
@@ -40,7 +43,7 @@ func (h *Map) searchCopyEntry(b *bucket, start *entryHMap, reverse uint64, ignor
 					break
 				}
 			} else if forward && r > reverse || !forward && r < reverse {
-				return nil
+				goto NOT_FOUND
 			}
 			head := cur.PtrListHead()
 			var next *elist_head.ListHead
@@ -50,34 +53,36 @@ func (h *Map) searchCopyEntry(b *bucket, start *entryHMap, reverse uint64, ignor
 				next = head.DirectPrev()
 			}
 			if next == head || next.Empty() {
-				return nil
+				goto NOT_FOUND
 			}
 			cur = mapheadFromLListHead(next)
 		}
 		if cur == nil {
-			return nil
+			goto NOT_FOUND
 		}
 		stepAt("search.marked", unsafe.Pointer(cur.PtrListHead()), nil)
 		runtime.Gosched()
 		e := b.entry(h)
 		if e == nil {
-			return nil
+			goto NOT_FOUND
 		}
-		var ok bool
-		start, ok = e.(*entryHMap)
-		if !ok {
-			// The map changed its item implementation; use that path.
-			return h._searchBybucket(b, reverse, ignoreDummy)
-		}
+		start = e
 	}
+NOT_FOUND:
+	if !forward && b.reverse == reverse {
+		forward = true
+		goto SEARCH
+	}
+	return nil
+
 }
 
-func (h *Map) matchCopyEntry(entry *entryHMap, reverse, conflict uint64, key interface{}, byKey bool) (HMapEntry, bool) {
+func (h *Map[K, V]) matchCopyEntry(entry *entryHMap[K, V], reverse, conflict uint64, key K, byKey bool) (HMapEntry[K, V], bool) {
 	stepAt("copy.match", unsafe.Pointer(entry.PtrListHead()), nil)
-	matches := func(e *entryHMap) bool {
+	matches := func(e *entryHMap[K, V]) bool {
 		return !e.IsIgnored() && atomic.LoadUint64(&e.reverse) == reverse &&
 			atomic.LoadUint64(&e.conflict) == conflict && linkedEntry(e.PtrListHead()) &&
-			(!byKey || equalKeys(e.key, key))
+			(!byKey || equalKeys[K, V](e.key, key))
 	}
 	if entry.ListHead.IsMarked() {
 		return nil, true
@@ -102,7 +107,14 @@ func (h *Map) matchCopyEntry(entry *entryHMap, reverse, conflict uint64, key int
 			if cur.IsMarked() {
 				return nil, true
 			}
-			e := entryHMapFromListHead(cur)
+			mh := mapheadFromLListHead(cur)
+			if mh.IsDummy() {
+				if atomic.LoadUint64(&mh.reverse) != reverse {
+					break
+				}
+				continue
+			}
+			e := entryHMapFromListHead[K, V](cur)
 			if !linkedEntry(cur) {
 				return nil, true
 			}
@@ -120,7 +132,7 @@ func (h *Map) matchCopyEntry(entry *entryHMap, reverse, conflict uint64, key int
 	return nil, entry.ListHead.IsMarked()
 }
 
-func (h *Map) rangeCopyEntries(first *entryHMap, f func(MapItem) bool) {
+func (h *Map[K, V]) rangeCopyEntries(first *entryHMap[K, V], f func(MapItem[K, V]) bool) {
 	stepAt("copy.range", unsafe.Pointer(first.PtrListHead()), nil)
 	for cur := first.PtrListHead(); !cur.Empty(); cur = cur.DirectNext() {
 		for cur.IsMarked() {
@@ -130,7 +142,11 @@ func (h *Map) rangeCopyEntries(first *entryHMap, f func(MapItem) bool) {
 		if cur.Empty() {
 			return
 		}
-		e := entryHMapFromListHead(cur)
+		mh := mapheadFromLListHead(cur)
+		if mh.IsIgnored() {
+			continue
+		}
+		e := entryHMapFromListHead[K, V](cur)
 		if e.IsIgnored() {
 			continue
 		}

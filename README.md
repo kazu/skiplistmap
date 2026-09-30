@@ -1,6 +1,6 @@
 # Skip List Map in Golang
 
-Skip List Map is a concurrent map.  this Map is goroutine safety for reading/updating/deleting, no-require locking and coordination.
+Skip List Map はキーと値を型で指定する並行Mapです。登録・取得・更新・削除を複数のgoroutineから実行できます。値が参照するsliceやpointerの参照先の同期は利用者が行います。
 
 
 ## status
@@ -43,28 +43,26 @@ import (
 )
 
 func main() {
-    sMap := skiplistmap.New(skiplistmap.MaxPefBucket(12))
+    sMap := skiplistmap.New[skiplistmap.StringKey, int](skiplistmap.MaxPefBucket[skiplistmap.StringKey, int](12))
     sMap.Set("test1", 1)
     sMap.Set("test2", 2)
     if value, ok := sMap.Get("test1"); ok {
-        fmt.Println(value.(int))
+        fmt.Println(value)
     }
 
-    // Match ItemFn to the caller-owned item type and keep the item alive.
-    sMap2 := skiplistmap.New(skiplistmap.ItemFn(func() skiplistmap.MapItem {
-        return (*skiplistmap.SampleItem)(nil)
-    }))
-    item := skiplistmap.NewSampleItem("test1", 1234)
+    // 外部Entryは利用者が保持する。ItemFnは不要。
+    sMap2 := skiplistmap.New[skiplistmap.StringKey, int]()
+    item := skiplistmap.NewEntry[skiplistmap.StringKey, int]("test1", 1234)
     sMap2.StoreItem(item)
     if loaded, ok := sMap2.LoadItem("test1"); ok {
         fmt.Println(loaded.Key(), loaded.Value())
     }
 
-    sMap2.RangeItem(func(item skiplistmap.MapItem) bool {
+    sMap2.RangeItem(func(item *skiplistmap.Entry[skiplistmap.StringKey, int]) bool {
         fmt.Printf("key=%v\n", item.Key())
         return true
     })
-    sMap2.Range(func(key, value interface{}) bool {
+    sMap2.Range(func(key skiplistmap.StringKey, value int) bool {
         fmt.Printf("key=%v value=%v\n", key, value)
         return true
     })
@@ -78,6 +76,9 @@ func main() {
 ```
 
 ## performance
+
+以下のグラフは従来実装の測定記録です。型付き本体の性能を示すものではありません。
+型付きAPI、コピー公開、Entryの保持と再利用については[型付きAPI](docs/typed-api.md)を参照してください。
 
 ### condition
 - 100000 record. set key/value before benchmark

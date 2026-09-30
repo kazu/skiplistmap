@@ -54,7 +54,7 @@ func Test_ReproJ7InsertBeforeMarkedDummyIsDropped(t *testing.T) {
 			}()
 			sp.m.base.StoreItem(k)
 		})
-		sp.stored = append(sp.stored, k.K)
+		sp.stored = append(sp.stored, string(k.Key()))
 		foundK.waitReached(t, kDone)
 		if foundK.b != d {
 			foundK.Release()
@@ -96,7 +96,7 @@ func Test_ReproJ7InsertBeforeMarkedDummyIsDropped(t *testing.T) {
 		}
 		waitDone(t, kDone, "StoreItem(K)")
 		runWithDeadline(t, 10*time.Second, func() {
-			if _, ok := sp.m.Get(k.K); !ok {
+			if _, ok := sp.m.Get(string(k.Key())); !ok {
 				t.Errorf("K is lost")
 			}
 		})
@@ -106,7 +106,7 @@ func Test_ReproJ7InsertBeforeMarkedDummyIsDropped(t *testing.T) {
 		sp.win.Release()
 		waitDone(t, sp.winDone, "winner")
 		done := goStep(t, func() { sp.m.base.StoreItem(k) })
-		sp.stored = append(sp.stored, k.K)
+		sp.stored = append(sp.stored, string(k.Key()))
 		waitDone(t, done, "StoreItem(K)")
 	}
 	if t.Failed() {

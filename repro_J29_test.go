@@ -46,7 +46,7 @@ func Test_ReproJ29LinkedDummyInitAfterRollback(t *testing.T) {
 		finishSplitsAfterFix(t, sp)
 		k := &sp.extra[0]
 		done := goStep(t, func() { sp.m.base.StoreItem(k) })
-		sp.stored = append(sp.stored, k.K)
+		sp.stored = append(sp.stored, string(k.Key()))
 		waitDone(t, done, "StoreItem(K)")
 		if !t.Failed() {
 			assertStoredInOrder(t, sp.m, sp.stored)

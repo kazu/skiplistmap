@@ -5,7 +5,7 @@ import "testing"
 func BenchmarkPoolInit(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		pool := &samepleItemPool{}
+		pool := &samepleItemPool[StringKey, any]{}
 		pool.Init()
 		item, _, lock := pool.Get()
 		if lock != nil {

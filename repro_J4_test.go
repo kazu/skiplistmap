@@ -49,7 +49,7 @@ func Test_ReproJ4LoserInitsLinkedBucket(t *testing.T) {
 	if t.Failed() {
 		return
 	}
-	rb := skiplistmap.StepBucketReverse(sp.b)
+	rb := skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](sp.b)
 	rs := skiplistmap.StepBucketsForward(sp.m.base, 1000)
 	if last := rs[len(rs)-1]; last >= rb {
 		t.Errorf("a walk from the head of the list of buckets reaches %d buckets and stops at %016x, not below b %016x", len(rs), last, rb)
@@ -62,16 +62,16 @@ func Test_ReproJ4LoserInitsLinkedBucket(t *testing.T) {
 		done := goStep(t, func() {
 			defer func() {
 				if r = recover(); r != nil {
-					t.Errorf("StoreItem(%q) panicked: %v", it.K, r)
+					t.Errorf("StoreItem(%q) panicked: %v", string(it.Key()), r)
 				}
 			}()
 			sp.m.base.StoreItem(it)
 		})
-		sp.stored = append(sp.stored, it.K)
-		waitDone(t, done, "StoreItem("+it.K+")")
+		sp.stored = append(sp.stored, string(it.Key()))
+		waitDone(t, done, "StoreItem("+string(it.Key())+")")
 		if r != nil {
 			if c, _ := s.args("map.makeBucket.claimed"); c != nil {
-				t.Logf("the last split: %016x", skiplistmap.StepBucketReverse(c))
+				t.Logf("the last split: %016x", skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](c))
 			}
 			return
 		}

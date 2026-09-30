@@ -49,18 +49,18 @@ func newJ63Pool(t *testing.T) *j63Pool {
 			t.Fatalf("Set(%q) failed", k)
 		}
 	}
-	skiplistmap.MaxPefBucket(16)(p.m.base)
+	skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](16)(p.m.base)
 
-	found, base := skiplistmap.StepLockBuckets(p.m.base, reverseOf(p.last))
+	found, base := skiplistmap.StepLockBuckets[skiplistmap.StringKey, any](p.m.base, reverseOf(p.last))
 	if found == base {
 		t.Fatalf("a lookup of last finds the bucket that owns the pool, not firstDown")
 	}
-	pool, revs := skiplistmap.StepPoolOf(p.m.base, reverseOf(p.last))
+	pool, revs := skiplistmap.StepPoolOf[skiplistmap.StringKey, any](p.m.base, reverseOf(p.last))
 	if want := []uint64{reverseOf(p.d), reverseOf(k2), reverseOf(p.last)}; len(revs) != 3 || revs[0] != want[0] || revs[1] != want[1] || revs[2] != want[2] {
 		t.Fatalf("pool of last holds %x, want %x", revs, want)
 	}
-	xpool, _ := skiplistmap.StepPoolOf(p.m.base, reverseOf(p.x))
-	_, xbase := skiplistmap.StepLockBuckets(p.m.base, reverseOf(p.x))
+	xpool, _ := skiplistmap.StepPoolOf[skiplistmap.StringKey, any](p.m.base, reverseOf(p.x))
+	_, xbase := skiplistmap.StepLockBuckets[skiplistmap.StringKey, any](p.m.base, reverseOf(p.x))
 	if xpool != pool || xbase != base {
 		t.Fatalf("x does not belong to the pool of last and its bucket")
 	}
@@ -90,7 +90,7 @@ func Test_J63NoraceHidesGetWithFnRead(t *testing.T) {
 
 func j63GetWithFnOnce(t *testing.T) {
 	p := newJ63Pool(t)
-	if !p.m.base.Delete(p.d) {
+	if !p.m.base.Delete(skiplistmap.StringKey(p.d)) {
 		t.Fatalf("Delete(d) failed")
 	}
 

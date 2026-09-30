@@ -109,8 +109,8 @@ func Test_ReproJ1SearchSeesKeysOutOfOrder(t *testing.T) {
 
 	var got []string
 	runWithDeadline(t, 10*time.Second, func() {
-		m.base.RangeItem(func(item skiplistmap.MapItem) bool {
-			got = append(got, item.Key().(string))
+		m.base.RangeItem(func(item skiplistmap.MapItem[skiplistmap.StringKey, any]) bool {
+			got = append(got, string(item.Key()))
 			return true
 		})
 	})

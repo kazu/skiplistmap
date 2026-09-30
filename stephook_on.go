@@ -33,7 +33,7 @@ import (
 //   - "pool.expand.marked" (pool, nil): _expand marked pool and unlinked it from the pool list, where new pool follows it; before it asks IsSafety of pool.
 //   - "pool.expand.beforeSafety" (pool, new pool): _expand linked new pool into the pool list; before it asks IsSafety of pool whether to run Init on it.
 //   - "loadItem.found" (item, bucket): loadItem found item in bucket; before bucket.muPool is locked.
-//   - "set.updateLocked" (item, bucket): Set of a key present in a map with the embedded pool locked the muPool that guards the pool of bucket and found item; before it stores the value into item.
+//   - "set.updateLocked" (item, bucket): Set locked the embedded bucket's muPool and found item, before it allocates and publishes a replacement.
 //   - "purge.beforeInit" (item, nil): purgeInEmbedded returned from MarkForDelete of item; before it runs Init on item.
 //   - "makeBucket2.got" (new bucket, bucket): makeBucket2 of bucket got new bucket from bucketFromPoolEmbedded; before it runs Init on new bucket.
 //   - "makeBucket2.recurse" (bucket, new bucket): makeBucket2 of bucket published new bucket; before it checks whether new bucket is over the limit and splits it.
@@ -60,11 +60,12 @@ import (
 //   - "set.slotTaken" (item, bucket): Set of a key not present in a map with the embedded pool took item, a slot of the pool of bucket, from getWithFn; before it stores the reverse and the conflict of the key into item.
 //   - "get.found" (item, nil): a lookup found item by searchKey, before checking its key identity.
 //   - "get.beforeValue" (item, nil): Get or GetByHash found a candidate, before reading its key/value publication.
-//   - "key.dataRead" (item, data): a key/value read loaded the string data pointer, before loading its length.
+//   - "key.dataRead" (item, nil): a read captured the typed key/value and released its slot read protection, before the caller validates the publication.
 //   - "range.keyRead" (item, nil): Range captured the key and value, before calling the visitor.
+//   - "range.item" (item, nil): embedded RangeItem selected a live item, before its visitor reads the payload.
 //   - "delete.found" (item, nil): Delete found item by LoadItem; before it runs Delete on item.
 //   - "purge.lenLowered" (item, pool): purgeInEmbedded found item in the last slot of pool and lowered the length of pool over it; before it runs shrinkLen.
-//   - "update.found" (item, nil): _update was given item, the item of the key that Set, StoreItem or storeIntoSameKey found; before it stores the value into item.
+//   - "update.found" (item, nil): an update found the entry to replace, before publishing its new value.
 //   - "storeItem.checked" (item, nil): StoreItem found item not linked; before it takes the mapIsBusy of item.
 //   - "delete.claimed" (item, nil): deleteItem, of Delete or Purge, ran claimDelete on the node that FindOrigin returned for item; before it reads the result.
 //   - "item.copy.read" (copy, item): copyFrom read the value and the state of item, whose array the item pool moves to a larger one, to copy them into copy; before it stores them into copy.
@@ -91,21 +92,21 @@ func stepAt(point string, a, b unsafe.Pointer) {
 
 // StepBucketReverse returns the reverse of the bucket that a StepHook point
 // passed as p.
-func StepBucketReverse(p unsafe.Pointer) uint64 {
-	return (*bucket)(p).reverse
+func StepBucketReverse[K Key[K], V any](p unsafe.Pointer) uint64 {
+	return (*bucket[K, V])(p).reverse
 }
 
 // StepLockBuckets returns the bucket that a lookup of reverse finds and the
 // bucket that owns its item pool (toBase), so that a test can tell which
 // muPool each operation on the key locks.
-func StepLockBuckets(h *Map, reverse uint64) (found, base unsafe.Pointer) {
+func StepLockBuckets[K Key[K], V any](h *Map[K, V], reverse uint64) (found, base unsafe.Pointer) {
 	b := h.findBucket(reverse)
 	return unsafe.Pointer(b), unsafe.Pointer(b.toBase())
 }
 
 // StepPoolOf returns the item pool that the bucket found for reverse uses,
 // and the reverses of the slots of that pool in the order of the slots.
-func StepPoolOf(h *Map, reverse uint64) (pool unsafe.Pointer, reverses []uint64) {
+func StepPoolOf[K Key[K], V any](h *Map[K, V], reverse uint64) (pool unsafe.Pointer, reverses []uint64) {
 	p := h.findBucket(reverse).itemPool()
 	items := p.itemSlice(false)
 	reverses = make([]uint64, items.Len())
@@ -119,7 +120,7 @@ func StepPoolOf(h *Map, reverse uint64) (pool unsafe.Pointer, reverses []uint64)
 // of buckets forward from its head. It reports the first break: a node out of
 // order, a list that stops at a self-linked node before its tail, or a list
 // that does not end.
-func StepCheckLists(h *Map) error {
+func StepCheckLists[K Key[K], V any](h *Map[K, V]) error {
 	const limit = 1 << 22
 	n := 0
 	var prev uint64
@@ -139,7 +140,7 @@ func StepCheckLists(h *Map) error {
 	n = 0
 	first := true
 	for cur := h.headBucket.DirectNext(); cur != h.tailBucket; cur = cur.DirectNext() {
-		r := bucketFromListHead(cur).reverse
+		r := bucketFromListHead[K, V](cur).reverse
 		if cur.DirectNext() == cur {
 			return fmt.Errorf("bucket list stops at a self-linked bucket (reverse %016x) before its tail", r)
 		}
@@ -163,18 +164,18 @@ func StepEntryReverse(p unsafe.Pointer) uint64 {
 // StepCheckPooledItems walks the list of entries of a map filled only by Set
 // and reports the first item that lies outside the items of every pool that
 // the pool lists of h hold. Such an item is kept alive by nothing.
-func StepCheckPooledItems(h *Map) error {
+func StepCheckPooledItems[K Key[K], V any](h *Map[K, V]) error {
 	type span struct{ lo, hi uintptr }
 	var spans []span
 	if h.pooler != nil {
 		for i := range h.pooler.itemPool {
 			for cur := h.pooler.itemPool[i].DirectNext(); cur.DirectNext() != cur; cur = cur.DirectNext() {
-				sp := samepleItemPoolFromListHead(cur)
+				sp := samepleItemPoolFromListHead[K, V](cur)
 				if cap(sp.items) == 0 {
 					continue
 				}
 				lo := uintptr(unsafe.Pointer(&sp.items[:1][0]))
-				spans = append(spans, span{lo, lo + uintptr(cap(sp.items))*SampleItemSize})
+				spans = append(spans, span{lo, lo + uintptr(cap(sp.items))*SampleItemSize[K, V]()})
 			}
 		}
 	}
@@ -182,7 +183,7 @@ func StepCheckPooledItems(h *Map) error {
 		if EmptyMapHead.FromListHead(cur).IsDummy() {
 			continue
 		}
-		p := uintptr(unsafe.Pointer(SampleItemFromListHead(cur)))
+		p := uintptr(unsafe.Pointer(SampleItemFromListHead[K, V](cur)))
 		found := false
 		for _, s := range spans {
 			if s.lo <= p && p < s.hi {
@@ -200,9 +201,9 @@ func StepCheckPooledItems(h *Map) error {
 // StepEntryLinked reports whether the list of entries of a map filled only by
 // Set reaches the item at address p. p is a uintptr so that the caller does
 // not keep the item alive.
-func StepEntryLinked(h *Map, p uintptr) bool {
+func StepEntryLinked[K Key[K], V any](h *Map[K, V], p uintptr) bool {
 	for cur := h.head.DirectNext(); cur != h.tail; cur = cur.DirectNext() {
-		if !EmptyMapHead.FromListHead(cur).IsDummy() && uintptr(unsafe.Pointer(SampleItemFromListHead(cur))) == p {
+		if !EmptyMapHead.FromListHead(cur).IsDummy() && uintptr(unsafe.Pointer(SampleItemFromListHead[K, V](cur))) == p {
 			return true
 		}
 	}
@@ -213,7 +214,7 @@ func StepEntryLinked(h *Map, p uintptr) bool {
 // pool passed, is the list node of a pool that a pool list of h holds now: not
 // nil, not marked, and neither the head nor the tail of the list. Get may take
 // an item only from such a pool.
-func StepIsLinkedPool(h *Map, p unsafe.Pointer) bool {
+func StepIsLinkedPool[K Key[K], V any](h *Map[K, V], p unsafe.Pointer) bool {
 	if p == nil || h.pooler == nil {
 		return false
 	}
@@ -232,9 +233,9 @@ func StepIsLinkedPool(h *Map, p unsafe.Pointer) bool {
 // a level above 0) and reports the first one that has no way to reach an item
 // pool: no pool of its own, no parent and no itemPoolFn. itemPool of such a
 // bucket calls itself until the stack overflows.
-func StepCheckBuckets(h *Map) error {
-	var walk func(b *bucket) error
-	walk = func(b *bucket) error {
+func StepCheckBuckets[K Key[K], V any](h *Map[K, V]) error {
+	var walk func(b *bucket[K, V]) error
+	walk = func(b *bucket[K, V]) error {
 		if b._itemPool == nil && b._parent == nil && b.itemPoolFn == nil {
 			return fmt.Errorf("bucket (reverse %016x, level %d) has no item pool", b.reverse, b.level())
 		}

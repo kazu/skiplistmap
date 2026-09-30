@@ -146,7 +146,11 @@ func canLinkAfter(left, center *MapHead, entry HMapEntry) bool {
 // the entries before left with the reverse of center, or nil. Entries of one
 // reverse lie in any order, including distinct keys with equal hash pairs.
 func linkedSameKey(left, center *MapHead, entry HMapEntry) *MapHead {
-	for m := left; !m.Empty() && m.reverse == center.reverse; m = mapheadFromLListHead(m.PtrListHead().DirectPrev()) {
+	for cur := left.PtrListHead(); !cur.Empty(); cur = cur.DirectPrev() {
+		m := mapheadFromLListHead(cur)
+		if m.reverse != center.reverse {
+			break
+		}
 		if sameKeyLinked(m, center) {
 			if item, ok := entry.(MapItem); ok {
 				other := entry.HmapEntryFromListHead(m.PtrListHead()).(MapItem)

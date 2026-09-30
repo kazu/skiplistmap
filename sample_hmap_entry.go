@@ -23,7 +23,7 @@ type SampleItem struct {
 var sampleItem MapItem = &SampleItem{}
 
 // var EmptySampleHMapEntry SampleItem = SampleItem{}
-var EmptySampleHMapEntry *SampleItem = (*SampleItem)(unsafe.Pointer(uintptr(0)))
+var EmptySampleHMapEntry *SampleItem
 
 const SampleItemOffsetOf = unsafe.Offsetof(EmptySampleHMapEntry.ListHead)
 const SampleItemSize = unsafe.Sizeof(*EmptySampleHMapEntry)

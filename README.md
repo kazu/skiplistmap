@@ -32,66 +32,48 @@ go get "github.com/kazu/skiplistmap"
 
 
 ```go
-package main 
+package main
 
 import (
     "fmt"
+    "runtime"
+
+    "github.com/kazu/skiplistmap"
 )
 
-//create skip list map
-sMap := skiplistmap.New()
-// create make with configure MaxPerBucket
-// sMap := skiplistmap.New(skiplistmap.MaxPefBucket(12))
-// sMap := skiplistmap.New(skiplistmap.MaxPefBucket(12))
+func main() {
+    sMap := skiplistmap.New(skiplistmap.MaxPefBucket(12))
+    sMap.Set("test1", 1)
+    sMap.Set("test2", 2)
+    if value, ok := sMap.Get("test1"); ok {
+        fmt.Println(value.(int))
+    }
 
-// Set/Add values
-sMap.Set("test1", 1)
-sMap.Set("test2", 2)
+    // Match ItemFn to the caller-owned item type and keep the item alive.
+    sMap2 := skiplistmap.New(skiplistmap.ItemFn(func() skiplistmap.MapItem {
+        return (*skiplistmap.SampleItem)(nil)
+    }))
+    item := skiplistmap.NewSampleItem("test1", 1234)
+    sMap2.StoreItem(item)
+    if loaded, ok := sMap2.LoadItem("test1"); ok {
+        fmt.Println(loaded.Key(), loaded.Value())
+    }
 
-// get the value for a key, return nil if not found, the ok is found.
-inf, ok := sMap.Get("test1")
-var value1 int
-if ok {
-    value1 = inf.(int)
+    sMap2.RangeItem(func(item skiplistmap.MapItem) bool {
+        fmt.Printf("key=%v\n", item.Key())
+        return true
+    })
+    sMap2.Range(func(key, value interface{}) bool {
+        fmt.Printf("key=%v value=%v\n", key, value)
+        return true
+    })
+
+    sMap.Delete("test2")
+    _, found := sMap.Get("test2")
+    fmt.Println(found)
+    sMap2.Purge("test1")
+    runtime.KeepAlive(item)
 }
-
-ok = sMap.GetByFn(func(v interface{}) {
-    value = v.(int)
-})
-
-
-// if directry using key/value item. use SampleItem struct
-sMap2 := skiplistmap.New(skiplistmap.MaxPefBucket(12))
-item := &skiplistmap.SampleItem{
-    K: "test1", 
-    V: 1234
-}
-
-// store item
-ok = sMap2.StoreItem(item)
-
-// get key/value item
-item, ok = sMap.LoadItem("test1")
-// get next key/value
-nItem := sMap.Next()
-
-// traverse all item or key/value 
-sMap.RangeItem(func(item MapItem) bool {
-  fmt.Printf("key=%+v\n", item.Key())  
-})
-sMap.Range(func(key, value interface{}) bool {
-  fmt.Printf("key=%+v\n", key)  
-})
-
-
-
-// delete marking. set nil as value.
-sMap.Delete("test2")
-
-// delete key/value entry from map. traverse locked for deleting item to acceess concurrent
-sMap.Purge("test2")
-
-
 ```
 
 ## performance

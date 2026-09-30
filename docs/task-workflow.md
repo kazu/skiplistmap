@@ -21,7 +21,7 @@ git_taskはgit-common-dirから保存先を求めるため、同じリポジト�
 
 依存ライブラリをsubmoduleとして修正する場合は、元checkoutと作業worktreeのgit-dir/core.worktreeを確認する。初期化によって元checkoutの参照先を変えない構成で準備し、依存側の修正commitと親側のgitlinkを対応させる。モジュールキャッシュを直接編集しない。
 
-指定パスだけをaddしてcommitし、対象タスクの検証と性能比較を実行する。検証は対象worktreeで行い、結果には対象commitを記録する。既知の失敗と新規失敗を区別し、検査を無効化して合格としない。タスク003でこのrepoのGo用ゲートを整え、git_task ciの要求するmake ciとの接続を確認する。
+指定パスだけをaddしてcommitし、対象タスクの検証と性能比較を実行する。検証は対象worktreeで行い、結果には対象commitを記録する。既知の失敗と新規失敗を区別し、検査を無効化して合格としない。Go用ゲートは009で追加した `make ci` を使う。対象と実行方法は [stability-checks.md](stability-checks.md) を参照する。
 
 ## PR とレビュー
 

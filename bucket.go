@@ -38,7 +38,7 @@ type bucket struct {
 	// FIXME: debug only. should delete
 	//initStart time.Time
 
-	onOkFn func()
+	onOkFn atomic.Pointer[func()]
 
 	LevelHead list_head.ListHead // to same level bucket
 	list_head.ListHead

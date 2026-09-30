@@ -28,4 +28,4 @@ require (
 
 replace github.com/kazu/elist_head => ./deps/elist_head
 
-replace github.com/kazu/loncha => ./deps/loncha
+replace github.com/kazu/loncha => ../loncha

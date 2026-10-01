@@ -60,6 +60,36 @@ func (h *Map[K, V]) bsearchBybucket(bucket *bucket[K, V], reverseNoMask uint64, 
 			found = item
 			break
 		}
+		if found == nil {
+			// External entries occupy the links between the binary-search anchors.
+			start := bucket.toBase().head()
+			for i := idx - 1; i >= 0; i-- {
+				item := &snapshot[i]
+				if atomic.LoadUint64(&item.reverse) < reverseNoMask && !item.IsIgnored() && linkedEntry(&item.ListHead) {
+					start = &item.ListHead
+					break
+				}
+			}
+			retry := false
+			for cur := start; cur != h.tail; cur = cur.DirectNext() {
+				if cur.IsMarked() || cur.DirectNext() == cur {
+					retry = true
+					break
+				}
+				mh := mapheadFromLListHead(cur)
+				reverse := atomic.LoadUint64(&mh.reverse)
+				if reverse > reverseNoMask {
+					break
+				}
+				if reverse == reverseNoMask && !mh.IsDummy() && (!ignoreBucketEnry || !mh.IsIgnored()) {
+					found = entryHMapFromListHead[K, V](cur)
+					break
+				}
+			}
+			if retry {
+				continue
+			}
+		}
 		if pool.publication.Load() != version {
 			continue
 		}
@@ -400,11 +430,6 @@ func (sp *samepleItemPool[K, V]) insertToPool(reverse uint64, mu sync.Locker) (n
 			newItem, nPool, _ = sp.getWithFn(reverse, nil)
 			return newItem, nPool, fn
 		}
-		var err error
-		head, tail := sp.linkedEnds(olen)
-		prevItem := sp.items[head].ListHead.Prev()
-		nextItem := sp.items[tail].ListHead.Next()
-
 		// copy to new slice
 		newItems := newPoolItems[K, V](olen+1, maxInts(ocap, olen+1), true)
 		if i > 0 {
@@ -412,12 +437,8 @@ func (sp *samepleItemPool[K, V]) insertToPool(reverse uint64, mu sync.Locker) (n
 		}
 		copyPoolItems(newItems[i+1:], sp.items[i:])
 
-		first, last := linkPoolItems(newItems, i)
+		replacePoolItems(newItems, sp.items, i)
 		newItems[i].PtrMapHead().reverse = reverse
-		err = prevItem.ReplaceNext(&newItems[first].ListHead, &newItems[last].ListHead, nextItem)
-		if err != nil {
-			Log(LogFatal, "fail to replace newItems")
-		}
 
 		oldItems := sp.ptrItems().dup()
 		newItemSlice := toItemSlice[K, V](newItems)
@@ -433,17 +454,6 @@ func (sp *samepleItemPool[K, V]) insertToPool(reverse uint64, mu sync.Locker) (n
 				sp.items[i].PtrMapHead().dump[K, V](&b)
 			}
 			fmt.Printf("A: itemPool.items\n%s\n", b.String())
-		}
-
-		if olen != i && olen-1 != i && olen-1 > 0 && !sp.items[olen-1].IsIgnored() && !sp.items[olen].IsIgnored() && sp.items[olen-1].PtrListHead().Next() != sp.items[olen].PtrListHead() {
-			toNext := sp.items[olen-1].PtrListHead().Next()
-			next := sp.items[olen].PtrListHead()
-			Log(LogFatal, "not connect sp.items[olen-1]=%p -> sp.items[olen]=%p ", toNext, next)
-		}
-		if olen != i && olen-1 != i && olen-1 > 0 && !sp.items[olen-1].IsIgnored() && !sp.items[olen].IsIgnored() && sp.items[olen].PtrListHead().Prev() != sp.items[olen-1].PtrListHead() {
-			c := sp.items[olen].PtrListHead().Prev()
-			p := sp.items[olen-1].PtrListHead()
-			Log(LogFatal, "not connect sp.items[olen-1]=%p <- sp.items[olen]=%p", p, c)
 		}
 
 		return &sp.items[i], nil, lazyUnlock
@@ -547,40 +557,6 @@ RETRY:
 
 }
 
-// linkedEnds returns the first and the last of sp.items[:n] that are in the
-// list: purged items stay in the array unlinked. insertToPool and expand
-// call it with a live item in sp.items[:n].
-func (sp *samepleItemPool[K, V]) linkedEnds(n int) (head, tail int) {
-	head, tail = 0, n-1
-	for sp.items[head].ListHead.Empty() {
-		head++
-	}
-	for sp.items[tail].ListHead.Empty() {
-		tail--
-	}
-	base := uintptr(unsafe.Pointer(&sp.items[0].ListHead))
-	stride := SampleItemSize[K, V]()
-	index := func(link *elist_head.ListHead) (int, bool) {
-		delta := uintptr(unsafe.Pointer(link)) - base
-		return int(delta / stride), delta < uintptr(n)*stride && delta%stride == 0
-	}
-	for {
-		i, inside := index(sp.items[head].ListHead.Prev())
-		if !inside {
-			break
-		}
-		head = i
-	}
-	for {
-		i, inside := index(sp.items[tail].ListHead.Next())
-		if !inside {
-			break
-		}
-		tail = i
-	}
-	return
-}
-
 func (sp *samepleItemPool[K, V]) expand(mu sync.Locker) (unlocker, error) {
 	var fn unlocker
 	if mu != nil {
@@ -604,21 +580,12 @@ func (sp *samepleItemPool[K, V]) expand(mu sync.Locker) (unlocker, error) {
 		return fn, e
 	}
 
-	var err error
-	head, tail := sp.linkedEnds(olen)
-	prevItem := sp.items[head].ListHead.Prev()
-	nextItem := sp.items[tail].ListHead.Next()
-
 	nCap := PoolCap(len(sp.items))
 
 	newItems := newPoolItems[K, V](olen, nCap, true)
 	toPtrItemSlice[K, V](&newItems).CopyDataFrom(0, sp.ptrItems(), 0, olen)
 
-	first, last := linkPoolItems(newItems, -1)
-	err = prevItem.ReplaceNext(&newItems[first].ListHead, &newItems[last].ListHead, nextItem)
-	if err != nil {
-		Log(LogFatal, "fail to replace newItems")
-	}
+	replacePoolItems(newItems, sp.items, -1)
 
 	oldItems := sp.ptrItems().dup()
 	sp.publishItems(toPtrItemSlice[K, V](&newItems))
@@ -926,29 +893,21 @@ func copyPoolItems[K Key[K], V any](dst, src []Entry[K, V]) {
 	}
 }
 
-func linkPoolItems[K Key[K], V any](items []Entry[K, V], exclude int) (first, last int) {
-	first, last = -1, -1
-	for i := range items {
-		items[i].ListHead.Init()
-		if i == exclude || items[i].IsIgnored() || !items[i].waitPayload() {
+func replacePoolItems[K Key[K], V any](dst, src []Entry[K, V], exclude int) {
+	for i := range src {
+		j := i
+		if exclude >= 0 && i >= exclude {
+			j++
+		}
+		dst[j].ListHead.Init()
+		if src[i].IsIgnored() || !src[i].waitPayload() {
+			if linkedEntry(&src[i].ListHead) {
+				src[i].ListHead.MarkForDelete()
+			}
 			continue
 		}
-		if first < 0 {
-			first = i
-		}
-		last = i
-	}
-	if first == last {
-		return
-	}
-	elist_head.InitAsEmpty(&items[first].ListHead, &items[last].ListHead)
-	for i := first + 1; i < last; i++ {
-		if i == exclude || items[i].IsIgnored() || !items[i].waitPayload() {
-			continue
-		}
-		if _, err := items[last].ListHead.InsertBefore(&items[i].ListHead); err != nil {
-			panic(err)
+		for src[i].ListHead.ReplaceWith(&dst[j].ListHead) != nil {
+			runtime.Gosched()
 		}
 	}
-	return
 }

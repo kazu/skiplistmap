@@ -99,13 +99,14 @@ slotの公開世代・削除状態も再確認する。LoadItemで得たslotを�
 
 ## 型付き本体の公開API
 
-以下はtask017で接続した公開APIである。
+以下は現在の型付き本体の公開APIである。
 ハッシュ値のビット反転順と各modeの目的を維持する。
 
 | 操作 | 型付きの定義 |
 |---|---|
 | 生成 | `New[K Key[K], V any](opts ...OptHMap[K,V]) *Map[K,V]` |
 | 値を設定 | `Set(key K, value V) bool` |
+| 現在値を更新 | `Update(key K, edit func(*V)) bool` |
 | 値を取得 | `Get(key K) (V, bool)` |
 | 外部のEntryを登録 | `StoreItem(item *Entry[K,V]) bool` |
 | Entryを取得 | `LoadItem(key K) (*Entry[K,V], bool)` |
@@ -125,8 +126,8 @@ Go 1.27.1でもinterfaceのメソッドには型パラメータを付けられ�
 非genericなオプションinterfaceのgeneric methodで適用する案は使えない。
 ItemFnによる実体型の復元はEntry[K,V]と型付きListで置き換える。
 
-callbackを受け取る新しい `Update` APIはtask019の対象で、まだ提供しない。
-task017の更新は既存のSet/_updateを指す。
+`Update`は現在値の取得とcallbackによる更新を同じ保護の内側で行う。
+task017で接続したSet/_updateに加え、task019で提供する。
 
 All/Keys/Valuesは型付きRangeItemに被せる。走査順と削除状態の扱いはRangeItemに
 従い、走査全体のsnapshotを新たに保証しない。yieldがfalseなら生産側を止める。
@@ -134,10 +135,9 @@ KeysはVを取り出さず、不要な値コピーを避ける。
 maps.CollectはGo標準mapが受け取れるcomparableなKで使え、slices.Sortedは順序付けできる
 Kで使える。BytesKeyや独自Keyすべてが、それらの標準関数で使えるとはしない。
 
-## task019で実装するUpdateの契約
+## Updateの契約
 
-以下は010で確定した `Update(key K, edit func(*V)) bool` の契約であり、
-task019で実装する。現在の公開Mapにはまだ提供していない。
+`Update(key K, edit func(*V)) bool` は現在値から新しい値を作り、公開する。
 
 Updateはキーが存在するときだけeditを1回呼び、更新完了時にtrueを返す。存在しなければ
 呼ばずにfalseを返す。editが受け取るのは値だけで、キーやリンクを変更する入口にしない。
@@ -145,9 +145,11 @@ Updateはキーが存在するときだけeditを1回呼び、更新完了時に
 これは利用規約であり、Goの型システムがポインタの持ち出しを禁止できるとはしない。
 同じMapの操作をcallbackから再入しない。Vにslice/map/pointerが含まれる場合、その参照先の
 所有権や同期を新たに保証しない。nil callbackはプログラムの誤りとしてpanicする。
-019では現在値の取得から更新までの同期とslotの保護を一体で実装する。探索の再試行は
+現在値の取得から更新までの同期とslotの保護を一体で行う。探索の再試行は
 callbackの前に行い、callbackを再実行しない。panic時は保護を解放し、値の巻き戻しは保証しない。
-既存のmodeごとの同期方式を前提に検証し、全mode共通の大域ロックを追加する仕様にはしない。
+非embeddedでは対象Entryのbusy保護、embeddedでは既存bucket mutexを使う。
+公開予定のコピーをcallbackで編集するため、古い外部Entryの値は変更しない。
+embeddedのpool slotでは既存のreader保護も使い、編集中の値の読み取りを防ぐ。
 
 ## 型付き実体の復元とgeneric method
 
@@ -185,7 +187,7 @@ Vが指す別allocation内のフィールドからEntryへは戻らない。こ�
 
 StoreItemはembedded poolの要素と外部Entryを混在させられる。外部Entryの実体を
 pool配列へコピーせず、配列の移動ではpool要素だけを置換する。混在専用の性能測定は
-task012で行う。新しいUpdate callback APIはtask019の対象である。
+task012で行う。Update callback APIはtask019で接続した。
 
 rmapは本体に接続する部分だけを型付きにした。read/dirty/callbackの型消去と
 測定器全体の移行はtask012に残す。

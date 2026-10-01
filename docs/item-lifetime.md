@@ -67,7 +67,7 @@ func main() {
 
 - 005で検討した「deleteまで有効」のための固定chunkは、作者の[Part3](https://mmap.dev/posts/tuning-skiplistmap3/)で局所性を理由に退けた配置なので採らない。
 - 「次の書込みまで有効」は書込みが直列のときの説明であり、並行する書き手がいれば取得直後にも状態が変わり得る。
-- callbackへ渡す値のポインタを呼出し中だけ使う`Update(key K, edit func(*V)) bool`は010で契約を確定し、実装は019が担当する。現在は未提供。ポインタの持出しや同じMapへの再入を禁止する利用規約であり、Goの型システムが持出しを防ぐとはしない。
+- `Update(key K, edit func(*V)) bool`は現在値のコピーをcallbackで編集して公開する。値のポインタはcallback内だけで使い、保持・返却・別goroutineへの受け渡しや同じMapへの再入をしない。これは利用規約であり、Goの型システムが持出しを防ぐとはしない。値に含まれるslice/map/pointerの参照先の所有権や同期は変わらない。
 
 ## 利用者のstructと外部Entry
 

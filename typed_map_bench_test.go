@@ -30,14 +30,14 @@ func benchmarkTypedValue[V any](b *testing.B, value V) {
 			mode = "Embedded"
 		}
 		b.Run(mode, func(b *testing.B) {
-			for _, op := range []string{"Get", "Set", "Keys", "All"} {
+			for _, op := range []string{"Get", "Set", "Update", "Keys", "All"} {
 				b.Run(op, func(b *testing.B) {
 					m := skiplistmap.New[skiplistmap.StringKey, V](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, V](embedded))
 					if !m.Set("value", value) {
 						b.Fatal("initial Set")
 					}
 					var before, after runtime.MemStats
-					if op == "Set" {
+					if op == "Set" || op == "Update" {
 						runtime.GC()
 						runtime.ReadMemStats(&before)
 					}
@@ -58,6 +58,12 @@ func benchmarkTypedValue[V any](b *testing.B, value V) {
 								b.Fatal("Set")
 							}
 						}
+					case "Update":
+						for i := 0; i < b.N; i++ {
+							if !m.Update("value", func(*V) {}) {
+								b.Fatal("Update")
+							}
+						}
 					case "Keys":
 						for i := 0; i < b.N; i++ {
 							for k := range m.Keys() {
@@ -73,7 +79,7 @@ func benchmarkTypedValue[V any](b *testing.B, value V) {
 						}
 					}
 					b.StopTimer()
-					if op == "Set" {
+					if op == "Set" || op == "Update" {
 						runtime.GC()
 						runtime.ReadMemStats(&after)
 						b.ReportMetric(float64(int64(after.HeapAlloc)-int64(before.HeapAlloc))/float64(b.N), "retained-B/op")

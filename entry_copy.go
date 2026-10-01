@@ -65,7 +65,11 @@ func (h *Map[K, V]) deleteEntry(entry *entryHMap[K, V], bucket *bucket[K, V]) (M
 	stepAt("copy.delete", unsafe.Pointer(entry.PtrListHead()), nil)
 	for {
 		if !entry.ListHead.IsMarked() {
-			won, busy := entry.claimDelete(mapIsBusy)
+			hold := mapIsDeleted | mapIsBusy
+			if !entry.isPoolItem() {
+				hold = mapIsBusy
+			}
+			won, busy := entry.claimLive(hold)
 			if busy {
 				if !entry.isPoolItem() {
 					// Preserve StoreItem's refusal while a caller-owned entry
@@ -78,6 +82,16 @@ func (h *Map[K, V]) deleteEntry(entry *entryHMap[K, V], bucket *bucket[K, V]) (M
 				continue
 			}
 			if won {
+				if !entry.isPoolItem() {
+					k, conflict := entry.KeyHash()
+					current, b, found := h.getItemWithBucket(k, conflict, entry.key, true)
+					if !found || current != entry {
+						entry.releaseBusy()
+						return nil, nil, nil, false
+					}
+					bucket = b
+					atomic.OrUint64((*uint64)(&entry.state), uint64(mapIsDeleted))
+				}
 				stepAt("delete.claimed", unsafe.Pointer(&entry.ListHead), nil)
 				h.AddLen(-1)
 				return entry, bucket, &entry.MapHead, true

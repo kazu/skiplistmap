@@ -47,6 +47,10 @@ func (mh *MapHead) IsIgnored() bool {
 // them, so that of two deletes of one entry only one counts it. busy reports
 // that it set nothing as another call holds mapIsBusy.
 func (mh *MapHead) claimDelete(hold mapState) (won, busy bool) {
+	return mh.claimLive(mapIsDeleted | hold)
+}
+
+func (mh *MapHead) claimLive(hold mapState) (won, busy bool) {
 	for {
 		s := atomic.LoadUint64((*uint64)(&mh.state))
 		if mapState(s)&mapIsDeleted != 0 {
@@ -55,7 +59,7 @@ func (mh *MapHead) claimDelete(hold mapState) (won, busy bool) {
 		if mapState(s)&mapIsBusy != 0 {
 			return false, true
 		}
-		if atomic.CompareAndSwapUint64((*uint64)(&mh.state), s, s|uint64(mapIsDeleted|hold)) {
+		if atomic.CompareAndSwapUint64((*uint64)(&mh.state), s, s|uint64(hold)) {
 			return true, false
 		}
 	}

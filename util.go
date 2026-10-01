@@ -129,7 +129,7 @@ func checkLinkBefore(right, center *elist_head.ListHead) error {
 		return NewError(EIItemInvalidAdd, "invalid left state ", nil)
 	}
 
-	if rightmHead.reverse < centermHead.reverse {
+	if atomic.LoadUint64(&rightmHead.reverse) < atomic.LoadUint64(&centermHead.reverse) {
 		return NewError(EIItemInvalidAdd, "invalid insert order", nil)
 	}
 	return nil
@@ -139,7 +139,7 @@ func checkLinkBefore(right, center *elist_head.ListHead) error {
 // does not come after center, and left is not a live entry of the key of
 // center, which another store may have linked since center was looked up.
 func canLinkAfter[K Key[K], V any](left, center *MapHead, entry HMapEntry[K, V]) bool {
-	return left.Empty() || (left.reverse <= center.reverse && (entry == nil || linkedSameKey[K, V](left, center, entry) == nil))
+	return left.Empty() || (atomic.LoadUint64(&left.reverse) <= atomic.LoadUint64(&center.reverse) && (entry == nil || linkedSameKey[K, V](left, center, entry) == nil))
 }
 
 // linkedSameKey returns the live entry of the key of center among left and
@@ -148,7 +148,7 @@ func canLinkAfter[K Key[K], V any](left, center *MapHead, entry HMapEntry[K, V])
 func linkedSameKey[K Key[K], V any](left, center *MapHead, entry HMapEntry[K, V]) *MapHead {
 	for cur := left.PtrListHead(); !cur.Empty(); cur = cur.DirectPrev() {
 		m := mapheadFromLListHead(cur)
-		if m.reverse != center.reverse {
+		if atomic.LoadUint64(&m.reverse) != atomic.LoadUint64(&center.reverse) {
 			break
 		}
 		if sameKeyLinked(m, center) {
@@ -166,7 +166,7 @@ func linkedSameKey[K Key[K], V any](left, center *MapHead, entry HMapEntry[K, V]
 // is not deleted.
 func sameKeyLinked(left, center *MapHead) bool {
 	return !left.Empty() && !left.IsIgnored() && left != center &&
-		left.reverse == center.reverse &&
+		atomic.LoadUint64(&left.reverse) == atomic.LoadUint64(&center.reverse) &&
 		atomic.LoadUint64(&left.conflict) == atomic.LoadUint64(&center.conflict) &&
 		!left.PtrListHead().IsMarked()
 }

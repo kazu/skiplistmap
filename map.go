@@ -291,7 +291,7 @@ func (h *Map[K, V]) initBeforeSet() {
 }
 
 func (h *Map[K, V]) _update(item *Entry[K, V], value V) bool {
-	if !h.isEmbededItemInBucket {
+	if !h.isEmbededItemInBucket || !item.isPoolItem() {
 		return h.replaceEntry(item, value)
 	}
 	return h.replacePoolEntry(item, value)
@@ -324,7 +324,7 @@ func (h *Map[K, V]) _set(k, conflict uint64, btable *bucket[K, V], item MapItem[
 // from its caller, which the map refuses while it is linked.
 func (h *Map[K, V]) setItem(k, conflict uint64, btable *bucket[K, V], item MapItem[K, V], fromUser bool) bool {
 
-	if !h.isEmbededItemInBucket {
+	if !h.isEmbededItemInBucket || fromUser {
 		if !atomic.CompareAndSwapUint64(&item.PtrMapHead().reverse, 0, bits.Reverse64(k)) {
 			Log(LogDebug, "already set reverse")
 		}
@@ -703,10 +703,7 @@ func (h *Map[K, V]) loadItem(k uint64, conflict uint64, key K) (item MapItem[K, 
 	for {
 		hash, conflict := key.KeyHash()
 		item, bucket, found = h.getItemWithBucket(hash, conflict, key, true)
-		if !found {
-			break
-		}
-		if stepEnabled {
+		if stepEnabled && found {
 			stepAt("loadItem.found", unsafe.Pointer(item.PtrListHead()), unsafe.Pointer(bucket))
 		}
 		if mu, ok := h.lockFoundItem(key, item, bucket); ok {
@@ -720,8 +717,8 @@ func (h *Map[K, V]) loadItem(k uint64, conflict uint64, key K) (item MapItem[K, 
 
 // lockFoundItem locks the muPool that guards the pool of bucket, the one of
 // the base bucket, which a Set of a new key locks too. It keeps the lock only
-// when item is still a live slot of the same pool with the requested key,
-// since the item may be purged and its slot reused before the lock.
+// when item is still live with the requested key; pool slots must belong to
+// the current array. A nil item validates that the key is still absent.
 func (h *Map[K, V]) lockFoundItem(key K, item MapItem[K, V], bucket *bucket[K, V]) (*trylock.Mutex, bool) {
 	owner := bucket.toBase()
 	mu := &owner.muPool
@@ -731,9 +728,18 @@ func (h *Map[K, V]) lockFoundItem(key K, item MapItem[K, V], bucket *bucket[K, V
 	hash, conflict := key.KeyHash()
 	reverse := bits.Reverse64(hash)
 	if h.findBucket(reverse).toBase() == owner {
+		if item == nil {
+			if _, _, found := h.getItemWithBucket(hash, conflict, key, true); !found {
+				return mu, true
+			}
+		} else if !item.isPoolItem() {
+			if _, valid := readMatchingEntry[K, V](item, reverse, conflict, key, true, false, false); valid && !item.ListHead.IsMarked() {
+				return mu, true
+			}
+		}
 		// The lock keeps this array and its slots stable. Validate the original
 		// slot directly, including its current key, instead of searching again.
-		if sample := item; sample.isPoolItem() {
+		if sample := item; sample != nil && sample.isPoolItem() {
 			items := owner.itemPool().ptrItems()
 			offset := uintptr(unsafe.Pointer(sample)) - uintptr(atomic.LoadPointer(&items.data))
 			if offset < uintptr(items.Len())*itemSize[K, V]() && offset%itemSize[K, V]() == 0 {
@@ -905,8 +911,8 @@ func (h *Map[K, V]) Set(key K, value V) bool {
 // returns true, or until the caller stops using the map. Delete leaves item
 // linked, and a Purge after Delete does not find it: keep an item that
 // Delete removed reachable as long as the map is used. A Delete that finds
-// item while a StoreItem of item is still linking it returns false, and item
-// stays linked.
+// item while a StoreItem of item is still linking it returns false without
+// UseEmbeddedPool; embedded writers serialize through the bucket lock.
 // Otherwise the map links freed memory (a dangling reference). The map never
 // moves item. If the key is already present, only the value is stored into
 // the existing item, and item is not linked. StoreItem returns false for an
@@ -916,8 +922,9 @@ func (h *Map[K, V]) Set(key K, value V) bool {
 // item that the item pool of a map handed out, as the items stored by Set
 // are, which LoadItem, RangeItem and a walk of the list return: the pool
 // moves and reuses them (see LoadItem).
-// Use StoreItem only on maps without UseEmbeddedPool:
-// there item is linked but cannot be found.
+// With UseEmbeddedPool, external entries coexist with pool entries and do
+// not move when the pool grows. Updates publish copies retained by the
+// original external entry, as they do without UseEmbeddedPool.
 func (h *Map[K, V]) StoreItem(item MapItem[K, V]) bool {
 	if item.PtrMapHead().isPoolItem() {
 		return false
@@ -937,7 +944,16 @@ func (h *Map[K, V]) StoreItem(item MapItem[K, V]) bool {
 	}
 	k, conflict := item.KeyHash()
 
-	oitem, bucket, found := h.getItemWithBucket(k, conflict, item.Key(), true)
+	var oitem *Entry[K, V]
+	var bucket *bucket[K, V]
+	var found bool
+	if h.isEmbededItemInBucket {
+		var lock *trylock.Mutex
+		oitem, bucket, lock, found = h.loadItem(k, conflict, item.Key())
+		defer lock.Unlock()
+	} else {
+		oitem, bucket, found = h.getItemWithBucket(k, conflict, item.Key(), true)
+	}
 	if found {
 		ok := h._update(oitem, item.Value())
 		item.PtrMapHead().releaseBusy()
@@ -2052,6 +2068,9 @@ func (h *Map[K, V]) purgeInEmbedded(key K) bool {
 		stepAt("purge.beforeInit", unsafe.Pointer(item.PtrListHead()), nil)
 	}
 	item.PtrListHead().Init()
+	if !item.isPoolItem() {
+		return true
+	}
 
 	pItems := pool.ptrItems()
 	len := pItems.Len()

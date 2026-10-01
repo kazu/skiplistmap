@@ -48,9 +48,9 @@ func main() {
 |---|---|---|---|---|
 | 非embedded pool（デフォルト、skiplistmap4など） | Mapのpool配列。更新コピーはrootから保持する | pool拡張で配列内のEntryを移動する。既存キーの更新は新しいEntryを公開する | しない | 古い配列内のコピー、または古い更新版を指す |
 | embedded pool（skiplistmap5） | bucketのpool配列 | 配列拡張・途中挿入で移動する。既存キーの更新は別slotへコピーして公開する | する | 古いコピー、または再利用後の別のキー・値を指し得る |
-| 非embedded MapへStoreItemした外部Entry | 呼び出し側。更新コピーはrootから保持する | 登録した外部実体自体は動かない。更新後のMapは公開コピーを参照し得る | 外部実体はpool slotとして再利用しない | 同じ外部実体を指すが、現在値の固定snapshotとは扱わない |
+| 両modeへStoreItemした外部Entry | 呼び出し側。更新コピーはrootから保持する | 登録した外部実体自体は動かない。更新後のMapは公開コピーを参照し得る | 外部実体はpool slotとして再利用しない | 同じ外部実体を指すが、現在値の固定snapshotとは扱わない |
 
-非embeddedのコピー履歴は自動回収しないため、更新回数に応じて保持量が増える。
+非embeddedのEntryと両modeの外部Entryはコピー履歴を自動回収しないため、更新回数に応じて保持量が増える。
 型付きの値コピーはslice・map・pointerの参照先を深くコピーしない。その参照先を
 利用者が変更するときの同期は利用者が行う。
 
@@ -77,5 +77,6 @@ User自身にリンクや取得メソッドを要求しない。呼出し側のs
 
 外部Entryは`StoreItem`で登録し、呼出し側が実体を保持する。`ItemFn`や
 `HmapEntryFromListHead`は不要。実行例は`ExampleMap_StoreItem`。
-embedded poolと外部Entryの混在は既知の未解決事項E3で、018が担当する。
+embedded poolの要素とも混在できる。配列が移動しても外部Entryは同じアドレスに残る。
+混在の実行例は`ExampleMap_StoreItem_embedded`。
 `Delete`だけでリンクから外れたとは扱わず、削除したという理由だけで保持をやめない。

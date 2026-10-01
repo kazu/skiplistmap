@@ -79,11 +79,11 @@ Mapがpool内の要素を移動・再利用する場合、以前取得したポ�
 限らない。変更はMapのメソッドを通す。保持のためだけの新しいregistryや所有者表は
 追加しない。
 
-非embedded modeは更新ごとに新しいEntryを公開し、rootから更新コピーを保持する。
+非embedded modeのEntryと、両modeの外部Entryは、更新ごとに新しいEntryを公開し、rootから更新コピーを保持する。
 古いEntryの参照は古い値を指す。保持したrootの更新履歴は自動回収しないため、
 更新回数に応じて保持メモリが増える。pool配列を移動した場合もrootの参照を引き継ぐ。
 
-embedded modeも更新を別slotにコピーして公開し、旧slotを削除して再利用する。
+embedded modeのpool要素は更新を別slotにコピーして公開し、旧slotを削除して再利用する。
 再利用時には任意のK/Vの読み取りと書き換えが競合するため、再利用対象のEntryだけに
 atomicカウンタによる読み取り保護を置く。読み手の終了を待ってpayloadを書き換える。
 RWMutexは使わないが、embedded modeの読み取りにはatomic操作が増える。
@@ -177,15 +177,15 @@ Vが指す別allocation内のフィールドからEntryへは戻らない。こ�
 | Set、_update、storeKeyValue、loadKeyValue | Vの公開とpool移動を型付きにする。Vへ単純に非atomic代入する置換では済ませない |
 | samepleItemPool、Pool、bucket、bucketFromPool | slotの型・stride・sliceの復元をK/Vに合わせ、配列の公開世代と連続配置を保つ |
 | StoreItem、setItem | 呼び出し側のEntryをコピーせずに登録し、pool由来のitemの再登録を引き続き拒否する |
-| bsearchBybucket、getItemWithBucket | 型付きpoolを検索する。外部Entryとembedded poolの混在はtask018の対象 |
+| bsearchBybucket、getItemWithBucket | poolの二分探索と隣接するリンク区間を使い、外部Entryとの混在も検索する |
 | lockFoundItem、deleteItem、purgeItem | owner bucket・slot・世代の再確認を保ち、外部Entryをpool slotと取り違えない |
 | RangeItem、Range、First、Last | 実Entryの型を統一し、sentinel/dummyを返さない。All/Keys/Valuesを接続する |
 
 ## 後続タスクの範囲
 
-E3（embedded poolと外部Entryの混在）はtask018、新しいUpdate callback APIは
-task019に分割した。task017では通常のSetによるembedded更新と、
-非embedded modeのStoreItemを扱う。E3の修正完了を意味しない。
+StoreItemはembedded poolの要素と外部Entryを混在させられる。外部Entryの実体を
+pool配列へコピーせず、配列の移動ではpool要素だけを置換する。混在専用の性能測定は
+task012で行う。新しいUpdate callback APIはtask019の対象である。
 
 rmapは本体に接続する部分だけを型付きにした。read/dirty/callbackの型消去と
 測定器全体の移行はtask012に残す。

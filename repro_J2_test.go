@@ -27,7 +27,7 @@ import (
 func Test_ReproJ2LoserInsertsLinkedBucketWarns(t *testing.T) {
 	sp := startTwoSplits(t, nil)
 	s, b := sp.s, sp.b
-	if r := skiplistmap.StepBucketReverse(b) >> 56; r != 0x34 {
+	if r := skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](b) >> 56; r != 0x34 {
 		t.Fatalf("the new bucket has reverse %02x.., want 34..", r)
 	}
 	dummy := skiplistmap.StepBucketDummy(b)

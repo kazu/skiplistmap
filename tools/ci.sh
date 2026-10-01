@@ -41,7 +41,8 @@ for mode in "${modes[@]}"; do
 			if [[ "$mode" == step ]]; then
 				case "$package" in
 					github.com/kazu/skiplistmap/rmap) tests='^(Test|Example|Fuzz)' ;;
-					github.com/kazu/skiplistmap) tests='^Test_J(51|56)' ;;
+					github.com/kazu/skiplistmap) tests='^Test_(J(51|56)|OperationsDistinguishSameHashPair|EmbeddedGetDoesNotReadReusedSlot|EmbeddedRangeKeepsKeyAndValueTogether|DifferentKeysWithSameHashPair)|^Test(Typed|EntryCopy|_PurgeAndSet|_StepRaceSplit|_ConcurrentUpdateWhileGrowing)' ;;
+					github.com/kazu/elist_head) tests='^TestReplace(Node|WithAdjacent)|^TestAdjacent' ;;
 					github.com/kazu/loncha/lista_encabezado) tests='^TestLenRestartsAfterCurrentNodeIsDeleted$' ;;
 					*) continue ;;
 				esac
@@ -52,16 +53,32 @@ for mode in "${modes[@]}"; do
 			"$scratch/tests" -test.list "$tests" > "$scratch/names"
 			while IFS= read -r name; do
 				[[ "$name" =~ ^(Test|Example|Fuzz)[[:alnum:]_]*$ ]] || continue
-				# Isolate tests so race-detector allocations do not accumulate
-				# across the entire suite under the 4 GiB virtual-memory limit.
-				if /usr/bin/time -v "$scratch/tests" -test.run "^$name\$" -test.count=1 -test.timeout=300s > "$scratch/result" 2>&1; then
-					printf 'PASS %s %s %s\n' "$mode" "$package" "$name"
-				else
-					status=$?
-					printf 'FAIL %s %s %s (exit %s)\n' "$mode" "$package" "$name" "$status"
-					cat "$scratch/result"
-					exit "$status"
+				cases=("$name")
+				if [[ "$package" == github.com/kazu/skiplistmap && "$mode" != normal && "$mode" != checkptr ]]; then
+					case "$name" in
+						Test_ConcurrentDeleteReinsert|Test_ConcurrentUpdateWhileGrowing)
+							# All four crashMapParams, with the full workload in each.
+							# The race allocator retains metadata across subtests too.
+							cases=()
+							for variant in 5 4; do
+								for buckets in 16 32; do
+									cases+=("$name/skiplistmap${variant}_bucket=$buckets")
+								done
+							done ;;
+					esac
 				fi
+				for test_case in "${cases[@]}"; do
+					# Isolate tests so race-detector allocations do not accumulate
+					# across the entire suite under the 4 GiB virtual-memory limit.
+					if /usr/bin/time -v "$scratch/tests" -test.run "^${test_case/\//\$\/\^}\$" -test.count=1 -test.timeout=300s > "$scratch/result" 2>&1; then
+						printf 'PASS %s %s %s\n' "$mode" "$package" "$test_case"
+					else
+						status=$?
+						printf 'FAIL %s %s %s (exit %s)\n' "$mode" "$package" "$test_case" "$status"
+						cat "$scratch/result"
+						exit "$status"
+					fi
+				done
 			done < "$scratch/names"
 		done < "$scratch/packages"
 	done

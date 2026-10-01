@@ -31,7 +31,7 @@ func TestEntryCopyAdjacentInsert(t *testing.T) {
 	if key == "" {
 		t.Fatal("no successor key")
 	}
-	other := skiplistmap.NewEntryMap(key, 7)
+	other := skiplistmap.NewEntryMap[skiplistmap.StringKey, any](skiplistmap.StringKey(key), 7)
 	entered, resume, done := make(chan struct{}), make(chan struct{}), make(chan bool, 1)
 	var held atomic.Bool
 	skiplistmap.SetStepHook(func(point string, a, b unsafe.Pointer) {
@@ -50,7 +50,7 @@ func TestEntryCopyAdjacentInsert(t *testing.T) {
 	if !stored || !adjacent || !updated {
 		t.Fatalf("fixture: stored=%v adjacent=%v updated=%v", stored, adjacent, updated)
 	}
-	if got, ok := m.Get(key); !ok || got != 7 {
+	if got, ok := m.Get(skiplistmap.StringKey(key)); !ok || got != 7 {
 		t.Fatalf("adjacent key lost: Get = %v, %v", got, ok)
 	}
 	runtime.KeepAlive(e)
@@ -111,7 +111,10 @@ func testEntryCopyPausedRead(t *testing.T, pause string) {
 	}
 	<-readDone
 	count := 0
-	m.RangeItem(func(item skiplistmap.MapItem) bool { count++; return true })
+	m.RangeItem(func(item skiplistmap.MapItem[skiplistmap.StringKey, any]) bool {
+		count++
+		return true
+	})
 	if count != 1 || m.Len() != 1 {
 		t.Errorf("Range count=%d Len=%d", count, m.Len())
 	}

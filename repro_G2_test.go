@@ -11,7 +11,7 @@ import (
 
 // storeAdjacent stores items of three keys a < b < c that share the top 4
 // bits of the reversed hash, so they are adjacent in the list.
-func storeAdjacent(t *testing.T) (*WrapHMap, []string, []skiplistmap.SampleItem) {
+func storeAdjacent(t *testing.T) (*WrapHMap, []string, []skiplistmap.SampleItem[skiplistmap.StringKey, any]) {
 	t.Helper()
 	m := newStepMap()
 	keys := adjacentKeys(3)
@@ -32,7 +32,7 @@ func storeAdjacent(t *testing.T) (*WrapHMap, []string, []skiplistmap.SampleItem)
 func Test_ReproG2StoreItemAgainAfterDelete(t *testing.T) {
 	m, keys, items := storeAdjacent(t)
 	a, b, c := items[0].PtrListHead(), items[1].PtrListHead(), items[2].PtrListHead()
-	if !m.base.Delete(keys[1]) {
+	if !m.base.Delete(skiplistmap.StringKey(keys[1])) {
 		t.Fatalf("Delete(%q) = false", keys[1])
 	}
 	runWithDeadline(t, 10*time.Second, func() {
@@ -50,7 +50,7 @@ func Test_ReproG2StoreItemAgainAfterDelete(t *testing.T) {
 // it again.
 func Test_StoreItemAgainAfterPurge(t *testing.T) {
 	m, keys, items := storeAdjacent(t)
-	if !m.base.Purge(keys[1]) {
+	if !m.base.Purge(skiplistmap.StringKey(keys[1])) {
 		t.Fatalf("Purge(%q) = false", keys[1])
 	}
 	if !items[1].PtrListHead().IsSingle() {

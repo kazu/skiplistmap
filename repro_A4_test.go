@@ -16,10 +16,13 @@ const bucketStateActive = 2
 // twoSplits holds two goroutines that split the same bucket of a map at the
 // same time, both stopped at makeBucket.claimed.
 type twoSplits struct {
-	m      *WrapHMap
-	s      *stepper
-	items  []skiplistmap.SampleItem
-	extra  []skiplistmap.SampleItem // the items of the extra keys, not stored
+	m     *WrapHMap
+	s     *stepper
+	items []skiplistmap.SampleItem[skiplistmap.StringKey, any]
+
+	extra []skiplistmap.SampleItem[skiplistmap.StringKey, any]
+
+	// the items of the extra keys, not stored
 	stored []string
 
 	b                 unsafe.Pointer // the new bucket the winner got
@@ -42,15 +45,15 @@ func startTwoSplits(t *testing.T, extra []string) *twoSplits {
 	upperItems := items[:len(upper)]
 	lowerItems := items[len(upper) : len(upper)+len(lower)]
 	sp := &twoSplits{items: items, extra: items[len(upper)+len(lower):]}
-	sp.m = newWrapHMap(skiplistmap.NewHMap())
-	skiplistmap.MaxPefBucket(2)(sp.m.base)
-	skiplistmap.BucketMode(skiplistmap.CombineSearch4)(sp.m.base)
+	sp.m = newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any]())
+	skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](2)(sp.m.base)
+	skiplistmap.BucketMode[skiplistmap.StringKey, any](skiplistmap.CombineSearch4)(sp.m.base)
 	sp.s = newStepper(t)
 	s, m := sp.s, sp.m
 
 	for i := range upperItems {
 		m.base.StoreItem(&upperItems[i])
-		sp.stored = append(sp.stored, upperItems[i].K)
+		sp.stored = append(sp.stored, string(upperItems[i].Key()))
 		if s.total("map.makeBucket.claimed") > 0 {
 			break
 		}
@@ -59,22 +62,22 @@ func startTwoSplits(t *testing.T, extra []string) *twoSplits {
 	if first == nil {
 		t.Fatalf("storing %d keys did not split the region", len(sp.stored))
 	}
-	t.Logf("first split: %016x", skiplistmap.StepBucketReverse(first))
+	t.Logf("first split: %016x", skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](first))
 
 	// The first lower key whose store splits the bucket stops as the winner.
 	next := 0
 	for ; next < len(lowerItems); next++ {
 		st := s.stopAt("map.makeBucket.claimed", isSecond(nodeOf(&lowerItems[next])))
-		d := goStep(t, func(it *skiplistmap.SampleItem) func() {
+		d := goStep(t, func(it *skiplistmap.SampleItem[skiplistmap.StringKey, any]) func() {
 			return func() { m.base.StoreItem(it) }
 		}(&lowerItems[next]))
-		sp.stored = append(sp.stored, lowerItems[next].K)
+		sp.stored = append(sp.stored, string(lowerItems[next].Key()))
 		select {
 		case <-st.reached:
 			sp.win, sp.winDone = st, d
 		case <-d:
 		case <-time.After(10 * time.Second):
-			t.Fatalf("StoreItem(%q) neither split nor finished", lowerItems[next].K)
+			t.Fatalf("StoreItem(%q) neither split nor finished", string(lowerItems[next].Key()))
 		}
 		if sp.win != nil {
 			next++
@@ -85,15 +88,15 @@ func startTwoSplits(t *testing.T, extra []string) *twoSplits {
 		t.Fatalf("no lower key but the last split the bucket")
 	}
 	sp.b = sp.win.a
-	t.Logf("second split: %016x", skiplistmap.StepBucketReverse(sp.b))
+	t.Logf("second split: %016x", skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](sp.b))
 
 	// The next lower key splits the same bucket.
 	sp.lose = s.stopAt("map.makeBucket.claimed", isSecond(nodeOf(&lowerItems[next])))
 	sp.loseDone = goStep(t, func() { m.base.StoreItem(&lowerItems[next]) })
-	sp.stored = append(sp.stored, lowerItems[next].K)
+	sp.stored = append(sp.stored, string(lowerItems[next].Key()))
 	sp.lose.waitReached(t, sp.loseDone)
 	if b2 := sp.lose.a; b2 != nil && b2 != sp.b {
-		t.Fatalf("the second store split another bucket: %016x", skiplistmap.StepBucketReverse(b2))
+		t.Fatalf("the second store split another bucket: %016x", skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](b2))
 	}
 	t.Logf("loser got the bucket of the winner: %v", sp.lose.a != nil)
 	return sp
@@ -124,8 +127,7 @@ func Test_ReproA4LoserMakesBucketActiveBeforeLinked(t *testing.T) {
 		t.Fatalf("the level of the new bucket is %d while the winner has not linked it", l)
 	}
 	if st := skiplistmap.StepBucketState(b); st == bucketStateActive {
-		t.Errorf("the new bucket (reverse %016x, level %d) is active before the winner links it",
-			skiplistmap.StepBucketReverse(b), skiplistmap.StepBucketLevel(b))
+		t.Errorf("the new bucket (reverse %016x, level %d) is active before the winner links it", skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](b), skiplistmap.StepBucketLevel(b))
 	}
 
 	linked.Release()

@@ -10,28 +10,13 @@ import (
 	"testing"
 	"unsafe"
 
-	"github.com/kazu/elist_head"
 	"github.com/kazu/skiplistmap"
 )
 
-// a9Item is a user-defined item whose KeyHash returns k and c as they are,
-// so that a test can choose the reversed hash of an item.
-type a9Item struct {
-	skiplistmap.SampleItem
-	k, c uint64
-}
-
-func (x *a9Item) KeyHash() (uint64, uint64) { return x.k, x.c }
-
-func (x *a9Item) HmapEntryFromListHead(l *elist_head.ListHead) skiplistmap.HMapEntry {
-	return (*a9Item)(unsafe.Pointer(skiplistmap.SampleItemFromListHead(l)))
-}
+type a9Item = skiplistmap.Entry[fixedHashKey, any]
 
 func newA9Item(key string, r uint64) *a9Item {
-	x := &a9Item{k: bits.Reverse64(r), c: 1}
-	x.K = key
-	x.SetValue(key)
-	return x
+	return skiplistmap.NewEntry[fixedHashKey, any](fixedHashKey{key, bits.Reverse64(r), 1}, key)
 }
 
 // a9Claimed returns the reverses of the buckets that makeBucket claimed so
@@ -42,7 +27,7 @@ func a9Claimed(s *stepper) []uint64 {
 	var rs []uint64
 	for h := range s.hits {
 		if h.point == "map.makeBucket.claimed" && h.a != nil {
-			rs = append(rs, skiplistmap.StepBucketReverse(h.a))
+			rs = append(rs, skiplistmap.StepBucketReverse[fixedHashKey, any](h.a))
 		}
 	}
 	sort.Slice(rs, func(i, j int) bool { return rs[i] < rs[j] })
@@ -51,7 +36,8 @@ func a9Claimed(s *stepper) []uint64 {
 
 func a9IsBucket(r uint64) func(a, b, c unsafe.Pointer) bool {
 	return func(a, b, c unsafe.Pointer) bool {
-		return a != nil && skiplistmap.StepBucketReverse(a) == r
+		return a != nil &&
+			skiplistmap.StepBucketReverse[fixedHashKey, any](a) == r
 	}
 }
 
@@ -93,11 +79,7 @@ func a9IsBucket(r uint64) func(a, b, c unsafe.Pointer) bool {
 // StoreItem(K) panics and K is not stored.
 func Test_ReproA9StoreIntoChildOfUnfinishedBucketPanics(t *testing.T) {
 	s := newStepper(t)
-	m := skiplistmap.New(
-		skiplistmap.MaxPefBucket(1),
-		skiplistmap.BucketMode(skiplistmap.CombineSearch4),
-		skiplistmap.ItemFn(func() skiplistmap.MapItem { return (*a9Item)(nil) }),
-	)
+	m := skiplistmap.New[fixedHashKey, any](skiplistmap.MaxPefBucket[fixedHashKey, any](1), skiplistmap.BucketMode[fixedHashKey, any](skiplistmap.CombineSearch4))
 	const low = 1
 	top := func(r uint64, bitsOf int) uint64 { return r<<(64-bitsOf) | low }
 
@@ -105,7 +87,7 @@ func Test_ReproA9StoreIntoChildOfUnfinishedBucketPanics(t *testing.T) {
 	store := func(it *a9Item) {
 		t.Helper()
 		if !m.StoreItem(it) {
-			t.Fatalf("StoreItem(%s) returned false", it.K)
+			t.Fatalf("StoreItem(%s) returned false", it.Key().name)
 		}
 		stored = append(stored, it)
 	}
@@ -176,15 +158,15 @@ func Test_ReproA9StoreIntoChildOfUnfinishedBucketPanics(t *testing.T) {
 	waitDone(t, done3, "StoreItem(0x312)")
 
 	linked := 0
-	m.RangeItem(func(item skiplistmap.MapItem) bool {
+	m.RangeItem(func(item skiplistmap.MapItem[fixedHashKey, any]) bool {
 		linked++
 		return true
 	})
 	t.Logf("StoreItem(k) = %v, Len = %d, stored = %d, items in the list = %d", kStored, m.Len(), len(stored), linked)
 	var missing []string
 	for _, it := range stored {
-		if _, ok := m.LoadItemByHash(it.k, it.c); !ok {
-			missing = append(missing, fmt.Sprintf("%s(%016x)", it.K, bits.Reverse64(it.k)))
+		if _, ok := m.LoadItemByHash(it.Key().k, it.Key().c); !ok {
+			missing = append(missing, fmt.Sprintf("%s(%016x)", it.Key().name, bits.Reverse64(it.Key().k)))
 		}
 	}
 	if len(missing) > 0 {
@@ -193,7 +175,7 @@ func Test_ReproA9StoreIntoChildOfUnfinishedBucketPanics(t *testing.T) {
 	if m.Len() != len(stored) {
 		t.Errorf("Len = %d, want %d", m.Len(), len(stored))
 	}
-	if err := skiplistmap.StepCheckLists(m); err != nil {
+	if err := skiplistmap.StepCheckLists[fixedHashKey, any](m); err != nil {
 		t.Errorf("StepCheckLists: %v", err)
 	}
 }

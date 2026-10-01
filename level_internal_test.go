@@ -10,9 +10,10 @@ import (
 // a bucket just before it must not be that LevelHead: a bucket linked there
 // would be out of the list of the level.
 func Test_NextOnLevelSkipsABucketNotOnTheLevelList(t *testing.T) {
-	h := New()
+	h := New[StringKey, any]()
 	h.Set("k", 1)
-	var b2 *bucket
+	var b2 *bucket[StringKey, any]
+
 	for i := range h.buckets {
 		if h.buckets[i].reverse > 0 && h.buckets[i].level() == 1 {
 			b2 = &h.buckets[i]
@@ -22,7 +23,7 @@ func Test_NextOnLevelSkipsABucketNotOnTheLevelList(t *testing.T) {
 	if b2 == nil {
 		t.Fatalf("no bucket of level 1 with a reverse above 0")
 	}
-	nb := newBucket()
+	nb := newBucket[StringKey, any]()
 	nb.reverse = b2.reverse - 1
 	nb.setLevel(1)
 	nb.Init()

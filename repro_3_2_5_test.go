@@ -55,14 +55,14 @@ func splitTwice(t *testing.T, p *r325Map, second string) (s *stepper, stop1, sto
 	stop1 = s.stopAt("map.makeBucket2.recurse", nil)
 	done1 = goStep(t, func() { p.m.Set(p.low, &list_head.ListHead{}) })
 	stop1.waitReached(t, done1)
-	if r := skiplistmap.StepBucketReverse(stop1.b); r != 0x38<<56 {
+	if r := skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](stop1.b); r != 0x38<<56 {
 		t.Fatalf("G1 split T into a bucket of reverse %016x, want %016x", r, uint64(0x38<<56))
 	}
 
 	stop2 = s.stopAt(second, nil)
 	done2 = goStep(t, func() { p.m.Set(p.u[4], &list_head.ListHead{}) })
 	stop2.waitReached(t, done2)
-	if r := skiplistmap.StepBucketReverse(stop2.a); second == "map.bucketFromPoolEmbedded.claimed" && r != p.split {
+	if r := skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](stop2.a); second == "map.bucketFromPoolEmbedded.claimed" && r != p.split {
 		t.Fatalf("G2 claimed a bucket of reverse %016x, want %016x", r, p.split)
 	}
 	return
@@ -93,11 +93,11 @@ func finishR325(t *testing.T, p *r325Map, s *stepper, down unsafe.Pointer) {
 	if n := s.count("map.makeBucket2.got", down); n != 1 {
 		t.Errorf("%d splits got the bucket of reverse %016x from bucketFromPoolEmbedded, want 1", n, p.split)
 	}
-	errLists := skiplistmap.StepCheckLists(p.m.base)
+	errLists := skiplistmap.StepCheckLists[skiplistmap.StringKey, any](p.m.base)
 	if errLists != nil {
 		t.Errorf("%v", errLists)
 	}
-	errBuckets := skiplistmap.StepCheckBuckets(p.m.base)
+	errBuckets := skiplistmap.StepCheckBuckets[skiplistmap.StringKey, any](p.m.base)
 	if errBuckets != nil {
 		t.Errorf("%v", errBuckets)
 	}

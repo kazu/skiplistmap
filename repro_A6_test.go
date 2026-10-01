@@ -48,7 +48,7 @@ func Test_ReproA6LoserInsertsLinkedBucketAgain(t *testing.T) {
 	sp := startTwoSplits(t, append(append([]string{}, dKeys...), bKeys...))
 	s, m, b := sp.s, sp.m, sp.b
 	dItems, bItems := sp.extra[:len(dKeys)], sp.extra[len(dKeys):]
-	if r := skiplistmap.StepBucketReverse(b) >> 56; r != 0x34 {
+	if r := skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](b) >> 56; r != 0x34 {
 		t.Fatalf("the new bucket has reverse %02x.., want 34..", r)
 	}
 	dummy := skiplistmap.StepBucketDummy(b)
@@ -72,8 +72,9 @@ func Test_ReproA6LoserInsertsLinkedBucketAgain(t *testing.T) {
 	var d unsafe.Pointer
 	for i := range dItems {
 		m.base.StoreItem(&dItems[i])
-		sp.stored = append(sp.stored, dItems[i].K)
-		if a, _ := s.args("map.makeBucket.claimed"); a != nil && skiplistmap.StepBucketReverse(a)>>56 == 0x32 {
+		sp.stored = append(sp.stored, string(dItems[i].Key()))
+		if a, _ := s.args("map.makeBucket.claimed"); a != nil &&
+			skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](a)>>56 == 0x32 {
 			d = a
 			break
 		}
@@ -89,7 +90,7 @@ func Test_ReproA6LoserInsertsLinkedBucketAgain(t *testing.T) {
 		linked := s.stopAt("map.insertBucket.dummyLinked", isNode(b))
 		found.Release()
 		linked.waitReached(t, sp.loseDone)
-		if err := skiplistmap.StepCheckLists(m.base); err != nil {
+		if err := skiplistmap.StepCheckLists[skiplistmap.StringKey, any](m.base); err != nil {
 			t.Fatalf("after the loser links the dummy again: %v", err)
 		}
 		linked.Release()
@@ -114,7 +115,7 @@ func Test_ReproA6LoserInsertsLinkedBucketAgain(t *testing.T) {
 		t.Fatalf("storing the keys in the range of b did not finish")
 	}
 	for i := range bItems {
-		sp.stored = append(sp.stored, bItems[i].K)
+		sp.stored = append(sp.stored, string(bItems[i].Key()))
 	}
 	if n := s.count("map.insertBucket.begin", b); n != 1 {
 		t.Errorf("the new bucket was inserted %d times, want 1", n)

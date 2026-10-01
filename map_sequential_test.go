@@ -16,31 +16,41 @@ const seqCnt = 1000
 // seqDelete is one way of removing a key from a Map.
 type seqDelete struct {
 	name string
-	fn   func(m *skiplistmap.Map, key string) bool
+	fn   func(m *skiplistmap.Map[skiplistmap.StringKey, any],
+
+		key string) bool
 }
 
 func seqDeletes() []seqDelete {
 	return []seqDelete{
-		{"Delete", func(m *skiplistmap.Map, key string) bool { return m.Delete(key) }},
-		{"Purge", func(m *skiplistmap.Map, key string) bool { return m.Purge(key) }},
+		{"Delete", func(m *skiplistmap.Map[skiplistmap.StringKey, any],
+
+			key string) bool {
+			return m.Delete(skiplistmap.StringKey(key))
+		}},
+		{"Purge", func(m *skiplistmap.Map[skiplistmap.StringKey, any],
+
+			key string) bool {
+			return m.Purge(skiplistmap.StringKey(key))
+		}},
 	}
 }
 
 // rangeKeys returns the keys Range visits and fails when one is visited twice.
-func rangeKeys(t *testing.T, m *skiplistmap.Map) map[string]bool {
+func rangeKeys(t *testing.T, m *skiplistmap.Map[skiplistmap.StringKey, any]) map[string]bool {
 	t.Helper()
 	seen := map[string]bool{}
-	m.Range(func(k, v interface{}) bool {
-		if seen[k.(string)] {
+	m.Range(func(k skiplistmap.StringKey, v any) bool {
+		if seen[string(k)] {
 			t.Errorf("Range visited %q twice", k)
 		}
-		seen[k.(string)] = true
+		seen[string(k)] = true
 		return true
 	})
 	return seen
 }
 
-func rangeCount(t *testing.T, m *skiplistmap.Map) int {
+func rangeCount(t *testing.T, m *skiplistmap.Map[skiplistmap.StringKey, any]) int {
 	return len(rangeKeys(t, m))
 }
 
@@ -86,7 +96,7 @@ func Test_DeleteLen(t *testing.T) {
 				if got := m.base.Len(); got != seqCnt-1 {
 					t.Errorf("Len() after %s = %d, want %d", d.name, got, seqCnt-1)
 				}
-				if _, ok := m.base.Get(key); ok {
+				if _, ok := m.base.Get(skiplistmap.StringKey(key)); ok {
 					t.Errorf("Get(%q) found after %s", key, d.name)
 				}
 				seen := rangeKeys(t, m.base)
@@ -146,7 +156,7 @@ func Test_DeleteReinsertValue(t *testing.T) {
 					if !d.fn(m.base, key) {
 						t.Fatalf("second %s(%q) after re-insert returned false", d.name, key)
 					}
-					if _, ok := m.base.Get(key); ok {
+					if _, ok := m.base.Get(skiplistmap.StringKey(key)); ok {
 						t.Errorf("Get(%q) found after second %s", key, d.name)
 					}
 				}
@@ -256,7 +266,7 @@ func Test_PoolSequences(t *testing.T) {
 						if verb == "Pur" {
 							d = m.base.Purge
 						}
-						if _, live := want[k]; d(k) != live {
+						if _, live := want[k]; d(skiplistmap.StringKey(k)) != live {
 							t.Errorf("step %d %s: returned %v", step, op, !live)
 						}
 						delete(want, k)

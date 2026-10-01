@@ -195,20 +195,22 @@ func j23Keys(n int) []string {
 // buckets, and then checks that the list of entries is in order and that
 // every key is found by Get in NestedSearchForBucket (the default) and in
 // CombineSearch2, and passed by RangeItem once. It returns the first failure.
-func j23Probe(h *Map, keys, more []string) error {
+func j23Probe(h *Map[StringKey, any],
+
+	keys, more []string) error {
 	for _, k := range more {
-		if !h.Set(k, k) {
+		if !h.Set(StringKey(k), k) {
 			return fmt.Errorf("Set(%q) = false", k)
 		}
 	}
 	for i := 0; i < len(more); i += 5 {
-		item, ok := h.LoadItem(more[i])
+		item, ok := h.LoadItem(StringKey(more[i]))
 		if !ok {
 			return fmt.Errorf("LoadItem(%q) not found before the splits", more[i])
 		}
 		h.makeBucket(item.PtrListHead(), 0)
 	}
-	if err := StepCheckLists(h); err != nil {
+	if err := StepCheckLists[StringKey, any](h); err != nil {
 		return err
 	}
 	all := append(append([]string{}, keys...), more...)
@@ -217,14 +219,14 @@ func j23Probe(h *Map, keys, more []string) error {
 	for _, m := range []SearchMode{mode, CombineSearch2} {
 		h.modeForBucket = m
 		for _, k := range all {
-			if v, ok := h.Get(k); !ok || v != k {
+			if v, ok := h.Get(StringKey(k)); !ok || v != k {
 				return fmt.Errorf("Get(%q) = %v, %v in search mode %d", k, v, ok, m)
 			}
 		}
 	}
 	seen := map[string]int{}
-	h.RangeItem(func(item MapItem) bool {
-		seen[item.Key().(string)]++
+	h.RangeItem(func(item MapItem[StringKey, any]) bool {
+		seen[string(item.Key())]++
 		return true
 	})
 	for _, k := range all {
@@ -245,22 +247,23 @@ func j23Probe(h *Map, keys, more []string) error {
 // of b is not above k, find from the dummy of b stops at the same entry as
 // find from the head of the list, the position _set links k before.
 func Test_Repro_J23_SearchFromAnyBucket(t *testing.T) {
-	h := New(MaxPefBucket(4))
+	h := New[StringKey, any](MaxPefBucket[StringKey, any](4))
 	keys := j23Keys(8)
 	for i := 0; i < 64; i++ {
 		keys = append(keys, fmt.Sprintf("j23-any-%d", i))
 	}
 	for _, k := range keys {
-		if !h.Set(k, k) {
+		if !h.Set(StringKey(k), k) {
 			t.Fatalf("Set(%q) failed", k)
 		}
 	}
-	if err := StepCheckLists(h); err != nil {
+	if err := StepCheckLists[StringKey, any](h); err != nil {
 		t.Fatal(err)
 	}
-	var buckets []*bucket
+	var buckets []*bucket[StringKey, any]
+
 	for cur := h.headBucket.DirectNext(); cur != h.tailBucket; cur = cur.DirectNext() {
-		buckets = append(buckets, bucketFromListHead(cur))
+		buckets = append(buckets, bucketFromListHead[StringKey, any](cur))
 	}
 	levels := 0
 	for l := int32(2); l <= 16 && !h.isEmptyBylevel(l); l++ {
@@ -274,7 +277,9 @@ func Test_Repro_J23_SearchFromAnyBucket(t *testing.T) {
 	for _, k := range keys {
 		kh, _ := KeyToHash(k)
 		rk := bits.Reverse64(kh)
-		cond := func(e HMapEntry) bool { return rk <= e.PtrMapHead().reverse }
+		cond := func(e *MapHead) bool {
+			return rk <= e.PtrMapHead().reverse
+		}
 		want, _ := h.find(h.head.DirectNext(), cond)
 		for _, b := range buckets {
 			for _, m := range []SearchMode{mode, CombineSearch2} {

@@ -41,7 +41,7 @@ func newSharedPoolMap(t *testing.T, split bool) *sharedPoolMap {
 	if split {
 		n = 40
 	}
-	m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true), skiplistmap.MaxPefBucket(16)))
+	m := newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true), skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](16)))
 	var keys, rest []string
 	for i := 0; len(keys)+len(rest) < 1000; i++ {
 		k := crashKey(i)
@@ -63,16 +63,16 @@ func newSharedPoolMap(t *testing.T, split bool) *sharedPoolMap {
 
 	for i := 0; i+1 < len(keys); i++ {
 		a, next := keys[i], keys[i+1]
-		found, base := skiplistmap.StepLockBuckets(m.base, reverseOf(a))
+		found, base := skiplistmap.StepLockBuckets[skiplistmap.StringKey, any](m.base, reverseOf(a))
 		if (found != base) != split {
 			continue
 		}
-		if _, nbase := skiplistmap.StepLockBuckets(m.base, reverseOf(next)); nbase != base {
+		if _, nbase := skiplistmap.StepLockBuckets[skiplistmap.StringKey, any](m.base, reverseOf(next)); nbase != base {
 			continue
 		}
 		for _, b := range rest {
 			if reverseOf(a) < reverseOf(b) && reverseOf(b) < reverseOf(next) {
-				if _, bbase := skiplistmap.StepLockBuckets(m.base, reverseOf(b)); bbase == base {
+				if _, bbase := skiplistmap.StepLockBuckets[skiplistmap.StringKey, any](m.base, reverseOf(b)); bbase == base {
 					return &sharedPoolMap{m: m, stored: keys, a: a, next: next, b: b}
 				}
 			}
@@ -102,7 +102,7 @@ func (p *sharedPoolMap) expectKeys(drop, add string) []string {
 func purgeWhileSetReusesSlot(t *testing.T, p *sharedPoolMap, wait time.Duration) (setFinished bool) {
 	t.Helper()
 	m := p.m
-	itemA, ok := m.base.LoadItem(p.a)
+	itemA, ok := m.base.LoadItem(skiplistmap.StringKey(p.a))
 	if !ok {
 		t.Fatalf("LoadItem(%q) not found", p.a)
 	}
@@ -181,7 +181,7 @@ func Test_Repro_3_2_1_UpdateLostToPoolRebuild(t *testing.T) {
 	if !ok {
 		t.Fatalf("Get(%q) not found", p.a)
 	}
-	itemA, _ := m.base.LoadItem(p.a)
+	itemA, _ := m.base.LoadItem(skiplistmap.StringKey(p.a))
 	nodeA := unsafe.Pointer(itemA.PtrListHead())
 
 	s := newStepper(t)
@@ -193,7 +193,7 @@ func Test_Repro_3_2_1_UpdateLostToPoolRebuild(t *testing.T) {
 
 	done2 := goStep(t, func() { ok2 = m.Set(p.b, &list_head.ListHead{}) })
 	if waitAtMost(done2, 5*time.Second) {
-		if item, ok := m.base.LoadItem(p.a); ok && unsafe.Pointer(item.PtrListHead()) != nodeA {
+		if item, ok := m.base.LoadItem(skiplistmap.StringKey(p.a)); ok && unsafe.Pointer(item.PtrListHead()) != nodeA {
 			t.Logf("Set(%q) moved the item of %q while Set(%q) held firstDown.muPool", p.b, p.a, p.a)
 		}
 	}
@@ -232,7 +232,7 @@ func Test_Repro_3_2_1_UpdateLostToPoolRebuild(t *testing.T) {
 func Test_Repro_3_2_1_PurgeUsesItemFoundBeforeLock(t *testing.T) {
 	p := newSharedPoolMap(t, false)
 	m := p.m
-	itemA, ok := m.base.LoadItem(p.a)
+	itemA, ok := m.base.LoadItem(skiplistmap.StringKey(p.a))
 	if !ok {
 		t.Fatalf("LoadItem(%q) not found", p.a)
 	}
@@ -248,7 +248,7 @@ func Test_Repro_3_2_1_PurgeUsesItemFoundBeforeLock(t *testing.T) {
 	waitDone(t, done1, "the first Purge(a)")
 	done3 := goStep(t, func() { ok3 = m.Set(p.b, &list_head.ListHead{}) })
 	waitDone(t, done3, "Set(b)")
-	if item, ok := m.base.LoadItem(p.b); ok && unsafe.Pointer(item.PtrListHead()) == nodeA {
+	if item, ok := m.base.LoadItem(skiplistmap.StringKey(p.b)); ok && unsafe.Pointer(item.PtrListHead()) == nodeA {
 		t.Logf("Set(%q) reused the slot of %q", p.b, p.a)
 	}
 

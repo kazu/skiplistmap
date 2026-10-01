@@ -126,14 +126,14 @@ func Test_StoreItemRefusesAnItemOfThePool(t *testing.T) {
 func Test_StoreItemRefusesALinkedItemOfAKeyPresent(t *testing.T) {
 	m, other := newPoolMap(16), newPoolMap(16)
 	va, vb := &list_head.ListHead{}, &list_head.ListHead{}
-	a := skiplistmap.NewSampleItem("k", va)
+	a := skiplistmap.NewSampleItem[skiplistmap.StringKey, any]("k", va)
 	if !m.base.StoreItem(a) {
 		t.Fatalf("StoreItem(a) = false")
 	}
 	if m.base.StoreItem(a) {
 		t.Errorf("a second StoreItem of a, which is linked, = true")
 	}
-	b := skiplistmap.NewSampleItem("k", vb)
+	b := skiplistmap.NewSampleItem[skiplistmap.StringKey, any]("k", vb)
 	if !other.base.StoreItem(b) {
 		t.Fatalf("StoreItem(b) into the other map = false")
 	}
@@ -219,7 +219,7 @@ func Test_ConcurrentDeleteWhileGrowing(t *testing.T) {
 					go func(w int) {
 						defer wg.Done()
 						for k := w; k < present; k += writers {
-							if !m.base.Delete(crashKey(k)) {
+							if !m.base.Delete(skiplistmap.StringKey(crashKey(k))) {
 								t.Errorf("Delete(%q) = false", crashKey(k))
 							}
 						}

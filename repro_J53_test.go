@@ -25,11 +25,11 @@ import (
 func Test_J53SetOfKeyPresentWritesSlotReusedAfterDelete(t *testing.T) {
 	keys := adjacentKeys(4)
 	a, k, k2, c := keys[0], keys[1], keys[2], keys[3]
-	m := newWrapHMap(skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(true), skiplistmap.MaxPefBucket(16)))
+	m := newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true), skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](16)))
 	setKeys(t, m, []string{a, k, c})
 
 	v2, v3 := &list_head.ListHead{}, &list_head.ListHead{}
-	itemK, ok := m.base.LoadItem(k)
+	itemK, ok := m.base.LoadItem(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found")
 	}
@@ -45,7 +45,7 @@ func Test_J53SetOfKeyPresentWritesSlotReusedAfterDelete(t *testing.T) {
 	if !m.Set(k2, v3) {
 		t.Fatalf("Set(k2, v3) = false")
 	}
-	it2, ok := m.base.LoadItem(k2)
+	it2, ok := m.base.LoadItem(skiplistmap.StringKey(k2))
 	if !ok {
 		t.Fatalf("LoadItem(k2) not found after Set(k2, v3)")
 	}

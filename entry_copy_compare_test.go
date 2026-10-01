@@ -10,11 +10,11 @@ import (
 	"github.com/kazu/skiplistmap"
 )
 
-func newEntryCopyMap(t testing.TB) (*skiplistmap.Map, skiplistmap.MapItem) {
+func newEntryCopyMap(t testing.TB) (*skiplistmap.Map[skiplistmap.StringKey, any], skiplistmap.MapItem[skiplistmap.StringKey, any]) {
 	t.Helper()
-	m := skiplistmap.NewHMap()
-	skiplistmap.ItemFn(func() skiplistmap.MapItem { return skiplistmap.EmptyEntryHMap })(m)
-	e := skiplistmap.NewEntryMap("value", 0)
+	m := skiplistmap.NewHMap[skiplistmap.StringKey, any]()
+
+	e := skiplistmap.NewEntryMap[skiplistmap.StringKey, any]("value", 0)
 	if !m.StoreItem(e) {
 		t.Fatal("StoreItem failed")
 	}
@@ -90,7 +90,7 @@ func TestEntryCopyRetainedHeap(t *testing.T) {
 	}
 	runtime.GC()
 	runtime.ReadMemStats(&after)
-	example := skiplistmap.NewEntryMap("size", 0)
+	example := skiplistmap.NewEntryMap[skiplistmap.StringKey, any]("size", 0)
 	t.Logf("100000 updates: retained heap delta=%d bytes; entry size=%d; GC cycles=%d",
 		int64(after.HeapAlloc)-int64(before.HeapAlloc), unsafe.Sizeof(*example), after.NumGC-before.NumGC)
 	runtime.KeepAlive(e)
@@ -98,12 +98,11 @@ func TestEntryCopyRetainedHeap(t *testing.T) {
 }
 
 func TestEntryCopyCollisionRange(t *testing.T) {
-	t.Skip("baseline 54c7318 also loses Get(int) after StoreItem; non-string entry hash compatibility is not changed by copy publication")
-	testEntryCopyRange(t, []interface{}{int(1), uint64(1)})
+	testEntryCopyRange(t, []fixedHashKey{{"int", 1, 1}, {"uint", 1, 1}})
 }
 
 func TestEntryCopyRange(t *testing.T) {
-	testEntryCopyRange(t, []interface{}{"left", "right"})
+	testEntryCopyRange(t, []skiplistmap.StringKey{"left", "right"})
 }
 
 func TestEntryCopyAdjacentChurn(t *testing.T) {
@@ -127,12 +126,12 @@ func TestEntryCopyAdjacentChurn(t *testing.T) {
 		go func(key string) {
 			defer wg.Done()
 			for i := 0; i < 1000; i++ {
-				e := skiplistmap.NewEntryMap(key, i)
+				e := skiplistmap.NewEntryMap[skiplistmap.StringKey, any](skiplistmap.StringKey(key), i)
 				if !m.StoreItem(e) {
 					t.Error("neighbor StoreItem failed")
 					return
 				}
-				if !m.Purge(key) {
+				if !m.Purge(skiplistmap.StringKey(key)) {
 					t.Error("neighbor Purge failed")
 					return
 				}
@@ -150,12 +149,16 @@ func TestEntryCopyAdjacentChurn(t *testing.T) {
 	runtime.KeepAlive(root)
 }
 
-func testEntryCopyRange(t *testing.T, keys []interface{}) {
-	m := skiplistmap.NewHMap()
-	skiplistmap.ItemFn(func() skiplistmap.MapItem { return skiplistmap.EmptyEntryHMap })(m)
-	var roots []skiplistmap.MapItem
+func testEntryCopyRange[K interface {
+	skiplistmap.Key[K]
+	comparable
+}](t *testing.T, keys []K) {
+	m := skiplistmap.NewHMap[K, any]()
+
+	var roots []skiplistmap.MapItem[K, any]
+
 	for _, key := range keys {
-		e := skiplistmap.NewEntryMap(key, key)
+		e := skiplistmap.NewEntryMap[K, any](key, key)
 		roots = append(roots, e)
 		if !m.StoreItem(e) {
 			t.Fatal("StoreItem failed")
@@ -163,15 +166,15 @@ func testEntryCopyRange(t *testing.T, keys []interface{}) {
 	}
 	for i := 0; i < 100; i++ {
 		for _, key := range keys {
-			if !m.StoreItem(skiplistmap.NewEntryMap(key, key)) {
+			if !m.StoreItem(skiplistmap.NewEntryMap[K, any](key, key)) {
 				t.Fatal("StoreItem update failed")
 			}
 			if got, ok := m.Get(key); !ok || got != key {
 				t.Fatalf("collision Get(%T) = %v, %v", key, got, ok)
 			}
 		}
-		seen := make(map[interface{}]bool)
-		m.Range(func(key, value interface{}) bool {
+		seen := make(map[K]bool)
+		m.Range(func(key K, value any) bool {
 			if seen[key] || key != value {
 				t.Errorf("Range duplicate or mismatched key/value: %T %v, %T %v", key, key, value, value)
 			}
@@ -221,10 +224,12 @@ func TestEntryCopyContendedUpdate(t *testing.T) {
 	runtime.KeepAlive(e)
 }
 
-func checkEntryCopyMap(t testing.TB, m *skiplistmap.Map, e skiplistmap.MapItem) {
+func checkEntryCopyMap(t testing.TB, m *skiplistmap.Map[skiplistmap.StringKey, any],
+
+	e skiplistmap.MapItem[skiplistmap.StringKey, any]) {
 	t.Helper()
 	count := 0
-	m.RangeItem(func(item skiplistmap.MapItem) bool {
+	m.RangeItem(func(item skiplistmap.MapItem[skiplistmap.StringKey, any]) bool {
 		count++
 		if reflect.TypeOf(item) != reflect.TypeOf(e) {
 			t.Errorf("entry type changed from %T to %T", e, item)

@@ -11,17 +11,17 @@ import (
 func Test_LoadItemAfterPoolGrowth(t *testing.T) {
 	for _, p := range []struct {
 		name string
-		opts []skiplistmap.OptHMap
+		opts []skiplistmap.OptHMap[skiplistmap.StringKey, any]
 	}{
 		{"default", nil},
-		{"embedded pool", []skiplistmap.OptHMap{skiplistmap.UseEmbeddedPool(true)}},
+		{"embedded pool", []skiplistmap.OptHMap[skiplistmap.StringKey, any]{skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true)}},
 	} {
 		t.Run(p.name, func(t *testing.T) {
-			m := skiplistmap.New(p.opts...)
+			m := skiplistmap.New[skiplistmap.StringKey, any](p.opts...)
 			m.Set("a", 1)
 			it, _ := m.LoadItem("a")
 			for i := 0; i < 100000; i++ {
-				m.Set(strconv.Itoa(i), i)
+				m.Set(skiplistmap.StringKey(strconv.Itoa(i)), i)
 			}
 			m.Set("a", 2)
 			if got := it.Value(); got != 1 {

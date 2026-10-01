@@ -17,7 +17,7 @@ import (
 	"github.com/kazu/skiplistmap/atomic_util"
 )
 
-func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
+func (h *Map[K, V]) bsearchBybucket(bucket *bucket[K, V], reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry[K, V] {
 
 	stepAt("bsearch.begin", unsafe.Pointer(bucket), nil)
 	pool := bucket.toBase().itemPool()
@@ -39,17 +39,17 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 			runtime.Gosched()
 			continue
 		}
-		snapshot := unsafe.Slice((*SampleItem)(data), l)
+		snapshot := unsafe.Slice((*SampleItem[K, V])(data), l)
 
 		idx := sort.Search(l, func(i int) bool {
-			item := skipDeletedItems(&snapshot[i], &snapshot[0])
+			item := skipDeletedItems[K, V](&snapshot[i], &snapshot[0])
 			return atomic.LoadUint64(&item.reverse) >= reverseNoMask
 			//return items.reverseAt(i) >= reverseNoMask
 		})
 		stepAt("bsearch.searched", unsafe.Pointer(bucket), nil)
 		// Equal reverses sit next to each other; a purged placeholder may
 		// precede the live entry of the same key, so skip ignored matches.
-		var found *SampleItem
+		var found *SampleItem[K, V]
 		for ; idx < l && atomic.LoadUint64(&snapshot[idx].reverse) == reverseNoMask; idx++ {
 			item := &snapshot[idx]
 			// A reused slot can expose its new hash before Set links it.
@@ -79,14 +79,14 @@ func (h *Map) bsearchBybucket(bucket *bucket, reverseNoMask uint64, ignoreBucket
 	return nil
 }
 
-func (h *Map) searchKeyFromEmbeddedPool(k uint64, ignoreBucketEnry bool) HMapEntry {
+func (h *Map[K, V]) searchKeyFromEmbeddedPool(k uint64, ignoreBucketEnry bool) HMapEntry[K, V] {
 	rev := bits.Reverse64(k)
 	//return h.searchByEmbeddedbucket(h.findBucket(rev), rev, ignoreBucketEnry)
 	return h.bsearchBybucket(h.findBucket(rev), rev, ignoreBucketEnry)
 
 }
 
-func (h *Map) makeBucket2(bucket *bucket) (err error) {
+func (h *Map[K, V]) makeBucket2(bucket *bucket[K, V]) (err error) {
 	atomic.AddInt32(&madeBucket, 1)
 
 	nextBucket := bucket.prevAsB()
@@ -125,24 +125,20 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 	atomic.StoreInt32(&bucket._len, int32(idx))
 	atomic.StoreInt32(&b._len, int32(olen-idx))
 
+	// The child has a separate pool mutex. Hold it before publication so
+	// writers cannot expand its pool while this split still changes its slice.
+	b.muPool.Lock()
+	defer b.muPool.Unlock()
 	h.addBucket(b)
 	stepAt("makeBucket2.added", unsafe.Pointer(b), unsafe.Pointer(bucket))
-	if l := b.level(); l < 0 {
-		b.setLevel(-l)
+	if level := b.level(); level < 0 {
+		b.setLevel(-level)
 	}
 	spItems := bucket.itemPool().ptrItems()
 	atomic_util.StoreInt(&spItems.len, idx)
 	atomic_util.StoreInt(&spItems.cap, idx)
 
-	if b.LevelHead.DirectNext() == &b.LevelHead {
-		Log(LogWarn, "bucket.LevelHead is pointed to self")
-	}
-
 	h.insertOnLevel(b, b.level(), "makeBucket2.levelFound", unsafe.Pointer(b))
-	if b.LevelHead.Next() == &b.LevelHead {
-		Log(LogWarn, "bucket.LevelHead is pointed to self")
-	}
-
 	stepAt("makeBucket2.recurse", unsafe.Pointer(bucket), unsafe.Pointer(b))
 	if int(b.len()) > h.maxPerBucket {
 		h.makeBucket2(b)
@@ -153,7 +149,7 @@ func (h *Map) makeBucket2(bucket *bucket) (err error) {
 	return nil
 }
 
-func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
+func (h *Map[K, V]) bucketFromPoolEmbedded(reverse uint64) (b *bucket[K, V]) {
 
 	claimed := false
 	level := int32(0)
@@ -168,13 +164,13 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 			continue
 		}
 		idx := int((reverse >> (4 * (16 - l))) & 0xf)
-		var downs *bucketSlice
+		var downs *bucketSlice[K, V]
 		downs = b.ptrDownLevels()
 
 		// init downLevels[0]
 		if downs == nil || atomic_util.CompareAndSwapInt(&downs.cap, 0, 1) {
 			//if cap(b.downLevels) == 0 {
-			downLevels := make([]bucket, 0, 16)
+			downLevels := make([]bucket[K, V], 0, 16)
 			atomic.StorePointer(&downs.data, unsafe.Pointer(unsafe.SliceData(downLevels)))
 			atomic_util.StoreInt(&downs.cap, cap(downLevels))
 			downs = b.ptrDownLevels()
@@ -188,7 +184,7 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 			firstDown.LevelHead.Init()
 			firstDown._parent = b
 
-			firstDown.setItemPoolFn = func(p *samepleItemPool) {
+			firstDown.setItemPoolFn = func(p *samepleItemPool[K, V]) {
 				b.setItemPool(p)
 			}
 
@@ -246,7 +242,7 @@ func (h *Map) bucketFromPoolEmbedded(reverse uint64) (b *bucket) {
 
 }
 
-func (b *bucket) toBase() *bucket {
+func (b *bucket[K, V]) toBase() *bucket[K, V] {
 
 	if b._parent == nil {
 		return b
@@ -262,16 +258,16 @@ const (
 	foundFree          = 5
 )
 
-func (sp *samepleItemPool) len() (l int) {
+func (sp *samepleItemPool[K, V]) len() (l int) {
 	return sp.ptrItems().Len()
 
 }
 
-func (sp *samepleItemPool) cap() (l int) {
+func (sp *samepleItemPool[K, V]) cap() (l int) {
 	return sp.ptrItems().Cap()
 }
 
-func (sp *samepleItemPool) state4get(reverse uint64, len int, cap int) byte {
+func (sp *samepleItemPool[K, V]) state4get(reverse uint64, len int, cap int) byte {
 
 	if len == 0 {
 		return getEmpty
@@ -296,10 +292,10 @@ func (sp *samepleItemPool) state4get(reverse uint64, len int, cap int) byte {
 
 }
 
-// bsearchFromFreeList returns a deleted item that can take reverse without
-// breaking the order of items, deleted ones included: the last item not
-// above reverse, or items[0] when every item is above it.
-func (sp *samepleItemPool) bsearchFromFreeList(reverse uint64) (int, bool) {
+// bsearchFromFreeList finds a deleted slot without breaking hash order. Check
+// the equal-reverse run and its immediate predecessor, or the first slot when
+// every item is above reverse. Replacements leave free slots inside that run.
+func (sp *samepleItemPool[K, V]) bsearchFromFreeList(reverse uint64) (int, bool) {
 
 	items := sp.ptrItems()
 
@@ -310,11 +306,14 @@ func (sp *samepleItemPool) bsearchFromFreeList(reverse uint64) (int, bool) {
 	if idx < 1 {
 		idx = 1
 	}
-	mItem := items._at(idx-1, true, false)
-
-	if mItem != nil && mItem.IsDeleted() {
-		//mItem.Init()
-		return idx - 1, true
+	for i := idx - 1; i >= 0; i-- {
+		item := items._at(i, true, false)
+		if item != nil && item.IsDeleted() {
+			return i, true
+		}
+		if item == nil || atomic.LoadUint64(&item.reverse) != reverse {
+			break
+		}
 	}
 	return -1, false
 }
@@ -332,14 +331,14 @@ type unlocker func(mu sync.Locker)
 // appendLast takes the slot after the last one for the key of reverse. It
 // writes reverse into the slot before the slot counts in the length, so that
 // a binary search over the slots never meets a slot of reverse 0 there.
-func (sp *samepleItemPool) appendLast(reverse uint64, mu sync.Locker) (newItem MapItem, nPool *samepleItemPool, fn unlocker) {
+func (sp *samepleItemPool[K, V]) appendLast(reverse uint64, mu sync.Locker) (newItem MapItem[K, V], nPool *samepleItemPool[K, V], fn unlocker) {
 
 	if mu != nil {
 		mu.Lock()
 		fn = lazyUnlock
 	}
 
-	var new *SampleItem
+	var new *SampleItem[K, V]
 	items := sp.ptrItems()
 	l := items.Len()
 	if l >= items.Cap() {
@@ -361,7 +360,7 @@ func (sp *samepleItemPool) appendLast(reverse uint64, mu sync.Locker) (newItem M
 	return nil, nil, fn
 }
 
-func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem MapItem, nPool *samepleItemPool, fn unlocker) {
+func (sp *samepleItemPool[K, V]) insertToPool(reverse uint64, mu sync.Locker) (newItem MapItem[K, V], nPool *samepleItemPool[K, V], fn unlocker) {
 	if mu != nil {
 		mu.Lock()
 		fn = lazyUnlock
@@ -374,7 +373,7 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem
 	if IsDebug() {
 		var b strings.Builder
 		for i := range sp.items {
-			sp.items[i].PtrMapHead().dump(&b)
+			sp.items[i].PtrMapHead().dump[K, V](&b)
 		}
 		Log(LogDebug, "B: itemPool.items\n%s\n", b.String())
 	}
@@ -407,67 +406,41 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem
 		nextItem := sp.items[tail].ListHead.Next()
 
 		// copy to new slice
-		newItems := make([]SampleItem, olen+1, maxInts(ocap, olen+1))
+		newItems := newPoolItems[K, V](olen+1, maxInts(ocap, olen+1), true)
 		if i > 0 {
-			copy(newItems[0:i], sp.items[0:i])
+			copyPoolItems(newItems[0:i], sp.items[0:i])
 		}
-		copy(newItems[i+1:], sp.items[i:])
+		copyPoolItems(newItems[i+1:], sp.items[i:])
 
-		// Links are offsets, so every ListHead they reach must live in memory
-		// that never moves. Goroutine stacks move; only newItems (heap) and the
-		// list neighbours are linked here.
-		middle := nextListHeadOfSampleItem()
-		for i := 0; i < olen+1; i++ {
-			newItems[i].ListHead = middle
-		}
-
-		first := &newItems[0].ListHead
-		if i == 0 {
-			first = &newItems[1].ListHead
-		} else {
-			before, after := holeListHeadsOfSampleItem()
-			newItems[i-1].ListHead = before
-			newItems[i+1].ListHead = after
-		}
-		newItems[i].Init()
-		// the new slot has the reverse of its key before the array is
-		// published, so that the slots stay in order for a binary search
+		first, last := linkPoolItems(newItems, i)
 		newItems[i].PtrMapHead().reverse = reverse
-
-		err = prevItem.ReplaceNext(first, &newItems[olen].ListHead, nextItem)
+		err = prevItem.ReplaceNext(&newItems[first].ListHead, &newItems[last].ListHead, nextItem)
 		if err != nil {
 			Log(LogFatal, "fail to replace newItems")
 		}
 
 		oldItems := sp.ptrItems().dup()
-		newItemSlice := toItemSlice(newItems)
+		newItemSlice := toItemSlice[K, V](newItems)
 		stepAt("insertToPool.publish", unsafe.Pointer(sp), nil)
 		sp.publishItems(&newItemSlice)
 
 		// for debug
-		oldItemFirst := oldItems.at(0).Prev().Next().PtrMapHead()
-		oldItemNext := oldItems.at(olen - 1).Next().PtrMapHead()
-		_ = oldItemFirst
-		_ = oldItemNext
-		ItemNext := sp.items[olen].Next().PtrMapHead()
-		_ = ItemNext
+		_ = oldItems
 
 		if IsDebug() {
 			var b strings.Builder
 			for i := range sp.items {
-				sp.items[i].PtrMapHead().dump(&b)
+				sp.items[i].PtrMapHead().dump[K, V](&b)
 			}
 			fmt.Printf("A: itemPool.items\n%s\n", b.String())
 		}
 
-		outside := sp.items[olen].Next()
-		_ = outside
-		if olen != i && olen-1 != i && olen-1 > 0 && sp.items[olen-1].PtrListHead().Next() != sp.items[olen].PtrListHead() {
+		if olen != i && olen-1 != i && olen-1 > 0 && !sp.items[olen-1].IsIgnored() && !sp.items[olen].IsIgnored() && sp.items[olen-1].PtrListHead().Next() != sp.items[olen].PtrListHead() {
 			toNext := sp.items[olen-1].PtrListHead().Next()
 			next := sp.items[olen].PtrListHead()
 			Log(LogFatal, "not connect sp.items[olen-1]=%p -> sp.items[olen]=%p ", toNext, next)
 		}
-		if olen != i && olen-1 != i && olen-1 > 0 && sp.items[olen].PtrListHead().Prev() != sp.items[olen-1].PtrListHead() {
+		if olen != i && olen-1 != i && olen-1 > 0 && !sp.items[olen-1].IsIgnored() && !sp.items[olen].IsIgnored() && sp.items[olen].PtrListHead().Prev() != sp.items[olen-1].PtrListHead() {
 			c := sp.items[olen].PtrListHead().Prev()
 			p := sp.items[olen-1].PtrListHead()
 			Log(LogFatal, "not connect sp.items[olen-1]=%p <- sp.items[olen]=%p", p, c)
@@ -481,7 +454,7 @@ func (sp *samepleItemPool) insertToPool(reverse uint64, mu sync.Locker) (newItem
 }
 
 //go:norace
-func (sp *samepleItemPool) getWithFn(reverse uint64, mu sync.Locker) (new MapItem, nPool *samepleItemPool, fn unlocker) {
+func (sp *samepleItemPool[K, V]) getWithFn(reverse uint64, mu sync.Locker) (new MapItem[K, V], nPool *samepleItemPool[K, V], fn unlocker) {
 
 	items := *sp.ptrItems()
 	olen := items.Len()
@@ -536,7 +509,7 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu sync.Locker) (new MapIte
 		if !found {
 			goto RETRY
 		}
-		items := sp.itemSlice(false)
+		items := sp.ptrItems()
 		new = items._at(idx, true, false)
 		if new == nil {
 			goto RETRY
@@ -558,7 +531,9 @@ func (sp *samepleItemPool) getWithFn(reverse uint64, mu sync.Locker) (new MapIte
 			atomic.StoreUint64(&new.PtrMapHead().reverse, oReverse)
 			goto RETRY
 		}
-		new.PtrListHead().MarkForDelete()
+		if !new.PtrListHead().IsSingle() {
+			new.PtrListHead().MarkForDelete()
+		}
 		return new, nil, fn
 	}
 
@@ -575,7 +550,7 @@ RETRY:
 // linkedEnds returns the first and the last of sp.items[:n] that are in the
 // list: purged items stay in the array unlinked. insertToPool and expand
 // call it with a live item in sp.items[:n].
-func (sp *samepleItemPool) linkedEnds(n int) (head, tail int) {
+func (sp *samepleItemPool[K, V]) linkedEnds(n int) (head, tail int) {
 	head, tail = 0, n-1
 	for sp.items[head].ListHead.Empty() {
 		head++
@@ -583,10 +558,30 @@ func (sp *samepleItemPool) linkedEnds(n int) (head, tail int) {
 	for sp.items[tail].ListHead.Empty() {
 		tail--
 	}
+	base := uintptr(unsafe.Pointer(&sp.items[0].ListHead))
+	stride := SampleItemSize[K, V]()
+	index := func(link *elist_head.ListHead) (int, bool) {
+		delta := uintptr(unsafe.Pointer(link)) - base
+		return int(delta / stride), delta < uintptr(n)*stride && delta%stride == 0
+	}
+	for {
+		i, inside := index(sp.items[head].ListHead.Prev())
+		if !inside {
+			break
+		}
+		head = i
+	}
+	for {
+		i, inside := index(sp.items[tail].ListHead.Next())
+		if !inside {
+			break
+		}
+		tail = i
+	}
 	return
 }
 
-func (sp *samepleItemPool) expand(mu sync.Locker) (unlocker, error) {
+func (sp *samepleItemPool[K, V]) expand(mu sync.Locker) (unlocker, error) {
 	var fn unlocker
 	if mu != nil {
 		mu.Lock()
@@ -616,31 +611,25 @@ func (sp *samepleItemPool) expand(mu sync.Locker) (unlocker, error) {
 
 	nCap := PoolCap(len(sp.items))
 
-	newItems := make([]SampleItem, olen, nCap)
-	toPtrItemSlice(&newItems).CopyDataFrom(0, sp.ptrItems(), 0, olen)
+	newItems := newPoolItems[K, V](olen, nCap, true)
+	toPtrItemSlice[K, V](&newItems).CopyDataFrom(0, sp.ptrItems(), 0, olen)
 
-	// Links are offsets; the copied ends still point relative to the old
-	// array, so connect them straight to the heap neighbours (no stack heads).
-	err = prevItem.ReplaceNext(&newItems[head].ListHead, &newItems[tail].ListHead, nextItem)
+	first, last := linkPoolItems(newItems, -1)
+	err = prevItem.ReplaceNext(&newItems[first].ListHead, &newItems[last].ListHead, nextItem)
 	if err != nil {
 		Log(LogFatal, "fail to replace newItems")
 	}
 
 	oldItems := sp.ptrItems().dup()
-	sp.publishItems(toPtrItemSlice(&newItems))
+	sp.publishItems(toPtrItemSlice[K, V](&newItems))
 
 	// for debug
-	oldItemFirst := oldItems.at(0).Prev().Next().PtrMapHead()
-	oldItemNext := oldItems.at(olen - 1).Next().PtrMapHead()
-	_ = oldItemFirst
-	_ = oldItemNext
-	ItemNext := sp.items[olen-1].Next().PtrMapHead()
-	_ = ItemNext
+	_ = oldItems
 
 	if IsDebug() {
 		var b strings.Builder
 		for i := range sp.items {
-			sp.items[i].PtrMapHead().dump(&b)
+			sp.items[i].PtrMapHead().dump[K, V](&b)
 		}
 		fmt.Printf("A: itemPool.items\n%s\n", b.String())
 	}
@@ -652,9 +641,9 @@ func (sp *samepleItemPool) expand(mu sync.Locker) (unlocker, error) {
 // nextListHeadOfSampleItem returns the links of an item whose neighbours are
 // the adjacent slots of the same []SampleItem. All three scratch items live in
 // one array, so no offset crosses into memory that can move.
-func nextListHeadOfSampleItem() elist_head.ListHead {
+func nextListHeadOfSampleItem[K Key[K], V any]() elist_head.ListHead {
 
-	items := make([]SampleItem, 3)
+	items := make([]SampleItem[K, V], 3)
 
 	elist_head.InitAsEmpty(items[0].PtrListHead(), items[2].PtrListHead())
 	items[2].InsertBefore(items[1].PtrListHead())
@@ -664,9 +653,9 @@ func nextListHeadOfSampleItem() elist_head.ListHead {
 
 // holeListHeadsOfSampleItem returns the links of the slots just before and just
 // after an unlinked slot, so the chain skips that slot.
-func holeListHeadsOfSampleItem() (before, after elist_head.ListHead) {
+func holeListHeadsOfSampleItem[K Key[K], V any]() (before, after elist_head.ListHead) {
 
-	items := make([]SampleItem, 5)
+	items := make([]SampleItem[K, V], 5)
 
 	elist_head.InitAsEmpty(items[0].PtrListHead(), items[4].PtrListHead())
 	items[4].InsertBefore(items[3].PtrListHead())
@@ -675,7 +664,7 @@ func holeListHeadsOfSampleItem() (before, after elist_head.ListHead) {
 	return items[1].ListHead, items[3].ListHead
 }
 
-func (sp *samepleItemPool) findIdx(reverse uint64) (int, error) {
+func (sp *samepleItemPool[K, V]) findIdx(reverse uint64) (int, error) {
 
 	for i := range sp.items {
 		if reverse <= sp.items[i].reverse {
@@ -686,18 +675,18 @@ func (sp *samepleItemPool) findIdx(reverse uint64) (int, error) {
 
 }
 
-func (sp *samepleItemPool) split(idx int) (nPool *samepleItemPool, err error) {
+func (sp *samepleItemPool[K, V]) split(idx int) (nPool *samepleItemPool[K, V], err error) {
 	return sp._split(idx, true)
 
 }
-func (sp *samepleItemPool) _split(idx int, connect bool) (nPool *samepleItemPool, err error) {
+func (sp *samepleItemPool[K, V]) _split(idx int, connect bool) (nPool *samepleItemPool[K, V], err error) {
 
 	nlen := int64(len(sp.items))
 	if int(nlen) <= idx {
 		return nil, ErrIdxOverflow
 	}
 
-	nPool = &samepleItemPool{}
+	nPool = &samepleItemPool[K, V]{reusable: sp.reusable}
 
 	if !atomic.CompareAndSwapInt64(&nlen, int64(len(sp.items)), nlen+1) {
 		return sp._split(idx, connect)
@@ -717,12 +706,12 @@ func (sp *samepleItemPool) _split(idx int, connect bool) (nPool *samepleItemPool
 
 }
 
-func (sp *samepleItemPool) initFreeList() {
+func (sp *samepleItemPool[K, V]) initFreeList() {
 
 	elist_head.InitAsEmpty(&sp.freeHead, &sp.freeTail)
 }
 
-func (sp *samepleItemPool) PushWithOrder(item *SampleItem) error {
+func (sp *samepleItemPool[K, V]) PushWithOrder(item *SampleItem[K, V]) error {
 
 	p := uintptr(unsafe.Pointer(item.PtrListHead()))
 
@@ -747,7 +736,7 @@ ADD_LAST:
 	return err
 }
 
-func (sp *samepleItemPool) shrinkLen() {
+func (sp *samepleItemPool[K, V]) shrinkLen() {
 
 	pItemSlice := sp.ptrItems()
 	l := pItemSlice.Len()
@@ -771,38 +760,42 @@ type sliceHeader struct {
 	len  int
 	cap  int
 }
-type itemSlice struct {
+type itemSlice[K Key[K], V any] struct {
 	sliceHeader
 }
 
-const sampleItemItemsOffset = unsafe.Offsetof(EmptysamepleItemPool.items)
-const itemSize = unsafe.Sizeof(SampleItem{})
-
-func toPtrItemSlice(items *[]SampleItem) (list *itemSlice) {
-	return (*itemSlice)(unsafe.Pointer(items))
+func sampleItemItemsOffset[K Key[K], V any]() uintptr {
+	return unsafe.Offsetof(EmptysamepleItemPool[K, V]().items)
+}
+func itemSize[K Key[K], V any]() uintptr {
+	return unsafe.Sizeof(SampleItem[K, V]{})
 }
 
-func toItemSlice(items []SampleItem) (list itemSlice) {
-	slice := (*itemSlice)(unsafe.Pointer(&items))
+func toPtrItemSlice[K Key[K], V any](items *[]SampleItem[K, V]) (list *itemSlice[K, V]) {
+	return (*itemSlice[K, V])(unsafe.Pointer(items))
+}
+
+func toItemSlice[K Key[K], V any](items []SampleItem[K, V]) (list itemSlice[K, V]) {
+	slice := (*itemSlice[K, V])(unsafe.Pointer(&items))
 	list.data = atomic.LoadPointer(&slice.data)
 	list.len = atomic_util.LoadInt(&slice.len)
 	list.cap = atomic_util.LoadInt(&slice.cap)
 	return
 }
 
-func (sp *samepleItemPool) ptrItems() (result *itemSlice) {
-	return (*itemSlice)(unsafe.Add(unsafe.Pointer(sp), sampleItemItemsOffset))
+func (sp *samepleItemPool[K, V]) ptrItems() (result *itemSlice[K, V]) {
+	return (*itemSlice[K, V])(unsafe.Add(unsafe.Pointer(sp), sampleItemItemsOffset[K, V]()))
 }
 
 // publishItems replaces the array under the bucket lock. An odd publication
 // means readers cannot yet pair its data pointer with its length.
-func (sp *samepleItemPool) publishItems(items *itemSlice) {
+func (sp *samepleItemPool[K, V]) publishItems(items *itemSlice[K, V]) {
 	sp.publication.Add(1)
 	sp.ptrItems().CopyFrom(items, 0, items.Len())
 	sp.publication.Add(1)
 }
 
-func (sp *samepleItemPool) itemSlice(isNoneZero bool) (result itemSlice) {
+func (sp *samepleItemPool[K, V]) itemSlice(isNoneZero bool) (result itemSlice[K, V]) {
 	for {
 		//result = *sp.ptrItems()
 		ptr := sp.ptrItems()
@@ -820,12 +813,12 @@ func (sp *samepleItemPool) itemSlice(isNoneZero bool) (result itemSlice) {
 	return
 }
 
-func (list *itemSlice) at(i int) (result *SampleItem) {
+func (list *itemSlice[K, V]) at(i int) (result *SampleItem[K, V]) {
 
 	return list._at(i, true, false)
 }
 
-func (list *itemSlice) _at(i int, checklen bool, skipOnDelete bool) (result *SampleItem) {
+func (list *itemSlice[K, V]) _at(i int, checklen bool, skipOnDelete bool) (result *SampleItem[K, V]) {
 
 	if checklen && atomic_util.LoadInt(&list.len) <= i {
 		return nil
@@ -834,31 +827,31 @@ func (list *itemSlice) _at(i int, checklen bool, skipOnDelete bool) (result *Sam
 	}
 
 	data := atomic.LoadPointer(&list.data)
-	pCur := unsafe.Add(data, i*int(itemSize))
+	pCur := unsafe.Add(data, i*int(itemSize[K, V]()))
 	if !skipOnDelete {
-		return (*SampleItem)(pCur)
+		return (*SampleItem[K, V])(pCur)
 	}
 
-	return skipDeletedItems((*SampleItem)(pCur), (*SampleItem)(data))
+	return skipDeletedItems[K, V]((*SampleItem[K, V])(pCur), (*SampleItem[K, V])(data))
 }
 
-func skipDeletedItems(item, first *SampleItem) *SampleItem {
+func skipDeletedItems[K Key[K], V any](item, first *SampleItem[K, V]) *SampleItem[K, V] {
 	for item.IsDeleted() && item != first {
-		item = (*SampleItem)(unsafe.Add(unsafe.Pointer(item), -int(itemSize)))
+		item = (*SampleItem[K, V])(unsafe.Add(unsafe.Pointer(item), -int(itemSize[K, V]())))
 	}
 	return item
 }
 
-func (list *itemSlice) Len() int {
+func (list *itemSlice[K, V]) Len() int {
 
 	return atomic_util.LoadInt(&list.len)
 }
 
-func (list *itemSlice) Cap() int {
+func (list *itemSlice[K, V]) Cap() int {
 
 	return atomic_util.LoadInt(&list.cap)
 }
-func (list *itemSlice) init() {
+func (list *itemSlice[K, V]) init() {
 	atomic.StorePointer(&list.data, nil)
 	atomic_util.StoreInt(&list.len, 0)
 	atomic_util.StoreInt(&list.cap, 0)
@@ -866,7 +859,7 @@ func (list *itemSlice) init() {
 }
 
 //go:norace
-func (list *itemSlice) CopyFrom(slist *itemSlice, head, len int) {
+func (list *itemSlice[K, V]) CopyFrom(slist *itemSlice[K, V], head, len int) {
 	scap := atomic_util.LoadInt(&slist.cap)
 
 	old := *list
@@ -891,57 +884,71 @@ FAIL:
 	panic("fail copy")
 }
 
-func itemSliceTobytes(list *itemSlice, idx, len int) (bytes []byte) {
-
-	return ptrTobytes(unsafe.Pointer(list._at(idx, false, false)),
-		list.Len()*int(itemSize),
-		(list.Cap()-idx)*int(itemSize))
-
+func (list *itemSlice[K, V]) CopyDataFrom(head int, src *itemSlice[K, V], start, count int) {
+	for i := 0; i < count; i++ {
+		to, from := list._at(head+i, false, false), src._at(start+i, false, false)
+		to.copyFrom(from)
+	}
 }
 
-func ptrTobytes(ptr unsafe.Pointer, len, cap int) (bytes []byte) {
-
-	list := (*sliceHeader)(unsafe.Pointer(&bytes))
-
-	if !atomic_util.CompareAndSwapInt(&list.len, 0, len) {
-		goto FAIL
-	}
-	if !atomic_util.CompareAndSwapInt(&list.cap, 0, cap) {
-		goto FAIL
-	}
-	if !atomic.CompareAndSwapPointer(&list.data, nil, ptr) {
-		goto FAIL
-	}
-
-	return
-
-FAIL:
-	panic("fail copy")
-}
-
-func (list *itemSlice) CopyDataFrom(head int, slist *itemSlice, shead, slen int) {
-
-	sbytes := itemSliceTobytes(slist, shead, slen)
-	bytes := itemSliceTobytes(list, head, slen)
-	copy(bytes, sbytes)
-}
-
-func (list *itemSlice) dup() (new *itemSlice) {
-	new = &itemSlice{}
+func (list *itemSlice[K, V]) dup() (new *itemSlice[K, V]) {
+	new = &itemSlice[K, V]{}
 	new.init()
 	new.CopyFrom(list, 0, list.Len())
 	return
 }
 
-func (list *itemSlice) reverseAt(idx int) (r uint64) {
+func (list *itemSlice[K, V]) reverseAt(idx int) (r uint64) {
 
-	const toReverse = unsafe.Offsetof(EmptySampleHMapEntry.reverse)
-	ptr := unsafe.Add(atomic.LoadPointer(&list.data), idx*int(SampleItemSize)+int(toReverse))
+	var toReverse = unsafe.Offsetof(EmptySampleHMapEntry[K, V]().reverse)
+	ptr := unsafe.Add(atomic.LoadPointer(&list.data), idx*int(SampleItemSize[K, V]())+int(toReverse))
 	r = atomic.LoadUint64((*uint64)(ptr))
 	return r
 }
 
-func (list *itemSlice) reduceCap() int {
+func (list *itemSlice[K, V]) reduceCap() int {
 
 	return 0
+}
+
+func newPoolItems[K Key[K], V any](length, capacity int, reusable bool) []Entry[K, V] {
+	items := make([]Entry[K, V], length, capacity)
+	if reusable {
+		for i := range items[:capacity] {
+			items[:capacity][i].reusable = true
+		}
+	}
+	return items
+}
+func copyPoolItems[K Key[K], V any](dst, src []Entry[K, V]) {
+	for i := range src {
+		dst[i].copyFrom(&src[i])
+	}
+}
+
+func linkPoolItems[K Key[K], V any](items []Entry[K, V], exclude int) (first, last int) {
+	first, last = -1, -1
+	for i := range items {
+		items[i].ListHead.Init()
+		if i == exclude || items[i].IsIgnored() || !items[i].waitPayload() {
+			continue
+		}
+		if first < 0 {
+			first = i
+		}
+		last = i
+	}
+	if first == last {
+		return
+	}
+	elist_head.InitAsEmpty(&items[first].ListHead, &items[last].ListHead)
+	for i := first + 1; i < last; i++ {
+		if i == exclude || items[i].IsIgnored() || !items[i].waitPayload() {
+			continue
+		}
+		if _, err := items[last].ListHead.InsertBefore(&items[i].ListHead); err != nil {
+			panic(err)
+		}
+	}
+	return
 }

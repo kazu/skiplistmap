@@ -58,9 +58,9 @@ func runA5LoserAt(t *testing.T, point string) {
 	lower := regionKeys(top, 0x0, 16)
 	items := newStepItems(append(append([]string{}, upper...), lower...))
 	upperItems, lowerItems := items[:len(upper)], items[len(upper):]
-	m := newWrapHMap(skiplistmap.NewHMap())
-	skiplistmap.MaxPefBucket(2)(m.base)
-	skiplistmap.BucketMode(skiplistmap.CombineSearch4)(m.base)
+	m := newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any]())
+	skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](2)(m.base)
+	skiplistmap.BucketMode[skiplistmap.StringKey, any](skiplistmap.CombineSearch4)(m.base)
 
 	s := newStepper(t)
 	var stored []string
@@ -69,7 +69,7 @@ func runA5LoserAt(t *testing.T, point string) {
 	// of bucketFromPool for it.
 	for i := range upperItems {
 		m.base.StoreItem(&upperItems[i])
-		stored = append(stored, upperItems[i].K)
+		stored = append(stored, string(upperItems[i].Key()))
 		if s.total("map.makeBucket.claimed") > 0 {
 			break
 		}
@@ -84,16 +84,16 @@ func runA5LoserAt(t *testing.T, point string) {
 	next := 0
 	for ; next < len(lowerItems); next++ {
 		st := s.stopAt("map.makeBucket.claimed", isSecond(nodeOf(&lowerItems[next])))
-		d := goStep(t, func(it *skiplistmap.SampleItem) func() {
+		d := goStep(t, func(it *skiplistmap.SampleItem[skiplistmap.StringKey, any]) func() {
 			return func() { m.base.StoreItem(it) }
 		}(&lowerItems[next]))
-		stored = append(stored, lowerItems[next].K)
+		stored = append(stored, string(lowerItems[next].Key()))
 		select {
 		case <-st.reached:
 			stopW, doneW = st, d
 		case <-d:
 		case <-time.After(10 * time.Second):
-			t.Fatalf("StoreItem(%q) neither split nor finished", lowerItems[next].K)
+			t.Fatalf("StoreItem(%q) neither split nor finished", string(lowerItems[next].Key()))
 		}
 		if stopW != nil {
 			next++
@@ -116,7 +116,7 @@ func runA5LoserAt(t *testing.T, point string) {
 	stopPair := s.stopAt("map.makeBucket.pairFound", nil)
 	stopL := s.stopAt("map.makeBucket.claimed", isSecond(nodeOf(loser)))
 	doneL := goStep(t, func() { m.base.StoreItem(loser) })
-	stored = append(stored, loser.K)
+	stored = append(stored, string(loser.Key()))
 	stopPair.waitReached(t, doneL)
 
 	// Move the winner to point.
@@ -138,10 +138,10 @@ func runA5LoserAt(t *testing.T, point string) {
 	stopL.waitReached(t, doneL)
 	got := "none"
 	if stopL.a != nil {
-		got = fmt.Sprintf("%016x", skiplistmap.StepBucketReverse(stopL.a))
+		got = fmt.Sprintf("%016x", skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](stopL.a))
 	}
 	t.Logf("winner at %s (y %016x, state %d): the loser got y: %v, got bucket: %v",
-		point, skiplistmap.StepBucketReverse(y), stateW, stopL.a == y, got)
+		point, skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](y), stateW, stopL.a == y, got)
 	if point != "done" && stopL.a != nil {
 		// Keep both stopped when the test ends, so that the loser does not
 		// initialize the dummy of y again while later tests run.
@@ -160,12 +160,12 @@ func runA5LoserAt(t *testing.T, point string) {
 	}
 
 	if n := s.count("map.insertBucket.begin", y); n != 1 {
-		t.Fatalf("the dummy of y (%016x) was initialized %d times", skiplistmap.StepBucketReverse(y), n)
+		t.Fatalf("the dummy of y (%016x) was initialized %d times", skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](y), n)
 	}
 	if skiplistmap.StepDirectNext(dummy) == dummy {
-		t.Fatalf("the dummy of y (%016x) points to itself", skiplistmap.StepBucketReverse(y))
+		t.Fatalf("the dummy of y (%016x) points to itself", skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](y))
 	}
-	if err := skiplistmap.StepCheckLists(m.base); err != nil {
+	if err := skiplistmap.StepCheckLists[skiplistmap.StringKey, any](m.base); err != nil {
 		t.Fatalf("lists are broken: %v", err)
 	}
 	assertStoredInOrder(t, m, stored)

@@ -4,45 +4,39 @@ import (
 	"math/bits"
 	"runtime"
 	"testing"
-	"unsafe"
 
-	"github.com/kazu/elist_head"
 	"github.com/kazu/skiplistmap"
 )
 
-// fixedHashItem is a user-defined item whose KeyHash returns k and c as they
-// are, so that two items can share the hash k and differ in the conflict c.
-type fixedHashItem struct {
-	skiplistmap.SampleItem
+// fixedHashKey allows collision tests to choose both hash components.
+type fixedHashKey struct {
+	name string
 	k, c uint64
 }
 
-func (x *fixedHashItem) KeyHash() (uint64, uint64) { return x.k, x.c }
+func (k fixedHashKey) KeyHash() (uint64, uint64)     { return k.k, k.c }
+func (k fixedHashKey) Equal(other fixedHashKey) bool { return k == other }
 
-func (x *fixedHashItem) HmapEntryFromListHead(l *elist_head.ListHead) skiplistmap.HMapEntry {
-	return (*fixedHashItem)(unsafe.Pointer(skiplistmap.SampleItemFromListHead(l)))
-}
+type fixedHashItem = skiplistmap.Entry[fixedHashKey, any]
 
 // storeSameReverse stores a and b, two items of the hash k whose reversed
 // value is r, with the conflicts 1 and 2, in a new map.
-func storeSameReverse(t *testing.T, r uint64) (m *skiplistmap.Map, a, b *fixedHashItem) {
+func storeSameReverse(t *testing.T, r uint64) (m *skiplistmap.Map[fixedHashKey, any],
+
+	a, b *fixedHashItem) {
 	t.Helper()
-	m = skiplistmap.New(skiplistmap.ItemFn(func() skiplistmap.MapItem { return (*fixedHashItem)(nil) }))
+	m = skiplistmap.New[fixedHashKey, any]()
 	k := bits.Reverse64(r)
-	a = &fixedHashItem{k: k, c: 1}
-	a.K = "a"
-	a.SetValue(1)
-	b = &fixedHashItem{k: k, c: 2}
-	b.K = "b"
-	b.SetValue(2)
+	a = skiplistmap.NewEntry[fixedHashKey, any](fixedHashKey{"a", k, 1}, 1)
+	b = skiplistmap.NewEntry[fixedHashKey, any](fixedHashKey{"b", k, 2}, 2)
 	m.StoreItem(a)
 	m.StoreItem(b)
 	if n := m.Len(); n != 2 {
 		t.Fatalf("Len() = %d, want 2", n)
 	}
 	var got []*fixedHashItem
-	m.RangeItem(func(item skiplistmap.MapItem) bool {
-		got = append(got, item.(*fixedHashItem))
+	m.RangeItem(func(item skiplistmap.MapItem[fixedHashKey, any]) bool {
+		got = append(got, item)
 		return true
 	})
 	if len(got) != 2 || got[0] != a || got[1] != b {
@@ -75,9 +69,9 @@ func Test_Repro_3_1_5_SameReverseDifferentConflictBothFound(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m, a, b := storeSameReverse(t, tc.r)
 			for _, x := range []*fixedHashItem{a, b} {
-				got, ok := m.LoadItemByHash(x.k, x.c)
-				if !ok || got.(*fixedHashItem) != x {
-					t.Errorf("LoadItemByHash(%#x, conflict %d) = %v, %v; want %q", x.k, x.c, got, ok, x.K)
+				got, ok := m.LoadItemByHash(x.Key().k, x.Key().c)
+				if !ok || got != x {
+					t.Errorf("LoadItemByHash(%#x, conflict %d) = %v, %v; want %q", x.Key().k, x.Key().c, got, ok, x.Key().name)
 				}
 			}
 			runtime.KeepAlive(a)
@@ -101,12 +95,12 @@ func Test_Repro_3_1_5_SameReverseSkipsDeleted(t *testing.T) {
 			}
 			del.Delete()
 			m.AddLen(-1)
-			got, ok := m.LoadItemByHash(keep.k, keep.c)
-			if !ok || got.(*fixedHashItem) != keep {
-				t.Errorf("LoadItemByHash(%#x, conflict %d) = %v, %v; want %q", keep.k, keep.c, got, ok, keep.K)
+			got, ok := m.LoadItemByHash(keep.Key().k, keep.Key().c)
+			if !ok || got != keep {
+				t.Errorf("LoadItemByHash(%#x, conflict %d) = %v, %v; want %q", keep.Key().k, keep.Key().c, got, ok, keep.Key().name)
 			}
-			if _, ok := m.LoadItemByHash(del.k, del.c); ok {
-				t.Errorf("LoadItemByHash(%#x, conflict %d) found the deleted %q", del.k, del.c, del.K)
+			if _, ok := m.LoadItemByHash(del.Key().k, del.Key().c); ok {
+				t.Errorf("LoadItemByHash(%#x, conflict %d) found the deleted %q", del.Key().k, del.Key().c, del.Key().name)
 			}
 			runtime.KeepAlive(a)
 			runtime.KeepAlive(b)

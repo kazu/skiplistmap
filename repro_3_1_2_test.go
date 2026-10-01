@@ -46,7 +46,7 @@ func withoutKey(keys []string, i int) []string {
 // self-linked node.
 func assertStoredIfLinked(t *testing.T, m *WrapHMap, keys []string) {
 	t.Helper()
-	if err := skiplistmap.StepCheckLists(m.base); err != nil {
+	if err := skiplistmap.StepCheckLists[skiplistmap.StringKey, any](m.base); err != nil {
 		t.Errorf("%v", err)
 		return
 	}

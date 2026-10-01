@@ -26,28 +26,24 @@ import (
 // map then holds the one key twice: both StoreItems return true, Len is 2,
 // and RangeItem yields both items.
 func Test_J51StoreSameNewKeyNoPositionLinkedTwice(t *testing.T) {
-	m := skiplistmap.New(
-		skiplistmap.MaxPefBucket(1<<20),
-		skiplistmap.BucketMode(skiplistmap.CombineSearch4),
-		skiplistmap.ItemFn(func() skiplistmap.MapItem { return (*a8Item)(nil) }),
-	)
+	m := skiplistmap.New[fixedHashKey, any](skiplistmap.MaxPefBucket[fixedHashKey, any](1<<20), skiplistmap.BucketMode[fixedHashKey, any](skiplistmap.CombineSearch4))
 	m1 := newA8Item("same", ^uint64(0), 1)
 	m2 := newA8Item("same", ^uint64(0), 1)
 
 	s := newStepper(t)
-	stop := s.stopAt("map.add2.bucketInsert", isNode(nodeOf(&m2.SampleItem)))
+	stop := s.stopAt("map.add2.bucketInsert", isNode(nodeOf(m2)))
 	var ok1, ok2 bool
 	done := goStep(t, func() { ok2 = m.StoreItem(m2) })
 	stop.waitReached(t, done)
 	runWithDeadline(t, 10*time.Second, func() { ok1 = m.StoreItem(m1) })
-	t.Logf("StoreItem(m1) reached add2.bucketInsert %d times", s.count("map.add2.bucketInsert", nodeOf(&m1.SampleItem)))
+	t.Logf("StoreItem(m1) reached add2.bucketInsert %d times", s.count("map.add2.bucketInsert", nodeOf(m1)))
 	stop.Release()
 	waitDone(t, done, "StoreItem(m2)")
 
 	var linked []string
 	runWithDeadline(t, 10*time.Second, func() {
-		m.RangeItem(func(item skiplistmap.MapItem) bool {
-			linked = append(linked, item.Key().(string))
+		m.RangeItem(func(item skiplistmap.MapItem[fixedHashKey, any]) bool {
+			linked = append(linked, item.Key().name)
 			return len(linked) < 16
 		})
 	})
@@ -86,20 +82,25 @@ func Test_J51TailPathNotTakenDuringSplit(t *testing.T) {
 	}
 	for _, point := range points {
 		t.Run(point, func(t *testing.T) {
-			items := newStepItems(regionKeys(0x3, 0xc, 16))
+			keys := regionKeys(0x3, 0xc, 16)
+			items := make([]skiplistmap.Entry[fixedHashKey, any], len(keys))
+			for i, key := range keys {
+				hash, conflict := skiplistmap.StringKey(key).KeyHash()
+				items[i].InitEntry(fixedHashKey{key, hash, conflict}, key)
+			}
 			m1 := newA8Item("same", ^uint64(0), 1)
 			m2 := newA8Item("same", ^uint64(0), 1)
-			m := newWrapHMap(skiplistmap.NewHMap())
-			skiplistmap.MaxPefBucket(2)(m.base)
-			skiplistmap.BucketMode(skiplistmap.CombineSearch4)(m.base)
+			m := skiplistmap.NewHMap[fixedHashKey, any]()
+			skiplistmap.MaxPefBucket[fixedHashKey, any](2)(m)
+			skiplistmap.BucketMode[fixedHashKey, any](skiplistmap.CombineSearch4)(m)
 
 			s := newStepper(t)
 			stop := s.stopAt(point, nil)
-			_, next, done := storeUntilStop(t, m, items, stop)
+			_, next, done := storeTypedUntilStop(t, m, items, stop)
 			var dones []<-chan struct{}
 			blocked := 0
-			store := func(it skiplistmap.MapItem) {
-				d := goStep(t, func() { m.base.StoreItem(it) })
+			store := func(it skiplistmap.MapItem[fixedHashKey, any]) {
+				d := goStep(t, func() { m.StoreItem(it) })
 				dones = append(dones, d)
 				if !waitAtMost(d, 500*time.Millisecond) {
 					blocked++

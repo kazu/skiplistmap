@@ -24,21 +24,21 @@ func keepStopped(st *stepStop) {
 // then stores the next item, which splits the same bucket, and stops it at
 // makeBucket.claimed as the loser. It returns both stops, the channels closed
 // when the two stores finish, and the keys stored.
-func splitSameBucketTwice(t *testing.T, s *stepper, m *WrapHMap, items []skiplistmap.SampleItem) (win, lose *stepStop, winDone, loseDone <-chan struct{}, stored []string) {
+func splitSameBucketTwice(t *testing.T, s *stepper, m *WrapHMap, items []skiplistmap.SampleItem[skiplistmap.StringKey, any]) (win, lose *stepStop, winDone, loseDone <-chan struct{}, stored []string) {
 	t.Helper()
 	next := 0
 	for ; next < len(items); next++ {
 		st := s.stopAt("map.makeBucket.claimed", isSecond(nodeOf(&items[next])))
-		d := goStep(t, func(it *skiplistmap.SampleItem) func() {
+		d := goStep(t, func(it *skiplistmap.SampleItem[skiplistmap.StringKey, any]) func() {
 			return func() { m.base.StoreItem(it) }
 		}(&items[next]))
-		stored = append(stored, items[next].K)
+		stored = append(stored, string(items[next].Key()))
 		select {
 		case <-st.reached:
 			win, winDone = st, d
 		case <-d:
 		case <-time.After(10 * time.Second):
-			t.Fatalf("StoreItem(%q) neither split nor finished", items[next].K)
+			t.Fatalf("StoreItem(%q) neither split nor finished", string(items[next].Key()))
 		}
 		if win != nil {
 			next++
@@ -50,10 +50,10 @@ func splitSameBucketTwice(t *testing.T, s *stepper, m *WrapHMap, items []skiplis
 	}
 	lose = s.stopAt("map.makeBucket.claimed", isSecond(nodeOf(&items[next])))
 	loseDone = goStep(t, func() { m.base.StoreItem(&items[next]) })
-	stored = append(stored, items[next].K)
+	stored = append(stored, string(items[next].Key()))
 	lose.waitReached(t, loseDone)
 	if lose.a != nil && lose.a != win.a {
-		t.Fatalf("the second store split another bucket: %016x", skiplistmap.StepBucketReverse(lose.a))
+		t.Fatalf("the second store split another bucket: %016x", skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](lose.a))
 	}
 	return
 }
@@ -95,7 +95,7 @@ func Test_ReproA5InsertBeforeInitializedDummyMakesARing(t *testing.T) {
 	bItems, cItems := sp.extra[:len(bKeys)], sp.extra[len(bKeys):]
 	eItem := &cItems[len(cItems)-1]
 	cItems = cItems[:len(cItems)-1]
-	if r := skiplistmap.StepBucketReverse(y) >> 56; r != 0x34 {
+	if r := skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](y) >> 56; r != 0x34 {
 		t.Fatalf("the new bucket has reverse %02x.., want 34..", r)
 	}
 	dummyY := skiplistmap.StepBucketDummy(y)
@@ -118,8 +118,9 @@ func Test_ReproA5InsertBeforeInitializedDummyMakesARing(t *testing.T) {
 	var bp unsafe.Pointer
 	for i := range bItems {
 		m.base.StoreItem(&bItems[i])
-		sp.stored = append(sp.stored, bItems[i].K)
-		if a, _ := s.args("map.makeBucket.claimed"); a != nil && skiplistmap.StepBucketReverse(a)>>56 == 0x32 {
+		sp.stored = append(sp.stored, string(bItems[i].Key()))
+		if a, _ := s.args("map.makeBucket.claimed"); a != nil &&
+			skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](a)>>56 == 0x32 {
 			bp = a
 			break
 		}
@@ -132,7 +133,7 @@ func Test_ReproA5InsertBeforeInitializedDummyMakesARing(t *testing.T) {
 	cWin, cLose, cWinDone, cLoseDone, cStored := splitSameBucketTwice(t, s, m, cItems)
 	sp.stored = append(sp.stored, cStored...)
 	c := cWin.a
-	if r := skiplistmap.StepBucketReverse(c) >> 56; r != 0x33 {
+	if r := skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](c) >> 56; r != 0x33 {
 		t.Fatalf("the split above b' made reverse %02x.., want 33..", r)
 	}
 	if fixed != (cLose.a == nil) {
@@ -145,7 +146,7 @@ func Test_ReproA5InsertBeforeInitializedDummyMakesARing(t *testing.T) {
 		cWin.Release()
 		waitDone(t, cWinDone, "winner of c")
 		m.base.StoreItem(eItem)
-		sp.stored = append(sp.stored, eItem.K)
+		sp.stored = append(sp.stored, string(eItem.Key()))
 		if n := s.count("map.insertBucket.begin", y); n != 1 {
 			t.Errorf("y was inserted %d times, want 1", n)
 		}
@@ -204,7 +205,7 @@ func Test_ReproA5InsertBeforeInitializedDummyMakesARing(t *testing.T) {
 	}
 	if skiplistmap.StepDirectNext(dummyY) == e && skiplistmap.StepDirectNext(e) == dummyY {
 		t.Errorf("e (reverse %016x) and the dummy of y point to each other only",
-			reverseOf(eItem.K))
+			reverseOf(string(eItem.Key())))
 	}
 	for _, st := range []*stepStop{cLinked, cLinked2, yLinked, eClaimed} {
 		keepStopped(st)

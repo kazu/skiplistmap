@@ -1,5 +1,7 @@
 package skiplistmap_test
 
+import "github.com/kazu/skiplistmap"
+
 import (
 	"fmt"
 	"sync/atomic"
@@ -22,12 +24,12 @@ func FuzzMapOperations(f *testing.F) {
 				switch data[i] % 4 {
 				case 0:
 					value := int(data[i+2])
-					if !m.Set(key, value) {
+					if !m.Set(skiplistmap.StringKey(key), value) {
 						t.Fatalf("%s operation %d: Set failed", p.name, i/3)
 					}
 					model[key] = value
 				case 1:
-					value, ok := m.Get([]byte(key))
+					value, ok := m.Get(skiplistmap.StringKey([]byte(key)))
 					if ok != exists || (ok && value != want) {
 						t.Fatalf("%s operation %d: Get=(%v,%v), want (%d,%v)", p.name, i/3, value, ok, want, exists)
 					}
@@ -36,14 +38,14 @@ func FuzzMapOperations(f *testing.F) {
 					if data[i]%4 == 3 {
 						remove = m.Purge
 					}
-					if ok := remove([]byte(key)); ok != exists {
+					if ok := remove(skiplistmap.StringKey([]byte(key))); ok != exists {
 						t.Fatalf("%s operation %d: remove=%v, want %v", p.name, i/3, ok, exists)
 					}
 					delete(model, key)
 				}
 				seen := map[string]int{}
-				m.Range(func(key, value interface{}) bool {
-					k := key.(string)
+				m.Range(func(key skiplistmap.StringKey, value any) bool {
+					k := string(key)
 					if _, duplicate := seen[k]; duplicate {
 						t.Errorf("%s: duplicate key %q", p.name, k)
 					}
@@ -75,12 +77,12 @@ func Test_MapsWithDifferentOptions(t *testing.T) {
 	runTogether(len(params), func(g int) {
 		m := params[g].newMap().base
 		for i := 0; i < 64; i++ {
-			if !m.Set(fmt.Sprintf("shared-%d", i), g*100+i) {
+			if !m.Set(skiplistmap.StringKey(fmt.Sprintf("shared-%d", i)), g*100+i) {
 				t.Errorf("%s: Set(%d) failed", params[g].name, i)
 			}
 		}
 		for i := 0; i < 64; i++ {
-			value, ok := m.Get(fmt.Sprintf("shared-%d", i))
+			value, ok := m.Get(skiplistmap.StringKey(fmt.Sprintf("shared-%d", i)))
 			if !ok || value != g*100+i {
 				t.Errorf("%s: Get(%d)=(%v,%v), want %d", params[g].name, i, value, ok, g*100+i)
 			}
@@ -126,20 +128,20 @@ func Test_MapConcurrentHistories(t *testing.T) {
 						op.start = atomic.AddUint64(&clock, 1)
 						switch op.kind {
 						case 's':
-							op.ok = m.Set(op.key, op.value)
+							op.ok = m.Set(skiplistmap.StringKey(op.key), op.value)
 						case 'g':
-							op.result, op.ok = m.Get(op.key)
+							op.result, op.ok = m.Get(skiplistmap.StringKey(op.key))
 						case 'd':
-							op.ok = m.Delete(op.key)
+							op.ok = m.Delete(skiplistmap.StringKey(op.key))
 						case 'p':
-							op.ok = m.Purge(op.key)
+							op.ok = m.Purge(skiplistmap.StringKey(op.key))
 						}
 						op.end = atomic.AddUint64(&clock, 1)
 					}
 				})
 				final := map[string]int{}
-				m.Range(func(key, value interface{}) bool {
-					final[key.(string)] = value.(int)
+				m.Range(func(key skiplistmap.StringKey, value any) bool {
+					final[string(key)] = value.(int)
 					return true
 				})
 				if m.Len() != len(final) || !canLinearize(initial, final, history, 0) {

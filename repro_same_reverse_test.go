@@ -10,15 +10,12 @@ import (
 	"github.com/kazu/skiplistmap"
 )
 
-// hashedItem is an item whose key hash is given, so that two keys can share
-// the reversed hash and differ only in the conflict.
-type hashedItem struct {
-	skiplistmap.SampleItem
-	k, conflict uint64
-}
+type hashedItem = skiplistmap.Entry[fixedHashKey, any]
 
-func (s *hashedItem) KeyHash() (uint64, uint64) {
-	return s.k, s.conflict
+func newHashStepMap() *skiplistmap.Map[fixedHashKey, any] {
+	return skiplistmap.New[fixedHashKey, any](
+		skiplistmap.MaxPefBucket[fixedHashKey, any](1<<20),
+		skiplistmap.BucketMode[fixedHashKey, any](skiplistmap.CombineSearch4))
 }
 
 // Items y1 and y2 have the same key K, and x has another key with the same
@@ -34,26 +31,24 @@ func (s *hashedItem) KeyHash() (uint64, uint64) {
 func Test_SameKeyBehindAnotherKeyOfTheSameHashIsFound(t *testing.T) {
 	items := make([]hashedItem, 3)
 	for i, c := range []uint64{1, 1, 2} {
-		items[i].K = "same-reverse"
-		items[i].k, items[i].conflict = 0x0123456789abcdef, c
-		items[i].SetValue(&list_head.ListHead{})
+		items[i].InitEntry(fixedHashKey{"same-reverse", 0x0123456789abcdef, c}, &list_head.ListHead{})
 	}
 	y1, y2, x := &items[0], &items[1], &items[2]
-	m := newStepMap()
+	m := newHashStepMap()
 
 	s := newStepper(t)
-	stop := s.stopAt("elist.insert.begin", isNode(nodeOf(&y1.SampleItem)))
-	done := goStep(t, func() { m.base.StoreItem(y1) })
+	stop := s.stopAt("elist.insert.begin", isNode(nodeOf(y1)))
+	done := goStep(t, func() { m.StoreItem(y1) })
 	stop.waitReached(t, done)
-	m.base.StoreItem(y2)
-	m.base.StoreItem(x)
+	m.StoreItem(y2)
+	m.StoreItem(x)
 	stop.Release()
 	waitDone(t, done, "StoreItem(y1)")
 
 	if !y1.PtrListHead().IsSingle() && !y2.PtrListHead().IsSingle() {
 		t.Errorf("y1 and y2 are both linked as entries of one key")
 	}
-	if got := m.base.Len(); got != 2 {
+	if got := m.Len(); got != 2 {
 		t.Errorf("Len() = %d, want 2", got)
 	}
 	runtime.KeepAlive(items)

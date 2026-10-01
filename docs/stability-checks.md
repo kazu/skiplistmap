@@ -1,8 +1,10 @@
 # Stability checks
 
 この開発ブランチはGo 1.27.1と隣の`elist_head`・`loncha`のcheckoutを使う。
-elist_headは`cab6a1bff65b540c8a777c20e9a41cb8899b6d4c`、lonchaは
-`1a71ffebf3c97146f935f257d249261470a54b46`を比較の基準とする。
+elist_headは`1a5836c5af98d30360cfd3974dd0bb4addf2e0fa`、lonchaは
+`1a71ffebf3c97146f935f257d249261470a54b46`を検証対象とする。
+型移行前の比較ではelist_headの`cab6a1bff65b540c8a777c20e9a41cb8899b6d4c`を使用した。
+017の依存修正は、隣接要素を並行して置換したときの進行停止を防ぐ。
 `deps/elist_head`のsubmoduleは使わない。
 
 既存checkoutを切り替えず依存側の専用worktreeで検証する場合は、Go workspaceで
@@ -25,12 +27,16 @@ Nushell でも `make ci` を実行する。
 デフォルトの `GOMAXPROCS` は4、プロセスの仮想メモリ上限は4 GiB。
 
 ゲートは vet、通常、race、checkptr、`stephook` タグ付き race の順に確認する。
-タグ付き検証は009の変更に関連する RMap の全テスト、バケットの J51/J56、
+タグ付き検証は RMap の全テスト、バケットの J51/J56、型付きMap・キー照合・
+slot再利用・コピー更新・分割と更新の並行テスト、elist_head の置換テスト、
 lista の `TestLenRestartsAfterCurrentNodeIsDeleted` を対象にする。
 通常・race・checkptr・vet は上記の全対象パッケージを検証する。
 各ビルドの Test・Example・Fuzz seed を一つずつ別プロセスで実行し、いずれかが
 失敗するとその出力と終了コードを表示して終了する。race 検出器のメモリが
 全テスト分蓄積しないようにするための分離であり、検出器は無効化しない。
+race付きの `Test_ConcurrentDeleteReinsert` と `Test_ConcurrentUpdateWhileGrowing` は、
+さらに `crashMapParams` の全4構成を別プロセスで実行する。各構成のキー数・
+goroutine数・操作回数は変えない。構成を追加した場合は `tools/ci.sh` の列挙も更新する。
 既存の `//go:nocheckptr` は残っているため、その関数内の安全性まで保証する
 検査ではない。checkptr は `-gcflags=all=-d=checkptr` を使用する。
 

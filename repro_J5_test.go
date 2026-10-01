@@ -42,7 +42,7 @@ func Test_ReproJ5LoserRelinksDummyAtStalePosition(t *testing.T) {
 			}()
 			sp.m.base.StoreItem(k)
 		})
-		sp.stored = append(sp.stored, k.K)
+		sp.stored = append(sp.stored, string(k.Key()))
 		waitDone(t, done, "StoreItem(K)")
 	}
 	if sp.lose.a != nil {
@@ -61,7 +61,8 @@ func Test_ReproJ5LoserRelinksDummyAtStalePosition(t *testing.T) {
 		store()
 		prev := skiplistmap.StepDirectPrev(p)
 		t.Logf("K is linked; the entry before the position the loser found is %016x", skiplistmap.StepListReverse(prev))
-		if skiplistmap.StepListReverse(prev) <= skiplistmap.StepBucketReverse(sp.b) {
+		if skiplistmap.StepListReverse(prev) <=
+			skiplistmap.StepBucketReverse[skiplistmap.StringKey, any](sp.b) {
 			found.Release()
 			t.Fatalf("the entry before the position the loser found is not above D")
 		}

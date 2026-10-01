@@ -16,7 +16,7 @@ type sameItemStores struct {
 	m     *WrapHMap
 	s     *stepper
 	keys  []string
-	items []skiplistmap.SampleItem
+	items []skiplistmap.SampleItem[skiplistmap.StringKey, any]
 
 	p, c, b, a *elist_head.ListHead
 
@@ -110,7 +110,7 @@ func (x *sameItemStores) logKeys(t *testing.T) {
 // Get cannot find.
 func (x *sameItemStores) check(t *testing.T, stored ...string) {
 	t.Helper()
-	if err := skiplistmap.StepCheckLists(x.m.base); err != nil {
+	if err := skiplistmap.StepCheckLists[skiplistmap.StringKey, any](x.m.base); err != nil {
 		t.Errorf("%v", err)
 	}
 	for _, k := range stored {

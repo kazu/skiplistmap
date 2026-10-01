@@ -83,7 +83,7 @@ func Test_Repro_3_1_1_LinkedItemOutsidePools(t *testing.T) {
 	if _, ok := m.Get(k1); !ok {
 		t.Fatalf("Get(%q) not found", k1)
 	}
-	if err := skiplistmap.StepCheckPooledItems(m.base); err != nil {
+	if err := skiplistmap.StepCheckPooledItems[skiplistmap.StringKey, any](m.base); err != nil {
 		t.Errorf("%v", err)
 	}
 }
@@ -92,17 +92,17 @@ func Test_Repro_3_1_1_LinkedItemOutsidePools(t *testing.T) {
 // address, without keeping the item alive in the caller's frame.
 //
 //go:noinline
-func weakItem(p unsafe.Pointer) (weak.Pointer[skiplistmap.SampleItem], uintptr) {
-	item := skiplistmap.SampleItemFromListHead((*elist_head.ListHead)(p))
+func weakItem(p unsafe.Pointer) (weak.Pointer[skiplistmap.SampleItem[skiplistmap.StringKey, any]], uintptr) {
+	item := skiplistmap.SampleItemFromListHead[skiplistmap.StringKey, any]((*elist_head.ListHead)(p))
 	return weak.Make(item), uintptr(unsafe.Pointer(item))
 }
 
 //go:noinline
-func weakAlive(wp weak.Pointer[skiplistmap.SampleItem]) bool {
+func weakAlive(wp weak.Pointer[skiplistmap.SampleItem[skiplistmap.StringKey, any]]) bool {
 	return wp.Value() != nil
 }
 
-var reuseSink [][]skiplistmap.SampleItem
+var reuseSink [][]skiplistmap.SampleItem[skiplistmap.StringKey, any]
 
 // Before the fix, after the interleaving of setPastExpand the old array was
 // referenced only by the offsets of the list of entries, which the GC does
@@ -125,7 +125,7 @@ func Test_Repro_3_1_1_LinkedItemFreed(t *testing.T) {
 	if wp.Value() != nil {
 		return
 	}
-	if skiplistmap.StepEntryLinked(m.base, addr) {
+	if skiplistmap.StepEntryLinked[skiplistmap.StringKey, any](m.base, addr) {
 		t.Errorf("the array of the item of %q (%#x) was freed; the list of entries still reaches it", k1, addr)
 	}
 
@@ -133,15 +133,17 @@ func Test_Repro_3_1_1_LinkedItemFreed(t *testing.T) {
 	defer func() { reuseSink = nil }()
 	reused := false
 	for i := 0; i < 4096 && !reused; i++ {
-		a := make([]skiplistmap.SampleItem, skiplistmap.CntOfPersamepleItemPool)
+		a := make([]skiplistmap.SampleItem[skiplistmap.StringKey, any], skiplistmap.CntOfPersamepleItemPool)
 		reuseSink = append(reuseSink, a)
 		lo := uintptr(unsafe.Pointer(&a[0]))
-		reused = lo <= addr && addr < lo+uintptr(len(a))*skiplistmap.SampleItemSize
+		reused = lo <= addr && addr < lo+uintptr(len(a))*
+			skiplistmap.SampleItemSize[skiplistmap.StringKey, any]()
+
 	}
 	if !reused {
 		t.Fatalf("no new array reused the freed memory")
 	}
-	if err := skiplistmap.StepCheckLists(m.base); err != nil {
+	if err := skiplistmap.StepCheckLists[skiplistmap.StringKey, any](m.base); err != nil {
 		t.Errorf("after reuse: %v", err)
 	}
 	if _, ok := m.Get(k1); !ok {

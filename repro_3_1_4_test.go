@@ -16,7 +16,7 @@ import (
 func assertKeyLinkedOnce(t *testing.T, m *WrapHMap, keys []string) {
 	t.Helper()
 	assertStoredInOrder(t, m, keys)
-	if !m.base.Delete(keys[1]) {
+	if !m.base.Delete(skiplistmap.StringKey(keys[1])) {
 		t.Fatalf("Delete(%q) = false", keys[1])
 	}
 	if _, ok := m.Get(keys[1]); ok {

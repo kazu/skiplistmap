@@ -10,8 +10,8 @@ func BenchmarkEntryCopyOtherRoutes(b *testing.B) {
 		b.Run(kind, func(b *testing.B) {
 			for _, op := range []string{"Set", "Get"} {
 				b.Run(op, func(b *testing.B) {
-					m := skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(kind == "Sample5"))
-					skiplistmap.ItemFn(func() skiplistmap.MapItem { return skiplistmap.EmptySampleHMapEntry })(m)
+					m := skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](kind == "Sample5"))
+
 					if !m.Set("value", 1) {
 						b.Fatal("initial Set")
 					}

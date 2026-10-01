@@ -124,6 +124,6 @@ func Test_N2NewHMapModeConcurrentRace(t *testing.T) {
 	t.Cleanup(func() { runtime.GOMAXPROCS(procs) })
 	stop1.Release()
 	runtime.Gosched()
-	skiplistmap.NewHMap()
+	skiplistmap.NewHMap[skiplistmap.StringKey, any]()
 	waitDone(t, done1, "G1")
 }

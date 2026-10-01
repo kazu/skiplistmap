@@ -31,9 +31,11 @@ func StepIsMarked(p unsafe.Pointer) bool {
 // StepBucketsForward returns the reverses of the buckets that a walk from the
 // head of the list of buckets reaches, in the way addBucket walks. It stops
 // after max buckets.
-func StepBucketsForward(h *Map, max int) (reverses []uint64) {
+func StepBucketsForward(h *Map[StringKey, any],
+
+	max int) (reverses []uint64) {
 	for cur := h.headBucket.Prev().Next(); !cur.Empty() && len(reverses) < max; cur = cur.Next() {
-		reverses = append(reverses, bucketFromListHead(cur).reverse)
+		reverses = append(reverses, bucketFromListHead[StringKey, any](cur).reverse)
 	}
 	return reverses
 }

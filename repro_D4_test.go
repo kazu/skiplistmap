@@ -24,13 +24,15 @@ import (
 
 // d4Map returns a map with embedded item pools that splits a bucket over 4
 // items, holding n keys, and the keys with their values.
-func d4Map(t *testing.T, n int) (*Map, map[string]string) {
+func d4Map(t *testing.T, n int) (*Map[StringKey, any],
+
+	map[string]string) {
 	t.Helper()
-	h := New(UseEmbeddedPool(true), MaxPefBucket(4))
+	h := New[StringKey, any](UseEmbeddedPool[StringKey, any](true), MaxPefBucket[StringKey, any](4))
 	want := map[string]string{}
 	for i := 0; i < n; i++ {
 		k := fmt.Sprintf("d4-%d", i)
-		if !h.Set(k, "v-"+k) {
+		if !h.Set(StringKey(k), "v-"+k) {
 			t.Fatalf("Set(%q) failed", k)
 		}
 		want[k] = "v-" + k
@@ -39,19 +41,22 @@ func d4Map(t *testing.T, n int) (*Map, map[string]string) {
 }
 
 // d4Levels is the number of level lists of a map.
-const d4Levels = int32(len(Map{}.levels))
+const d4Levels = int32(len(Map[StringKey, any]{}.levels))
 
 // d4LevelBuckets returns the buckets in the level list of level, walked
 // forward from its head.
-func d4LevelBuckets(t *testing.T, h *Map, level int32) []*bucket {
+func d4LevelBuckets(t *testing.T, h *Map[StringKey, any],
+
+	level int32) []*bucket[StringKey, any] {
 	t.Helper()
 	if h.isEmptyBylevel(level) {
 		return nil
 	}
-	var got []*bucket
+	var got []*bucket[StringKey, any]
+
 	head := h.levelBucket(level)
 	for cur := head.LevelHead.DirectPrev().DirectNext(); !cur.Empty(); {
-		b := bucketFromLevelHead(cur)
+		b := bucketFromLevelHead[StringKey, any](cur)
 		got = append(got, b)
 		cur = b.LevelHead.DirectNext()
 		if len(got) > 1<<20 {
@@ -63,9 +68,9 @@ func d4LevelBuckets(t *testing.T, h *Map, level int32) []*bucket {
 
 // d4LevelLists returns the buckets of every level list; index level-1 holds
 // the list of level.
-func d4LevelLists(t *testing.T, h *Map) [][]*bucket {
+func d4LevelLists(t *testing.T, h *Map[StringKey, any]) [][]*bucket[StringKey, any] {
 	t.Helper()
-	lists := make([][]*bucket, d4Levels)
+	lists := make([][]*bucket[StringKey, any], d4Levels)
 	for l := int32(1); l <= d4Levels; l++ {
 		lists[l-1] = d4LevelBuckets(t, h, l)
 	}
@@ -75,7 +80,9 @@ func d4LevelLists(t *testing.T, h *Map) [][]*bucket {
 // d4Relink rebuilds the level list of level so that it holds order, front
 // to back, the way initBeforeSet links a bucket: before the first node.
 // Buckets of the list left out of order are unlinked.
-func d4Relink(t *testing.T, h *Map, level int32, order []*bucket) {
+func d4Relink(t *testing.T, h *Map[StringKey, any],
+
+	level int32, order []*bucket[StringKey, any]) {
 	t.Helper()
 	for _, b := range d4LevelBuckets(t, h, level) {
 		b.LevelHead.Init()
@@ -101,7 +108,9 @@ func d4Relink(t *testing.T, h *Map, level int32, order []*bucket) {
 }
 
 // d4RelinkAll rebuilds every level list from lists.
-func d4RelinkAll(t *testing.T, h *Map, lists [][]*bucket) {
+func d4RelinkAll(t *testing.T, h *Map[StringKey, any],
+
+	lists [][]*bucket[StringKey, any]) {
 	t.Helper()
 	for l := int32(1); l <= d4Levels; l++ {
 		d4Relink(t, h, l, lists[l-1])
@@ -110,10 +119,11 @@ func d4RelinkAll(t *testing.T, h *Map, lists [][]*bucket) {
 
 // d4TableBuckets returns every bucket of the table: h.buckets and the
 // claimed elements of their downLevels, recursively.
-func d4TableBuckets(h *Map) []*bucket {
-	var all []*bucket
-	var walk func(b *bucket)
-	walk = func(b *bucket) {
+func d4TableBuckets(h *Map[StringKey, any]) []*bucket[StringKey, any] {
+	var all []*bucket[StringKey, any]
+
+	var walk func(b *bucket[StringKey, any])
+	walk = func(b *bucket[StringKey, any]) {
 		all = append(all, b)
 		downs := b.ptrDownLevels()
 		if downs == nil || downs.Cap() == 0 {
@@ -134,8 +144,8 @@ func d4TableBuckets(h *Map) []*bucket {
 // d4Poison clears the LevelHead of every bucket of the table and of the head
 // of every level list, so that following any level list dereferences nil.
 // The returned function puts the LevelHeads back.
-func d4Poison(h *Map) (restore func()) {
-	saved := map[*bucket]list_head.ListHead{}
+func d4Poison(h *Map[StringKey, any]) (restore func()) {
+	saved := map[*bucket[StringKey, any]]list_head.ListHead{}
 	for l := int32(1); l <= d4Levels; l++ {
 		b := h.levelBucket(l)
 		saved[b] = b.LevelHead
@@ -168,21 +178,23 @@ func d4Panics(fn func()) (panicked bool) {
 // checks the result against want; the keys of gone must not be found.
 // RangeItem must visit exactly the keys of want in ascending order of their
 // reversed hashes, the order of the list of entries.
-func d4Check(h *Map, want map[string]string, gone []string) error {
+func d4Check(h *Map[StringKey, any],
+
+	want map[string]string, gone []string) error {
 	if h.Len() != len(want) {
 		return fmt.Errorf("Len() = %d, want %d", h.Len(), len(want))
 	}
 	for k, v := range want {
-		if got, ok := h.Get(k); !ok || got != v {
+		if got, ok := h.Get(StringKey(k)); !ok || got != v {
 			return fmt.Errorf("Get(%q) = %v, %v; want %q, true", k, got, ok, v)
 		}
-		item, ok := h.LoadItem(k)
-		if !ok || item.Key() != k || item.Value() != v {
+		item, ok := h.LoadItem(StringKey(k))
+		if !ok || item.Key() != StringKey(k) || item.Value() != v {
 			return fmt.Errorf("LoadItem(%q) failed: %v", k, ok)
 		}
 		hash, conflict := KeyToHash(k)
 		item, ok = h.LoadItemByHash(hash, conflict)
-		if !ok || item.Key() != k || item.Value() != v {
+		if !ok || item.Key() != StringKey(k) || item.Value() != v {
 			return fmt.Errorf("LoadItemByHash(%q) failed: %v", k, ok)
 		}
 		for _, ignore := range []bool{true, false} {
@@ -193,10 +205,10 @@ func d4Check(h *Map, want map[string]string, gone []string) error {
 		}
 	}
 	for _, k := range gone {
-		if _, ok := h.Get(k); ok {
+		if _, ok := h.Get(StringKey(k)); ok {
 			return fmt.Errorf("Get(%q) found a purged key", k)
 		}
-		if _, ok := h.LoadItem(k); ok {
+		if _, ok := h.LoadItem(StringKey(k)); ok {
 			return fmt.Errorf("LoadItem(%q) found a purged key", k)
 		}
 		hash, _ := KeyToHash(k)
@@ -214,8 +226,8 @@ func d4Check(h *Map, want map[string]string, gone []string) error {
 	}
 	sort.Slice(keys, func(i, j int) bool { return rev(keys[i]) < rev(keys[j]) })
 	var ranged []string
-	h.RangeItem(func(item MapItem) bool {
-		ranged = append(ranged, item.Key().(string))
+	h.RangeItem(func(item MapItem[StringKey, any]) bool {
+		ranged = append(ranged, string(item.Key()))
 		return len(ranged) <= len(keys)
 	})
 	if fmt.Sprint(ranged) != fmt.Sprint(keys) {
@@ -225,11 +237,13 @@ func d4Check(h *Map, want map[string]string, gone []string) error {
 }
 
 // d4SetMore sets n new keys from start and adds them to want.
-func d4SetMore(t *testing.T, h *Map, want map[string]string, start, n int) {
+func d4SetMore(t *testing.T, h *Map[StringKey, any],
+
+	want map[string]string, start, n int) {
 	t.Helper()
 	for i := start; i < start+n; i++ {
 		k := fmt.Sprintf("d4-%d", i)
-		if !h.Set(k, "v-"+k) {
+		if !h.Set(StringKey(k), "v-"+k) {
 			t.Fatalf("Set(%q) failed", k)
 		}
 		want[k] = "v-" + k
@@ -261,7 +275,7 @@ func Test_Repro_D4_PoisonedLevelListsTrapReaders(t *testing.T) {
 		// not used after it panics.
 		{"Set of new keys up to a split (makeBucket2)", func() {
 			for i := 2000; i < 4000; i++ {
-				h.Set(fmt.Sprintf("d4-%d", i), "v")
+				h.Set(StringKey(fmt.Sprintf("d4-%d", i)), "v")
 			}
 		}},
 	}
@@ -288,7 +302,7 @@ func Test_Repro_D4_LookupsDoNotReadLevelLists(t *testing.T) {
 	}
 	for i := 0; i < 2000; i += 3 {
 		k := fmt.Sprintf("d4-%d", i)
-		if !h.Set(k, "w-"+k) {
+		if !h.Set(StringKey(k), "w-"+k) {
 			t.Fatalf("Set(%q) of a present key failed", k)
 		}
 		want[k] = "w-" + k
@@ -299,7 +313,7 @@ func Test_Repro_D4_LookupsDoNotReadLevelLists(t *testing.T) {
 	var gone []string
 	for i := 0; i < 2000; i += 2 {
 		k := fmt.Sprintf("d4-%d", i)
-		if !h.Purge(k) {
+		if !h.Purge(StringKey(k)) {
 			t.Fatalf("Purge(%q) failed", k)
 		}
 		delete(want, k)
@@ -309,21 +323,22 @@ func Test_Repro_D4_LookupsDoNotReadLevelLists(t *testing.T) {
 		t.Fatalf("after Purge with the level lists cleared: %v", err)
 	}
 	restore()
-	if err := StepCheckLists(h); err != nil {
+	if err := StepCheckLists[StringKey, any](h); err != nil {
 		t.Fatal(err)
 	}
 }
 
 // d4Perms returns every order of bs.
-func d4Perms(bs []*bucket) [][]*bucket {
+func d4Perms(bs []*bucket[StringKey, any]) [][]*bucket[StringKey, any] {
 	if len(bs) <= 1 {
-		return [][]*bucket{append([]*bucket(nil), bs...)}
+		return [][]*bucket[StringKey, any]{append([]*bucket[StringKey, any](nil), bs...)}
 	}
-	var all [][]*bucket
+	var all [][]*bucket[StringKey, any]
+
 	for i := range bs {
-		rest := append(append([]*bucket(nil), bs[:i]...), bs[i+1:]...)
+		rest := append(append([]*bucket[StringKey, any](nil), bs[:i]...), bs[i+1:]...)
 		for _, p := range d4Perms(rest) {
-			all = append(all, append([]*bucket{bs[i]}, p...))
+			all = append(all, append([]*bucket[StringKey, any]{bs[i]}, p...))
 		}
 	}
 	return all
@@ -357,7 +372,7 @@ func Test_Repro_D4_LookupsIgnoreLevelListOrder(t *testing.T) {
 		if len(bs) == 0 {
 			continue
 		}
-		rev := make([]*bucket, len(bs))
+		rev := make([]*bucket[StringKey, any], len(bs))
 		for i, b := range bs {
 			rev[len(bs)-1-i] = b
 		}
@@ -375,9 +390,9 @@ func Test_Repro_D4_LookupsIgnoreLevelListOrder(t *testing.T) {
 	}
 	rng := rand.New(rand.NewSource(4))
 	for n := 0; n < 100; n++ {
-		lists := make([][]*bucket, len(orig))
+		lists := make([][]*bucket[StringKey, any], len(orig))
 		for i, bs := range orig {
-			lists[i] = append([]*bucket(nil), bs...)
+			lists[i] = append([]*bucket[StringKey, any](nil), bs...)
 			rng.Shuffle(len(lists[i]), func(a, b int) { lists[i][a], lists[i][b] = lists[i][b], lists[i][a] })
 			lists[i] = lists[i][:rng.Intn(len(lists[i])+1)]
 		}
@@ -385,7 +400,7 @@ func Test_Repro_D4_LookupsIgnoreLevelListOrder(t *testing.T) {
 		check(fmt.Sprintf("random order %d", n))
 	}
 
-	reversed := make([][]*bucket, len(orig))
+	reversed := make([][]*bucket[StringKey, any], len(orig))
 	for i, bs := range orig {
 		for j := len(bs) - 1; j >= 0; j-- {
 			reversed[i] = append(reversed[i], bs[j])
@@ -396,15 +411,15 @@ func Test_Repro_D4_LookupsIgnoreLevelListOrder(t *testing.T) {
 	d4SetMore(t, h, want, 2000, 2000)
 	t.Logf("2000 Sets with the level lists reversed made %d buckets", len(d4TableBuckets(h))-nb)
 	check("after 2000 Sets with the level lists reversed")
-	if err := StepCheckLists(h); err != nil {
+	if err := StepCheckLists[StringKey, any](h); err != nil {
 		t.Fatalf("after 2000 Sets with the level lists reversed: %v", err)
 	}
-	d4RelinkAll(t, h, make([][]*bucket, len(orig)))
+	d4RelinkAll(t, h, make([][]*bucket[StringKey, any], len(orig)))
 	nb = len(d4TableBuckets(h))
 	d4SetMore(t, h, want, 4000, 2000)
 	t.Logf("2000 Sets with the level lists emptied made %d buckets", len(d4TableBuckets(h))-nb)
 	check("after 2000 Sets with the level lists emptied")
-	if err := StepCheckLists(h); err != nil {
+	if err := StepCheckLists[StringKey, any](h); err != nil {
 		t.Fatalf("after 2000 Sets with the level lists emptied: %v", err)
 	}
 }

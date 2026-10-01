@@ -47,7 +47,7 @@ func Test_ReproJ27InsertBeforeMarkedIsDroppedByAdd2(t *testing.T) {
 	if sp.lose.a == nil {
 		finishSplitsAfterFix(t, sp)
 		done := goStep(t, func() { sp.m.base.StoreItem(item) })
-		sp.stored = append(sp.stored, item.K)
+		sp.stored = append(sp.stored, string(item.Key()))
 		waitDone(t, done, "StoreItem(K)")
 		if !t.Failed() {
 			assertStoredInOrder(t, sp.m, sp.stored)
@@ -68,7 +68,7 @@ func Test_ReproJ27InsertBeforeMarkedIsDroppedByAdd2(t *testing.T) {
 
 	kFound := s.stopAt("map.add2.found", isNode(k))
 	kDone := goStep(t, func() { sp.m.base.StoreItem(item) })
-	sp.stored = append(sp.stored, item.K)
+	sp.stored = append(sp.stored, string(item.Key()))
 	kFound.waitReached(t, kDone)
 	if kFound.b != d {
 		kFound.Release()

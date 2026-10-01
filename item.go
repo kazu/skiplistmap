@@ -1,124 +1,44 @@
-// Package skitlistmap ... concurrent akiplist map implementatin
-// Copyright 2201 Kazuhisa TAKEI<xtakei@rytr.jp>. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
 package skiplistmap
 
 import (
-	"sync"
-	"sync/atomic"
-	"unsafe"
-
 	"github.com/kazu/elist_head"
+	"sync"
+	"unsafe"
 )
 
-type entryHMap struct {
-	entryPayload
-	MapHead
+type HMapEntry[K Key[K], V any] = *Entry[K, V]
+type MapItem[K Key[K], V any] = *Entry[K, V]
+type entryHMap[K Key[K], V any] = Entry[K, V]
+type copyEntry[K Key[K], V any] = Entry[K, V]
+type SampleItem[K Key[K], V any] = Entry[K, V]
+
+// NewEntryMap creates a caller-owned root for immutable replacement entries.
+func NewEntryMap[K Key[K], V any](key K, value V) *Entry[K, V] {
+	return NewEntry(key, value)
 }
+func emptyEntryHMap[K Key[K], V any]() *Entry[K, V] { return nil }
+func EmptyEntryHMap[K Key[K], V any]() *Entry[K, V] { return nil }
+func emptyBucket[K Key[K], V any]() *bucket[K, V]   { return nil }
 
-type entryPayload struct {
-	key, value interface{}
+func entryHMapFromPlistHead[K Key[K], V any](head unsafe.Pointer) *Entry[K, V] {
+	return entryHMapFromListHead[K, V]((*elist_head.ListHead)(head))
 }
-
-// NewEntryMap creates a caller-owned root for copy-on-update entries.
-// Keep the root reachable while any copy is linked. Map.Set retains a fresh
-// copy on every update. Replaced entries are deleted (no longer members of
-// the map); earlier references keep their earlier values. Look up the key
-// again to obtain the current entry. IsDeleted is a point-in-time check.
-// Values may be nil or change type. SetValue only initializes unlinked items.
-func NewEntryMap(key, value interface{}) *entryHMap {
-	s := &copyEntry{entryHMap: entryHMap{entryPayload: entryPayload{key: key, value: value}}}
-	s.root = s
-	return &s.entryHMap
-}
-
-var (
-	emptyEntryHMap *entryHMap = nil
-	emptyBucket    *bucket    = nil
-	EmptyEntryHMap *entryHMap = nil
-)
-
-func entryHMapFromPlistHead(head unsafe.Pointer) *entryHMap {
-	return (*entryHMap)(ElementOf(head, entryHMapOffset))
-}
-
-func entryHMapFromListHead(head *elist_head.ListHead) *entryHMap {
-	return entryHMapFromPlistHead(unsafe.Pointer(head))
-}
-
-func (e *entryHMap) entryHMapromListHead(lhead *elist_head.ListHead) *entryHMap {
-	return entryHMapFromListHead(lhead)
-}
-
-func (s *entryHMap) HmapEntryFromListHead(lhead *elist_head.ListHead) HMapEntry {
-	return s.entryHMapromListHead(lhead)
-}
-
-func (s *entryHMap) Key() interface{} {
-	return s.key
-}
-
-func (s *entryHMap) Value() interface{} {
-	return s.value
-}
-
-func (s *entryHMap) SetValue(v interface{}) bool {
-	if !s.PtrListHead().IsSingle() {
-		return false
+func entryHMapFromListHead[K Key[K], V any](head *elist_head.ListHead) *Entry[K, V] {
+	if head == nil || mapheadFromLListHead(head).IsDummy() {
+		return nil
 	}
-	s.value = v
-	return true
+	return mapheadFromLListHead(head).recoverEntry[K, V]()
+}
+func entryHMapOffset[K Key[K], V any]() uintptr {
+	var e Entry[K, V]
+	return e.Offset()
 }
 
-func (s *entryHMap) Next() HMapEntry {
-	return s.entryHMapromListHead(s.PtrListHead().DirectNext())
-}
-func (s *entryHMap) Prev() HMapEntry {
-	return s.entryHMapromListHead(s.PtrListHead().DirectPrev())
-}
+type CondOfFinder[K Key[K], V any] func(ehead *entryHMap[K, V]) bool
 
-func (s *entryHMap) PtrMapHead() *MapHead {
-	return &s.MapHead
-}
+func CondOfFind[K Key[K], V any](reverse uint64, l sync.Locker) CondOfFinder[K, V] {
 
-const entryHMapOffset = unsafe.Offsetof(EmptyEntryHMap.ListHead)
-
-func (s *entryHMap) Offset() uintptr {
-	return entryHMapOffset
-}
-
-func (s *entryHMap) Delete() {
-	atomic.OrUint64((*uint64)(&s.MapHead.state), uint64(mapIsDeleted))
-}
-
-func (s *entryHMap) KeyHash() (uint64, uint64) {
-	return KeyToHash(s.key)
-}
-
-type HMapEntry interface {
-	Offset() uintptr
-	PtrMapHead() *MapHead
-	PtrListHead() *elist_head.ListHead
-	HmapEntryFromListHead(*elist_head.ListHead) HMapEntry
-	Next() HMapEntry
-	Prev() HMapEntry
-}
-type MapItem interface {
-	Key() interface{}   // require order for HMap
-	Value() interface{} // require order for HMap
-	SetValue(interface{}) bool
-	KeyHash() (uint64, uint64)
-	Delete()
-
-	HMapEntry
-}
-
-type CondOfFinder func(ehead *entryHMap) bool
-
-func CondOfFind(reverse uint64, l sync.Locker) CondOfFinder {
-
-	return func(ehead *entryHMap) bool {
+	return func(ehead *entryHMap[K, V]) bool {
 
 		if EnableStats {
 			l.Lock()
@@ -130,23 +50,23 @@ func CondOfFind(reverse uint64, l sync.Locker) CondOfFinder {
 
 }
 
-type entryBuffer struct {
-	entries []entryHMap
+type entryBuffer[K Key[K], V any] struct {
+	entries []entryHMap[K, V]
 
 	elist_head.ListHead
 }
 
-func (ebuf *entryBuffer) Len() int {
+func (ebuf *entryBuffer[K, V]) Len() int {
 	return len(ebuf.entries)
 }
 
-func (ebuf *entryBuffer) init(cap int) {
+func (ebuf *entryBuffer[K, V]) init(cap int) {
 
-	ebuf.entries = make([]entryHMap, 1, cap)
+	ebuf.entries = make([]entryHMap[K, V], 1, cap)
 
 }
 
-func (ebuf *entryBuffer) getEntryFromPool(idx int) *entryHMap {
+func (ebuf *entryBuffer[K, V]) getEntryFromPool(idx int) *entryHMap[K, V] {
 
 	// if len(ebuf.entries) == 1 {
 	// 	ebuf.entries = ebuf.entries[:2]

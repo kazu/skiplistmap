@@ -26,10 +26,10 @@ func Test_PurgeAndSetKeepsEntriesInThePools(t *testing.T) {
 				t.Fatalf("round %d: Set(%q) = false", r, crashKey(k))
 			}
 		}
-		if err := skiplistmap.StepCheckPooledItems(m.base); err != nil {
+		if err := skiplistmap.StepCheckPooledItems[skiplistmap.StringKey, any](m.base); err != nil {
 			t.Fatalf("round %d: %v", r, err)
 		}
-		if err := skiplistmap.StepCheckLists(m.base); err != nil {
+		if err := skiplistmap.StepCheckLists[skiplistmap.StringKey, any](m.base); err != nil {
 			t.Fatalf("round %d: %v", r, err)
 		}
 		runtime.GC()

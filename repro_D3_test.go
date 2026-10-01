@@ -99,7 +99,7 @@ func Test_D3StoreItemWhileTheOtherMapPurgesIt(t *testing.T) {
 		t.Fatalf("m2.StoreItem(a) returned false")
 	}
 	st3 := s.stopAt("elist.del.check", isNode(nodeOf(a)))
-	done3 := goStep(t, func() { m2.base.Purge(keys[0]) })
+	done3 := goStep(t, func() { m2.base.Purge(skiplistmap.StringKey(keys[0])) })
 	st3.waitReached(t, done3)
 	st1.Release()
 	waitDone(t, done1, "m1.StoreItem(a)")
@@ -135,7 +135,7 @@ func Test_D3StoreItemAfterTheCheckKeepsADeleteOfTheOtherMap(t *testing.T) {
 	if !m2.base.StoreItem(a) {
 		t.Fatalf("m2.StoreItem(a) returned false")
 	}
-	if !m2.base.Delete(keys[0]) {
+	if !m2.base.Delete(skiplistmap.StringKey(keys[0])) {
 		t.Fatalf("m2.Delete(a) returned false")
 	}
 	st.Release()
@@ -161,11 +161,11 @@ func testD3StoreItemRefusesADeleteBetweenTheCASesOfItsInsert(t *testing.T, purge
 	a := &items[0]
 	m := newStepMap()
 	setKeys(t, m, []string{keys[0], keys[2]})
-	zItem, ok := m.base.LoadItem(keys[2])
+	zItem, ok := m.base.LoadItem(skiplistmap.StringKey(keys[2]))
 	if !ok {
 		t.Fatalf("LoadItem(z) not found")
 	}
-	z := nodeOf(zItem.(*skiplistmap.SampleItem))
+	z := nodeOf(zItem)
 
 	s := newStepper(t)
 	st1 := s.stopAt("elist.add.cas2", isNode(nodeOf(a)))
@@ -173,14 +173,14 @@ func testD3StoreItemRefusesADeleteBetweenTheCASesOfItsInsert(t *testing.T, purge
 	done1 := goStep(t, func() { ok1 = m.base.StoreItem(a) })
 	st1.waitReached(t, done1)
 	if purge {
-		if m.base.Purge(keys[1]) {
+		if m.base.Purge(skiplistmap.StringKey(keys[1])) {
 			t.Errorf("Purge(a) returned true while StoreItem(a) held a")
 		}
-	} else if m.base.Delete(keys[1]) {
+	} else if m.base.Delete(skiplistmap.StringKey(keys[1])) {
 		t.Errorf("Delete(a) returned true while StoreItem(a) held a")
 	}
 	st3 := s.stopAt("elist.del.marked", isNode(z))
-	done3 := goStep(t, func() { m.base.Purge(keys[2]) })
+	done3 := goStep(t, func() { m.base.Purge(skiplistmap.StringKey(keys[2])) })
 	st3.waitReached(t, done3)
 	back := s.stopAt("elist.add.rollback", isNode(nodeOf(a)))
 	st1.Release()
@@ -209,11 +209,11 @@ func Test_D3StoreItemTakingItsItemAgainRefusesAPurgeThatFoundItBefore(t *testing
 	u := &items[0]
 	m := newStepMap()
 	setKeys(t, m, []string{keys[0], keys[2], keys[3]})
-	zItem, ok := m.base.LoadItem(keys[2])
+	zItem, ok := m.base.LoadItem(skiplistmap.StringKey(keys[2]))
 	if !ok {
 		t.Fatalf("LoadItem(z) not found")
 	}
-	z := nodeOf(zItem.(*skiplistmap.SampleItem))
+	z := nodeOf(zItem)
 
 	s := newStepper(t)
 	st1 := s.stopAt("elist.add.cas2", isNode(nodeOf(u)))
@@ -221,10 +221,10 @@ func Test_D3StoreItemTakingItsItemAgainRefusesAPurgeThatFoundItBefore(t *testing
 	done1 := goStep(t, func() { ok1 = m.base.StoreItem(u) })
 	st1.waitReached(t, done1)
 	stP := s.stopAt("map.delete.found", isNode(nodeOf(u)))
-	doneP := goStep(t, func() { okP = m.base.Purge(keys[1]) })
+	doneP := goStep(t, func() { okP = m.base.Purge(skiplistmap.StringKey(keys[1])) })
 	stP.waitReached(t, doneP)
 	stQ := s.stopAt("elist.del.marked", isNode(z))
-	doneQ := goStep(t, func() { m.base.Purge(keys[2]) })
+	doneQ := goStep(t, func() { m.base.Purge(skiplistmap.StringKey(keys[2])) })
 	stQ.waitReached(t, doneQ)
 	again := s.stopAt("elist.add.cas1", isNode(nodeOf(u)))
 	st1.Release()
@@ -287,33 +287,33 @@ func Test_D3StoreItemRefusesAPurgeBeforeItsInsertAtTheTail(t *testing.T) {
 	u := &items[0]
 	m := newStepMap()
 	setKeys(t, m, []string{keys[0], keys[2]})
-	xItem, ok := m.base.LoadItem(keys[0])
+	xItem, ok := m.base.LoadItem(skiplistmap.StringKey(keys[0]))
 	if !ok {
 		t.Fatalf("LoadItem(x) not found")
 	}
-	x := nodeOf(xItem.(*skiplistmap.SampleItem))
-	zItem, ok := m.base.LoadItem(keys[2])
+	x := nodeOf(xItem)
+	zItem, ok := m.base.LoadItem(skiplistmap.StringKey(keys[2]))
 	if !ok {
 		t.Fatalf("LoadItem(z) not found")
 	}
-	z := nodeOf(zItem.(*skiplistmap.SampleItem))
+	z := nodeOf(zItem)
 
 	s := newStepper(t)
 	st1 := s.stopAt("map.find.begin", isNode(x))
 	var ok1 bool
 	done1 := goStep(t, func() { ok1 = m.base.StoreItem(u) })
 	st1.waitReached(t, done1)
-	if !m.base.Purge(keys[0]) {
+	if !m.base.Purge(skiplistmap.StringKey(keys[0])) {
 		t.Fatalf("Purge(x) returned false")
 	}
 	cas2 := s.stopAt("elist.add.cas2", isNode(nodeOf(u)))
 	st1.Release()
 	cas2.waitReached(t, done1)
-	if m.base.Purge(keys[1]) {
+	if m.base.Purge(skiplistmap.StringKey(keys[1])) {
 		t.Errorf("Purge(u) returned true while StoreItem(u) held u")
 	}
 	st4 := s.stopAt("elist.del.marked", isNode(z))
-	done4 := goStep(t, func() { m.base.Purge(keys[2]) })
+	done4 := goStep(t, func() { m.base.Purge(skiplistmap.StringKey(keys[2])) })
 	st4.waitReached(t, done4)
 	tail := s.stopAt("map.add2.tailInsert", isNode(nodeOf(u)))
 	cas2.Release()

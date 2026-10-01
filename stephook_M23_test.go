@@ -163,12 +163,14 @@ func m23KeyWithTop(top uint64) string {
 }
 
 // m23StoredNode stores key in h and returns the list node of its item.
-func m23StoredNode(t *testing.T, h *Map, key string) unsafe.Pointer {
+func m23StoredNode(t *testing.T, h *Map[StringKey, any],
+
+	key string) unsafe.Pointer {
 	t.Helper()
-	if !h.Set(key, key) {
+	if !h.Set(StringKey(key), key) {
 		t.Fatalf("Set(%q) failed", key)
 	}
-	item, ok := h.LoadItem(key)
+	item, ok := h.LoadItem(StringKey(key))
 	if !ok {
 		t.Fatalf("LoadItem(%q) not found", key)
 	}

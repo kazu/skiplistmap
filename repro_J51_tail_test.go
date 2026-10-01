@@ -8,14 +8,16 @@ import (
 	"testing"
 )
 
-// j51TailItem is an item whose KeyHash returns k and c as they are, so that
-// the test can store a key whose reverse is ^uint64(0).
-type j51TailItem struct {
-	SampleItem
-	k, c uint64
-}
+// j51TailKey preserves ordinary string hashing except for the tail boundary.
+type j51TailKey string
 
-func (x *j51TailItem) KeyHash() (uint64, uint64) { return x.k, x.c }
+func (k j51TailKey) KeyHash() (uint64, uint64) {
+	if k == "tail-boundary" {
+		return ^uint64(0), 1
+	}
+	return StringKey(k).KeyHash()
+}
+func (k j51TailKey) Equal(other j51TailKey) bool { return k == other }
 
 // j51TailPoints are added to r332Points for this test: the point after the
 // lookup of StoreItem (set.beforeInit) and the two points add2 reaches when it
@@ -57,11 +59,11 @@ func Test_J51TailPathNotTakenExplored(t *testing.T) {
 	// at 0xf1<<56, and StoreItem of the key at ^uint64(0) links it before the
 	// entry after the dummy of the bucket (add2.bucketInsert), out of order.
 	{
-		h := New(MaxPefBucket(1 << 20))
+		h := New[j51TailKey, any](MaxPefBucket[j51TailKey, any](1 << 20))
 		r332SplitNode(t, h, 0xf1)
-		ok := h.StoreItem(&j51TailItem{k: ^uint64(0), c: 1})
+		ok := h.StoreItem(NewEntry[j51TailKey, any]("tail-boundary", nil))
 		n := 0
-		h.RangeItem(func(item MapItem) bool {
+		h.RangeItem(func(item MapItem[j51TailKey, any]) bool {
 			if m := item.PtrMapHead(); m.reverse == ^uint64(0) && m.conflict == 1 {
 				n++
 			}
@@ -73,12 +75,12 @@ func Test_J51TailPathNotTakenExplored(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		made  uint64
-		setup func(t *testing.T, h *Map) (keys []string, split func() error)
+		setup func(t *testing.T, h *Map[j51TailKey, any]) (keys []string, split func() error)
 	}{
-		{"FirstDown", 0xf8 << 56, func(t *testing.T, h *Map) ([]string, func() error) {
+		{"FirstDown", 0xf8 << 56, func(t *testing.T, h *Map[j51TailKey, any]) ([]string, func() error) {
 			return r332SplitNode(t, h, 0xf1)
 		}},
-		{"LaterDown", 0xfc << 56, func(t *testing.T, h *Map) ([]string, func() error) {
+		{"LaterDown", 0xfc << 56, func(t *testing.T, h *Map[j51TailKey, any]) ([]string, func() error) {
 			keys, first := r332SplitNode(t, h, 0xf1)
 			more, split := r332SplitNode(t, h, 0xf9)
 			first()
@@ -94,9 +96,9 @@ func Test_J51TailPathNotTakenExplored(t *testing.T) {
 			played, lost := 0, 0
 			lookupAfter := map[string]int{}
 			for {
-				h := New(MaxPefBucket(1 << 20))
+				h := New[j51TailKey, any](MaxPefBucket[j51TailKey, any](1 << 20))
 				keys, g1 := tc.setup(t, h)
-				x := &j51TailItem{k: ^uint64(0), c: 1}
+				x := NewEntry[j51TailKey, any]("tail-boundary", nil)
 				g2 := func() error {
 					if !h.StoreItem(x) {
 						return fmt.Errorf("StoreItem returned false")
@@ -137,14 +139,14 @@ func Test_J51TailPathNotTakenExplored(t *testing.T) {
 				if errs[1] != nil {
 					fail("G2: %v", errs[1])
 				}
-				if err := StepCheckLists(h); err != nil {
+				if err := StepCheckLists[j51TailKey, any](h); err != nil {
 					fail("%v", err)
 				}
 				if got := r332BucketReverses(h); !r332Has(got, tc.made) {
 					fail("list of buckets %s does not hold %#x", r332Hex(got), tc.made)
 				}
 				n := 0
-				h.RangeItem(func(item MapItem) bool {
+				h.RangeItem(func(item MapItem[j51TailKey, any]) bool {
 					if m := item.PtrMapHead(); m.reverse == ^uint64(0) && m.conflict == 1 {
 						n++
 					}

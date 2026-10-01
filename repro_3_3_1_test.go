@@ -35,8 +35,8 @@ func elistMode() list_head.TraverseType {
 // blockAtFirst returns a function for RangeItem that, on its first call,
 // records the traversal mode of lista in before, closes reached, waits for
 // release, records the mode again in after and stops the range.
-func blockAtFirst(reached, release chan struct{}, before, after *list_head.TraverseType) func(skiplistmap.MapItem) bool {
-	return func(skiplistmap.MapItem) bool {
+func blockAtFirst(reached, release chan struct{}, before, after *list_head.TraverseType) func(skiplistmap.MapItem[skiplistmap.StringKey, any]) bool {
+	return func(skiplistmap.MapItem[skiplistmap.StringKey, any]) bool {
 		*before = list_head.DefaultModeTraverse.Type()
 		close(reached)
 		<-release
@@ -87,7 +87,9 @@ func Test_Repro_3_3_1_SequentialRangeItemKeepsDirect(t *testing.T) {
 	setKeys(t, m, adjacentKeys(1))
 
 	for i := 0; i < 2; i++ {
-		m.base.RangeItem(func(skiplistmap.MapItem) bool { return false })
+		m.base.RangeItem(func(skiplistmap.MapItem[skiplistmap.StringKey, any]) bool {
+			return false
+		})
 	}
 	if got := list_head.DefaultModeTraverse.Type(); got != list_head.TravDirect {
 		t.Errorf("after two RangeItem calls, the mode of lista is %d, want Direct (%d)", got, list_head.TravDirect)
@@ -108,7 +110,9 @@ func Test_Repro_3_3_1_RangeItemLeavesElistWaitNoMark(t *testing.T) {
 	if got := elistMode(); got != list_head.TravDirect {
 		t.Fatalf("before RangeItem, the mode of elist is %d, want Direct (%d)", got, list_head.TravDirect)
 	}
-	m.base.RangeItem(func(skiplistmap.MapItem) bool { return true })
+	m.base.RangeItem(func(skiplistmap.MapItem[skiplistmap.StringKey, any]) bool {
+		return true
+	})
 	if got := elistMode(); got != list_head.TravDirect {
 		t.Errorf("after RangeItem returned, the mode of elist is %d, want Direct (%d)", got, list_head.TravDirect)
 	}

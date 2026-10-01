@@ -3,24 +3,16 @@
 package skiplistmap_test
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 	"unsafe"
 
-	"github.com/kazu/elist_head"
 	"github.com/kazu/skiplistmap"
 )
 
-type comparisonCustomItem struct{ skiplistmap.SampleItem }
-
-func (*comparisonCustomItem) HmapEntryFromListHead(p *elist_head.ListHead) skiplistmap.HMapEntry {
-	return (*comparisonCustomItem)(unsafe.Pointer(skiplistmap.SampleItemFromListHead(p)))
-}
-func (s *comparisonCustomItem) Next() skiplistmap.HMapEntry {
-	return s.HmapEntryFromListHead(s.PtrListHead().DirectNext())
-}
-func (s *comparisonCustomItem) Prev() skiplistmap.HMapEntry {
-	return s.HmapEntryFromListHead(s.PtrListHead().DirectPrev())
+type comparisonCustomItem struct {
+	skiplistmap.SampleItem[skiplistmap.StringKey, any]
 }
 
 func TestEntryCopyRouteIsolation(t *testing.T) {
@@ -33,22 +25,25 @@ func TestEntryCopyRouteIsolation(t *testing.T) {
 				}
 			})
 			defer skiplistmap.SetStepHook(nil)
-			m := skiplistmap.NewHMap(skiplistmap.UseEmbeddedPool(kind == "Sample5"))
+			m := skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](kind == "Sample5"))
+			var root *skiplistmap.Entry[skiplistmap.StringKey, any]
 			switch kind {
 			case "Custom":
-				skiplistmap.ItemFn(func() skiplistmap.MapItem { return (*comparisonCustomItem)(nil) })(m)
-				e := &comparisonCustomItem{SampleItem: skiplistmap.SampleItem{K: "value"}}
-				e.SetValue(0)
-				if !m.StoreItem(e) {
+
+				e := &comparisonCustomItem{}
+				e.InitEntry("value", 0)
+				root = &e.SampleItem
+				if !m.StoreItem(root) {
 					t.Fatal("StoreItem custom")
 				}
 			case "Entry":
-				skiplistmap.ItemFn(func() skiplistmap.MapItem { return skiplistmap.EmptyEntryHMap })(m)
-				if !m.StoreItem(skiplistmap.NewEntryMap("value", 0)) {
+
+				root = skiplistmap.NewEntryMap[skiplistmap.StringKey, any]("value", 0)
+				if !m.StoreItem(root) {
 					t.Fatal("StoreItem entry")
 				}
 			default:
-				skiplistmap.ItemFn(func() skiplistmap.MapItem { return skiplistmap.EmptySampleHMapEntry })(m)
+
 				if !m.Set("value", 0) {
 					t.Fatal("initial Set")
 				}
@@ -64,16 +59,17 @@ func TestEntryCopyRouteIsolation(t *testing.T) {
 				t.Fatal("LoadItemByHash")
 			}
 			n := 0
-			m.Range(func(k, v interface{}) bool { n++; return true })
+			m.Range(func(k skiplistmap.StringKey, v any) bool { n++; return true })
 			if n != 1 {
 				t.Fatalf("Range count: %d", n)
 			}
 			if !m.Purge("value") || m.Len() != 0 {
 				t.Fatal("Purge/Len")
 			}
-			if kind != "Entry" {
-				if len(seen) != 0 {
-					t.Fatalf("non-entry entered copy functions: %v", seen)
+			runtime.KeepAlive(root)
+			if kind == "Sample5" {
+				if seen["copy.update"] != 0 || seen["copy.delete"] != 0 {
+					t.Fatalf("embedded update entered nonembedded publication: %v", seen)
 				}
 			} else {
 				for _, point := range []string{"copy.search", "copy.match", "copy.update", "copy.range", "copy.delete"} {

@@ -9,10 +9,12 @@ import "fmt"
 // It stops with an error at the first break: a reverse above the one before
 // it, a bucket linked to itself, or a list that does not reach its tail in
 // max steps.
-func StepCheckBucketList(h *Map, max int) ([]uint64, error) {
+func StepCheckBucketList(h *Map[StringKey, any],
+
+	max int) ([]uint64, error) {
 	var got []uint64
 	for cur := h.headBucket.DirectNext(); cur != h.tailBucket; cur = cur.DirectNext() {
-		r := bucketFromListHead(cur).reverse
+		r := bucketFromListHead[StringKey, any](cur).reverse
 		if n := len(got); n > 0 && r > got[n-1] {
 			return append(got, r), fmt.Errorf("bucket list out of order: %016x after %016x", r, got[n-1])
 		}

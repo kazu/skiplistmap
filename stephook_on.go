@@ -15,6 +15,7 @@ import (
 // replay a concurrent interleaving one step at a time.
 //
 // Points and arguments:
+//   - "update.lookup" (item, bucket): Update found a candidate, before acquiring protection.
 //   - "set.identity" (item, nil): an embedded slot has its new hashes, before its key and value.
 //   - "bsearch.snapshot" (pool, nil): the search read the pool's data pointer and length.
 //   - "slice.dataPublished" (slice, nil): CopyFrom published data, before cap and len.

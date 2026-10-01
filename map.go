@@ -384,18 +384,18 @@ SKIP_FETCH_BUCKET:
 
 	entry, cnt := h.find(btable.head(), func(item *MapHead) bool {
 		mHead := item.PtrMapHead()
-		return bits.Reverse64(k) <= mHead.reverse
+		return bits.Reverse64(k) <= atomic.LoadUint64(&mHead.reverse)
 	})
 	_ = cnt
 
 	var tStart *elist_head.ListHead
 	if entry != nil {
-		if entry.PtrMapHead().reverse < bits.Reverse64(k) {
+		if atomic.LoadUint64(&entry.PtrMapHead().reverse) < bits.Reverse64(k) {
 			tStart = entry.PtrListHead()
 		} else {
 			prev := entry.PtrListHead().DirectPrev()
 			// The front sentinel has no enclosing map entry.
-			if !prev.Empty() && mapheadFromLListHead(prev).reverse < bits.Reverse64(k) {
+			if !prev.Empty() && atomic.LoadUint64(&mapheadFromLListHead(prev).reverse) < bits.Reverse64(k) {
 				tStart = prev
 			}
 		}
@@ -1219,7 +1219,9 @@ RETRY:
 		if !node.PtrListHead().IsSingle() {
 			Log(LogWarn, "add2: element for insertion  is not single ")
 		}
-		return node.reverse < ehead.PtrMapHead().reverse || (node.IsDummy() && node.reverse == ehead.PtrMapHead().reverse)
+		nodeReverse := atomic.LoadUint64(&node.reverse)
+		headReverse := atomic.LoadUint64(&ehead.PtrMapHead().reverse)
+		return nodeReverse < headReverse || (node.IsDummy() && nodeReverse == headReverse)
 	})
 	if stepEnabled && pos != nil {
 		stepAt("add2.found", unsafe.Pointer(node.PtrListHead()), unsafe.Pointer(pos.PtrListHead()))

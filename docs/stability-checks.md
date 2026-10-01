@@ -28,7 +28,7 @@ Nushell でも `make ci` を実行する。
 
 ゲートは vet、通常、race、checkptr、`stephook` タグ付き race の順に確認する。
 タグ付き検証は RMap の全テスト、バケットの J51/J56、型付きMap・キー照合・
-slot再利用・コピー更新・外部Entry混在・分割と更新の並行テスト、elist_head の置換テスト、
+slot再利用・コピー更新・外部Entry混在・Update callback・分割と更新の並行テスト、elist_head の置換テスト、
 lista の `TestLenRestartsAfterCurrentNodeIsDeleted` を対象にする。
 通常・race・checkptr・vet は上記の全対象パッケージを検証する。
 各ビルドの Test・Example・Fuzz seed を一つずつ別プロセスで実行し、いずれかが

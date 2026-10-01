@@ -33,6 +33,11 @@ func (h *Map[K, V]) replaceEntry(old *entryHMap[K, V], value V) bool {
 
 func (h *Map[K, V]) tryReplaceEntry(old *entryHMap[K, V], value V) bool {
 	fresh := NewEntry(old.Key(), value)
+	prepareEntryReplacement(old, fresh)
+	return publishEntryReplacement(old, fresh)
+}
+
+func prepareEntryReplacement[K Key[K], V any](old, fresh *Entry[K, V]) {
 	*(*[2]uint64)(unsafe.Pointer(&fresh.conflict)) = *(*[2]uint64)(unsafe.Pointer(&old.conflict))
 	fresh.ListHead.Init()
 	fresh.root = old.root
@@ -45,6 +50,9 @@ func (h *Map[K, V]) tryReplaceEntry(old *entryHMap[K, V], value V) bool {
 			break
 		}
 	}
+}
+
+func publishEntryReplacement[K Key[K], V any](old, fresh *Entry[K, V]) bool {
 	if err := old.ListHead.ReplaceWith(&fresh.ListHead); err != nil {
 		return false
 	}
@@ -92,6 +100,14 @@ func (h *Map[K, V]) deleteEntry(entry *entryHMap[K, V], bucket *bucket[K, V]) (M
 // another array slot before retiring the old one; only slot reclamation waits
 // for readers of the old payload.
 func (h *Map[K, V]) replacePoolEntry(old *Entry[K, V], value V) bool {
+	old, fresh, found := h.preparePoolReplacement(old, value)
+	if !found {
+		return false
+	}
+	return publishPoolReplacement(old, fresh)
+}
+
+func (h *Map[K, V]) preparePoolReplacement(old *Entry[K, V], value V) (*Entry[K, V], *Entry[K, V], bool) {
 	key := old.Key()
 	hash, conflict := key.KeyHash()
 	owner := h.findBucket(old.reverse).toBase()
@@ -112,10 +128,14 @@ func (h *Map[K, V]) replacePoolEntry(old *Entry[K, V], value V) bool {
 		fresh.Delete()
 		fresh.releaseBusy()
 		fresh.clearRetiredValue()
-		return false
+		return nil, nil, false
 	}
 	old = current
 	stepAt("update.found", unsafe.Pointer(old.PtrListHead()), nil)
+	return old, fresh, true
+}
+
+func publishPoolReplacement[K Key[K], V any](old, fresh *Entry[K, V]) bool {
 	for {
 		if err := old.ListHead.ReplaceWith(&fresh.ListHead); err == nil {
 			break

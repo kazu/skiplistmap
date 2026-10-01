@@ -4,6 +4,8 @@ import (
 	"runtime"
 	"sync/atomic"
 	"unsafe"
+
+	"github.com/kazu/elist_head"
 )
 
 // replaceEntry publishes an immutable value copy for nonembedded entries.
@@ -61,7 +63,7 @@ func publishEntryReplacement[K Key[K], V any](old, fresh *Entry[K, V]) bool {
 	return true
 }
 
-func (h *Map[K, V]) deleteEntry(entry *entryHMap[K, V], bucket *bucket[K, V]) (MapItem[K, V], *bucket[K, V], *MapHead, bool) {
+func (h *Map[K, V]) deleteEntry(entry *entryHMap[K, V], bucket *bucket[K, V], dummy *MapHead) (MapItem[K, V], *bucket[K, V], *MapHead, bool) {
 	stepAt("copy.delete", unsafe.Pointer(entry.PtrListHead()), nil)
 	for {
 		if !entry.ListHead.IsMarked() {
@@ -83,13 +85,13 @@ func (h *Map[K, V]) deleteEntry(entry *entryHMap[K, V], bucket *bucket[K, V]) (M
 			}
 			if won {
 				if !entry.isPoolItem() {
-					k, conflict := entry.KeyHash()
-					current, b, found := h.getItemWithBucket(k, conflict, entry.key, true)
-					if !found || current != entry {
+					if dummy == nil {
+						dummy = mapheadFromLListHead(bucket.head())
+					}
+					if !entry.reachableFromDummy(&dummy.ListHead) {
 						entry.releaseBusy()
 						return nil, nil, nil, false
 					}
-					bucket = b
 					atomic.OrUint64((*uint64)(&entry.state), uint64(mapIsDeleted))
 				}
 				stepAt("delete.claimed", unsafe.Pointer(&entry.ListHead), nil)
@@ -101,12 +103,55 @@ func (h *Map[K, V]) deleteEntry(entry *entryHMap[K, V], bucket *bucket[K, V]) (M
 			}
 		}
 		k, conflict := entry.KeyHash()
-		item, b, found := h.getItemWithBucket(k, conflict, entry.key, true)
+		item, b, d, found := h.lookupItem[saveDummyTrace](k, conflict, entry.key, true)
 		if !found {
 			return nil, nil, nil, false
 		}
 		entry = item
 		bucket = b
+		dummy = d
+	}
+}
+
+// reachableFromDummy runs with the caller-owned entry busy. The bucket dummy
+// remains in the original map even if the entry was purged and reused elsewhere.
+func (entry *Entry[K, V]) reachableFromDummy(dummy *elist_head.ListHead) bool {
+	reverse := atomic.LoadUint64(&entry.reverse)
+	startReverse := atomic.LoadUint64(&mapheadFromLListHead(dummy).reverse)
+	forward := startReverse < reverse
+	for {
+		cur := dummy
+		for {
+			stepAt("delete.scan", unsafe.Pointer(cur), unsafe.Pointer(&entry.ListHead))
+			var next *elist_head.ListHead
+			if forward {
+				next = elist_head.NextNoM(cur)
+			} else {
+				next = elist_head.PrevNoM(cur)
+			}
+			if next == cur {
+				// A neighbor may have been purged after we reached it.
+				cur = dummy
+				runtime.Gosched()
+				continue
+			}
+			if next.Empty() {
+				break
+			}
+			if next == &entry.ListHead {
+				return true
+			}
+			r := atomic.LoadUint64(&mapheadFromLListHead(next).reverse)
+			if forward && r > reverse || !forward && r < reverse {
+				break
+			}
+			cur = next
+		}
+		if !forward && startReverse == reverse {
+			forward = true
+			continue
+		}
+		return false
 	}
 }
 

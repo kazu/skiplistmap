@@ -3,12 +3,131 @@
 package skiplistmap_test
 
 import (
+	"fmt"
+	"math/bits"
 	"runtime"
 	"testing"
 	"unsafe"
 
 	"github.com/kazu/skiplistmap"
 )
+
+func TestDeletePurgeDummyHashBounds(t *testing.T) {
+	for _, reverse := range []uint64{0, 1, 1 << 60, 1<<60 + 1, ^uint64(0) - 1, ^uint64(0)} {
+		for _, operation := range []string{"Delete", "Purge"} {
+			t.Run(fmt.Sprintf("%x/%s", reverse, operation), func(t *testing.T) {
+				m := newHashStepMap()
+				items := make([]hashedItem, 3)
+				for i := range items {
+					items[i].InitEntry(fixedHashKey{fmt.Sprint(i), bits.Reverse64(reverse), 17}, i)
+					if !m.StoreItem(&items[i]) {
+						t.Fatal("StoreItem failed")
+					}
+				}
+				for n, i := range []int{1, 0, 2} {
+					var ok bool
+					if operation == "Delete" {
+						ok = m.Delete(items[i].Key())
+					} else {
+						ok = m.Purge(items[i].Key())
+					}
+					if !ok || m.Len() != 2-n {
+						t.Fatalf("%s(%d) = %v, Len = %d", operation, i, ok, m.Len())
+					}
+					if _, found := m.Get(items[i].Key()); found {
+						t.Fatal("deleted key remains present")
+					}
+				}
+				runtime.KeepAlive(items)
+			})
+		}
+	}
+}
+
+func TestDeletePurgeDummyAfterSplit(t *testing.T) {
+	for _, operation := range []string{"Delete", "Purge"} {
+		t.Run(operation, func(t *testing.T) {
+			keys := adjacentKeys(256)
+			m := newStepMap().base
+			skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](16)(m)
+			items := newStepItems(keys[:1])
+			entry := &items[0]
+			if !m.StoreItem(entry) {
+				t.Fatal("StoreItem failed")
+			}
+			s := newStepper(t)
+			st := s.stopAt("map.delete.found", isNode(nodeOf(entry)))
+			defer st.Release()
+			var deleted bool
+			done := goStep(t, func() {
+				if operation == "Delete" {
+					deleted = m.Delete(entry.Key())
+				} else {
+					deleted = m.Purge(entry.Key())
+				}
+			})
+			st.waitReached(t, done)
+			for i := 1; i < len(keys); i++ {
+				if !m.Set(skiplistmap.StringKey(keys[i]), i) {
+					t.Fatal("Set failed")
+				}
+			}
+			if s.total("map.insertBucket.dummyLinked") == 0 {
+				t.Fatal("test did not insert a bucket dummy")
+			}
+			st.Release()
+			waitDone(t, done, "deletion after split")
+			if !deleted || m.Len() != len(keys)-1 {
+				t.Fatalf("deleted = %v, Len = %d", deleted, m.Len())
+			}
+			if _, found := m.Get(entry.Key()); found {
+				t.Fatal("deleted key remains present")
+			}
+			runtime.KeepAlive(items)
+		})
+	}
+}
+
+func TestDeletePurgeDummyCursorPurged(t *testing.T) {
+	for _, operation := range []string{"Delete", "Purge"} {
+		t.Run(operation, func(t *testing.T) {
+			keys := adjacentKeys(3)
+			items := newStepItems(keys)
+			m := newStepMap().base
+			for i := range items {
+				if !m.StoreItem(&items[i]) {
+					t.Fatal("StoreItem failed")
+				}
+			}
+			s := newStepper(t)
+			st := s.stopAt("map.delete.scan", func(a, b, _ unsafe.Pointer) bool {
+				return b == nodeOf(&items[1]) && (a == nodeOf(&items[0]) || a == nodeOf(&items[2]))
+			})
+			defer st.Release()
+			var deleted bool
+			done := goStep(t, func() {
+				if operation == "Delete" {
+					deleted = m.Delete(items[1].Key())
+				} else {
+					deleted = m.Purge(items[1].Key())
+				}
+			})
+			st.waitReached(t, done)
+			cursor, _ := s.args("map.delete.scan")
+			for _, i := range []int{0, 2} {
+				if cursor == nodeOf(&items[i]) && !m.Purge(items[i].Key()) {
+					t.Fatal("cursor Purge failed")
+				}
+			}
+			st.Release()
+			waitDone(t, done, "deletion after cursor Purge")
+			if !deleted || m.Len() != 1 {
+				t.Fatalf("deleted = %v, Len = %d", deleted, m.Len())
+			}
+			runtime.KeepAlive(items)
+		})
+	}
+}
 
 func Test_F2DeleteStoppedAfterItsLookupLeavesTheItemStoredIntoAnotherMap(t *testing.T) {
 	keys := adjacentKeys(1)

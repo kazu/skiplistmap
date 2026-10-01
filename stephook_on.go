@@ -69,6 +69,7 @@ import (
 //   - "update.found" (item, nil): an update found the entry to replace, before publishing its new value.
 //   - "storeItem.checked" (item, nil): StoreItem found item not linked; before it takes the mapIsBusy of item.
 //   - "delete.claimed" (item, nil): Delete or Purge marked a nonembedded entry deleted (after checking membership for a caller-owned entry), or attempted claimDelete on an embedded entry; before updating the count.
+//   - "delete.scan" (cursor, item): caller-owned membership confirmation is about to advance from cursor toward item while holding item's busy bit.
 //   - "item.copy.read" (copy, item): copyFrom read the value and the state of item, whose array the item pool moves to a larger one, to copy them into copy; before it stores them into copy.
 type StepHook func(point string, a, b unsafe.Pointer)
 

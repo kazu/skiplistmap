@@ -590,7 +590,12 @@ func (h *Map[K, V]) getWithBucket(k, conflict uint64) (MapItem[K, V], *bucket[K,
 }
 
 func (h *Map[K, V]) getItemWithBucket(k, conflict uint64, key K, byKey bool) (MapItem[K, V], *bucket[K, V], bool) {
+	item, bucket, _, found := h.lookupItem[noDummyTrace](k, conflict, key, byKey)
+	return item, bucket, found
+}
 
+func (h *Map[K, V]) lookupItem[T dummyTrace](k, conflict uint64, key K, byKey bool) (MapItem[K, V], *bucket[K, V], *MapHead, bool) {
+	var trace T
 	if EnableStats {
 		h.mu.Lock()
 		DebugStats[CntOfGet]++
@@ -600,6 +605,7 @@ func (h *Map[K, V]) getItemWithBucket(k, conflict uint64, key K, byKey bool) (Ma
 		var bucket *bucket[K, V]
 		var reverse uint64
 		var e HMapEntry[K, V]
+		var dummy *MapHead
 
 		if h.isEmbededItemInBucket {
 			reverse = bits.Reverse64(k)
@@ -611,25 +617,33 @@ func (h *Map[K, V]) getItemWithBucket(k, conflict uint64, key K, byKey bool) (Ma
 			if !h.isEmbededItemInBucket && bucket.head() == nil {
 				bucket, reverse = h.searchBucket4update(k)
 			}
-			e = h.searchBybucket(bucket, reverse, true)
+			if len(trace) != 0 {
+				e = h.searchCopyBucket[saveDummyTrace](bucket, reverse, true, &dummy)
+			} else {
+				e = h.searchBybucket(bucket, reverse, true)
+			}
 		}
 
 		if e == nil {
 			if atomic.LoadUint64(&Failreverse) == 0 {
 				atomic.CompareAndSwapUint64(&Failreverse, 0, bits.Reverse64(k))
 			}
-			return nil, bucket, false
+			return nil, bucket, dummy, false
 		}
 		var retry bool
-		e, retry = h.matchEntry(e, bits.Reverse64(k), conflict, key, byKey, h.isEmbededItemInBucket)
+		if len(trace) != 0 && !h.isEmbededItemInBucket {
+			e, retry = h.matchCopyEntryWithDummy(e, bits.Reverse64(k), conflict, key, byKey, &dummy)
+		} else {
+			e, retry = h.matchEntry(e, bits.Reverse64(k), conflict, key, byKey, h.isEmbededItemInBucket)
+		}
 		if retry {
 			continue
 		}
 		if e == nil {
-			return nil, bucket, false
+			return nil, bucket, dummy, false
 		}
 
-		return e, bucket, true
+		return e, bucket, dummy, true
 	}
 
 }
@@ -1881,6 +1895,10 @@ func (h *Map[K, V]) searchBybucket(lbCur *bucket[K, V], reverseNoMask uint64, ig
 }
 
 func (h *Map[K, V]) _searchBybucket(lbCur *bucket[K, V], reverse uint64, ignore bool) *Entry[K, V] {
+	return h.searchCopyBucket[noDummyTrace](lbCur, reverse, ignore, nil)
+}
+
+func (h *Map[K, V]) searchCopyBucket[T dummyTrace](lbCur *bucket[K, V], reverse uint64, ignore bool, dummy **MapHead) *Entry[K, V] {
 	if lbCur == nil {
 		return nil
 	}
@@ -1888,7 +1906,7 @@ func (h *Map[K, V]) _searchBybucket(lbCur *bucket[K, V], reverse uint64, ignore 
 	if h.modeForBucket == CombineSearch2 && b.reverse > reverse {
 		b = b.NextOnLevel()
 	}
-	return h.searchCopyEntry(b, b.entry(h), reverse, ignore)
+	return h.searchCopyEntry[T](b, b.entry(h), reverse, ignore, dummy)
 }
 
 // Delete marks the matching entry deleted so subsequent lookups cannot find it.
@@ -1917,9 +1935,10 @@ func (h *Map[K, V]) deleteItem(key K) (MapItem[K, V], *bucket[K, V], *MapHead, b
 	var item MapItem[K, V]
 	var bucket *bucket[K, V]
 	var lock *trylock.Mutex
+	var dummy *MapHead
 	for {
 		var ok bool
-		item, bucket, ok = h.getItemWithBucket(k, conflict, key, true)
+		item, bucket, dummy, ok = h.lookupItem[saveDummyTrace](k, conflict, key, true)
 		if !ok {
 			return nil, nil, nil, false
 		}
@@ -1941,7 +1960,7 @@ func (h *Map[K, V]) deleteItem(key K) (MapItem[K, V], *bucket[K, V], *MapHead, b
 	// the item pool moves the item to a larger array: a delete that found
 	// the item and one that found its copy claim one node
 	if entry := item; !h.isEmbededItemInBucket {
-		return h.deleteEntry(entry, bucket)
+		return h.deleteEntry(entry, bucket, dummy)
 	}
 	origin := elist_head.FindOrigin(item.PtrListHead())
 	mh := mapheadFromLListHead(origin)
@@ -2015,6 +2034,11 @@ func (h *Map[K, V]) purgeItem(key K) bool {
 	}
 	defer mh.releaseBusy()
 	head := item.PtrListHead()
+	if !mh.isPoolItem() {
+		// A split may have changed the bucket since the first lookup.
+		k, _ := item.KeyHash()
+		bucket, _ = h.searchBucket4update(k)
+	}
 	for {
 		// an item that the item pool moves stays linked, with its marks;
 		// so do the links that a Set of the item wrote meanwhile

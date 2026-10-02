@@ -8,7 +8,7 @@ func (h *Map[K, V]) All() iter.Seq2[K, V] { return h.Range }
 // Keys yields keys in Range order without copying V.
 func (h *Map[K, V]) Keys() iter.Seq[K] {
 	return func(yield func(K) bool) {
-		h.RangeItem(func(e *Entry[K, V]) bool { return yield(e.Key()) })
+		h.rangeItem(func(e *Entry[K, V]) bool { return yield(e.Key()) })
 	}
 }
 

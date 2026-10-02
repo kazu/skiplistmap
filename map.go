@@ -2154,6 +2154,10 @@ func (h *Map[K, V]) purgeInEmbedded(key K) bool {
 // The item passed to f is valid only when it is read, as described in
 // LoadItem. RangeItem does not provide a snapshot during concurrent updates.
 func (h *Map[K, V]) RangeItem(f func(*Entry[K, V]) bool) {
+	h.rangeItem(f)
+}
+
+func (h *Map[K, V]) rangeItem(f func(*Entry[K, V]) bool) {
 	defer runtime.KeepAlive(h)
 	for cur := h.head.DirectNext(); !cur.Empty(); cur = cur.DirectNext() {
 		mh := mapheadFromLListHead(cur)
@@ -2176,7 +2180,7 @@ func (h *Map[K, V]) RangeItem(f func(*Entry[K, V]) bool) {
 // order is reverse key order
 // Range does not provide a snapshot during concurrent updates.
 func (h *Map[K, V]) Range(f func(K, V) bool) {
-	h.RangeItem(func(e *Entry[K, V]) bool {
+	h.rangeItem(func(e *Entry[K, V]) bool {
 		key, value, state := e.loadTypedKeyValue()
 		if state&(mapIsDummy|mapIsDeleted) != 0 {
 			return true

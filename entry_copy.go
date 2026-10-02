@@ -55,12 +55,51 @@ func prepareEntryReplacement[K Key[K], V any](old, fresh *Entry[K, V]) {
 }
 
 func publishEntryReplacement[K Key[K], V any](old, fresh *Entry[K, V]) bool {
-	if err := old.ListHead.ReplaceWith(&fresh.ListHead); err != nil {
+	old, fresh, published := replaceEntryListNode(old, fresh, "copy.replacement.inserted")
+	if !published {
 		return false
 	}
-	old.Delete()
 	fresh.releaseBusy()
 	return true
+}
+
+func replaceEntryListNode[K Key[K], V any](old, fresh *Entry[K, V], point string) (*Entry[K, V], *Entry[K, V], bool) {
+	for {
+		oldHead := movedHead(&old.ListHead)
+		freshHead := movedHead(&fresh.ListHead)
+		old = entryHMapFromListHead[K, V](oldHead)
+		fresh = entryHMapFromListHead[K, V](freshHead)
+		if _, err := oldHead.InsertBefore(freshHead); err != nil {
+			if elist_head.IsMoved(oldHead) {
+				old = entryHMapFromListHead[K, V](movedHead(oldHead))
+			}
+			if oldHead.IsMarked() && !elist_head.IsMoved(oldHead) {
+				return old, fresh, false
+			}
+			runtime.Gosched()
+			continue
+		}
+		stepAt(point, unsafe.Pointer(freshHead), unsafe.Pointer(oldHead))
+		for {
+			if err := oldHead.MarkForDelete(); err == nil {
+				old = entryHMapFromListHead[K, V](oldHead)
+				stepAt(point+".marked", unsafe.Pointer(freshHead), unsafe.Pointer(oldHead))
+				old.Delete()
+				return old, entryHMapFromListHead[K, V](movedHead(freshHead)), true
+			}
+			if elist_head.IsMoved(oldHead) {
+				oldHead = movedHead(oldHead)
+				old = entryHMapFromListHead[K, V](oldHead)
+				continue
+			}
+			if oldHead.IsMarked() {
+				old = entryHMapFromListHead[K, V](oldHead)
+				old.Delete()
+				return old, entryHMapFromListHead[K, V](movedHead(freshHead)), true
+			}
+			runtime.Gosched()
+		}
+	}
 }
 
 func (h *Map[K, V]) deleteEntry(entry *entryHMap[K, V], bucket *bucket[K, V], dummy *MapHead) (MapItem[K, V], *bucket[K, V], *MapHead, bool) {
@@ -196,12 +235,13 @@ func (h *Map[K, V]) preparePoolReplacement(old *Entry[K, V], value V) (*Entry[K,
 
 func publishPoolReplacement[K Key[K], V any](old, fresh *Entry[K, V]) bool {
 	for {
-		if err := old.ListHead.ReplaceWith(&fresh.ListHead); err == nil {
+		var published bool
+		old, fresh, published = replaceEntryListNode(old, fresh, "copy.replacement.inserted")
+		if published {
 			break
 		}
 		runtime.Gosched()
 	}
-	old.Delete()
 	old.ListHead.Init()
 	old.clearRetiredValue()
 	fresh.releaseBusy()

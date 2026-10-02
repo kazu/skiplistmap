@@ -84,7 +84,7 @@ func TestEntryCopyRetirementDoesNotHideLiveKey(t *testing.T) {
 	var found bool
 	lookup := goStep(t, func() { got, found = m.LoadItemForTest("key") })
 	read.waitReached(t, lookup)
-	mark := s.stopAt("elist.replaceNode.mark", isNode(unsafe.Pointer(e.PtrListHead())))
+	mark := s.stopAt("map.copy.replacement.inserted.marked", nil)
 	defer mark.Release()
 	var updated bool
 	writer := goStep(t, func() { updated = m.Set("key", 2) })
@@ -106,7 +106,7 @@ func TestEntryCopyMarkedReplacementRefusesReuse(t *testing.T) {
 		t.Fatal("StoreItem failed")
 	}
 	s := newStepper(t)
-	mark := s.stopAt("elist.replaceNode.marked", isNode(unsafe.Pointer(e.PtrListHead())))
+	mark := s.stopAt("map.copy.replacement.inserted.marked", nil)
 	defer mark.Release()
 	done := goStep(t, func() { m.Set("key", 2) })
 	mark.waitReached(t, done)

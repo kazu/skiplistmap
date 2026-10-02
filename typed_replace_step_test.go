@@ -3,6 +3,7 @@
 package skiplistmap_test
 
 import (
+	"fmt"
 	"math/bits"
 	"runtime"
 	"testing"
@@ -18,8 +19,8 @@ func TestTypedAdjacentReplacements(t *testing.T) {
 	m.StoreItem(left)
 	m.StoreItem(right)
 	s := newStepper(t)
-	leftBeforeMark := s.stopAt("elist.replaceNode.mark", isNode(nodeOf(left)))
-	rightMarked := s.stopAt("elist.replaceNode.marked", isNode(nodeOf(right)))
+	leftBeforeMark := s.stopAt("map.copy.replacement.inserted.marked", nil)
+	rightMarked := s.stopAt("map.copy.replacement.inserted.marked", nil)
 	leftDone := goStep(t, func() { m.Set(left.Key(), "updated-left") })
 	leftBeforeMark.waitReached(t, leftDone)
 	rightDone := goStep(t, func() { m.Set(right.Key(), "updated-right") })
@@ -64,12 +65,8 @@ func TestTypedValuesSkipsRetiredSlot(t *testing.T) {
 func TestTypedDeleteWaitsForPoolReplacement(t *testing.T) {
 	m := skiplistmap.New[skiplistmap.StringKey, int]()
 	m.Set("a", 1)
-	entry, ok := m.LoadItemForTest("a")
-	if !ok {
-		t.Fatal("missing initial entry")
-	}
 	s := newStepper(t)
-	updating := s.stopAt("elist.replaceNode.mark", isNode(nodeOf(entry)))
+	updating := s.stopAt("map.copy.replacement.inserted.marked", nil)
 	updated := goStep(t, func() { m.Set("a", 2) })
 	updating.waitReached(t, updated)
 	var deleted bool
@@ -87,6 +84,70 @@ func TestTypedDeleteWaitsForPoolReplacement(t *testing.T) {
 	}
 	if _, ok := m.Get("a"); ok {
 		t.Fatal("deleted key is present")
+	}
+}
+
+func TestTypedReplacementPrefersInsertedEntry(t *testing.T) {
+	for _, embedded := range []bool{false, true} {
+		for _, operation := range []string{"Set", "Update"} {
+			t.Run(fmt.Sprintf("embedded=%v/%s", embedded, operation), func(t *testing.T) {
+				m := skiplistmap.New[skiplistmap.StringKey, int](
+					skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, int](embedded),
+				)
+				m.Set("a", 1)
+				old, ok := m.LoadItemForTest("a")
+				if !ok {
+					t.Fatal("missing initial entry")
+				}
+				s := newStepper(t)
+				inserted := s.stopAt("map.copy.replacement.inserted.marked", nil)
+				done := goStep(t, func() {
+					if operation == "Set" {
+						m.Set("a", 2)
+					} else {
+						m.Update("a", func(value *int) { *value = 2 })
+					}
+				})
+				inserted.waitReached(t, done)
+				if !old.ListHead.IsMarked() {
+					t.Error("old list node was not removed after the replacement was inserted")
+				}
+				type result struct {
+					value int
+					ok    bool
+				}
+				got := make(chan result, 1)
+				started := make(chan struct{})
+				go func() {
+					close(started)
+					value, ok := m.Get("a")
+					got <- result{value: value, ok: ok}
+				}()
+				<-started
+				var current result
+				readBeforeRelease := false
+				select {
+				case current = <-got:
+					readBeforeRelease = true
+				case <-time.After(50 * time.Millisecond):
+				}
+				inserted.Release()
+				waitDone(t, done, "replacement")
+				if !readBeforeRelease {
+					select {
+					case current = <-got:
+					case <-time.After(time.Second):
+						t.Fatal("Get did not finish after replacement")
+					}
+				}
+				if !current.ok || current.value != 2 {
+					t.Fatalf("Get=(%d,%v), want (2,true)", current.value, current.ok)
+				}
+				if value, ok := m.Get("a"); !ok || value != 2 {
+					t.Fatalf("Get after replacement=(%d,%v), want (2,true)", value, ok)
+				}
+			})
+		}
 	}
 }
 

@@ -225,7 +225,7 @@ func newStepItems(keys []string) []skiplistmap.SampleItem[skiplistmap.StringKey,
 	return items
 }
 
-func nodeOf[K skiplistmap.Key[K], V any](item *skiplistmap.SampleItem[K, V]) unsafe.Pointer {
+func nodeOf[T interface{ PtrListHead() *elist_head.ListHead }](item T) unsafe.Pointer {
 	return unsafe.Pointer(item.PtrListHead())
 }
 
@@ -243,7 +243,7 @@ func assertStoredInOrder(t *testing.T, m *WrapHMap, keys []string) {
 	}
 	var got []string
 	runWithDeadline(t, 10*time.Second, func() {
-		m.base.RangeItemForTest(func(item skiplistmap.MapItem[skiplistmap.StringKey, any]) bool {
+		m.base.RangeItemForTest(func(item *skiplistmap.TestEntry[skiplistmap.StringKey, any]) bool {
 			got = append(got, string(item.Key()))
 			return true
 		})

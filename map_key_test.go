@@ -22,7 +22,7 @@ func Test_CollisionWalkStopsAtMapBoundaries(t *testing.T) {
 	if _, err := h.tail.InsertBefore(e.PtrListHead()); err != nil {
 		t.Fatal(err)
 	}
-	got, retry := h.matchEntry(e, reverse, 2, "", false, false)
+	got, retry := h.matchEntry(&e.embeddedEntry, reverse, 2, "", false, false)
 	if got != nil || retry {
 		t.Fatalf("absent collision: got %v, retry %v", got, retry)
 	}

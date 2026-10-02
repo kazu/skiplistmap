@@ -51,8 +51,8 @@ func (h *Map[K, V]) Update(key K, edit func(*V)) bool {
 				}
 				fresh := NewEntry(item.key, item.value)
 				edit(&fresh.value)
-				prepareEntryReplacement(item, fresh)
-				for !publishEntryReplacement(item, fresh) {
+				prepareEntryReplacement(item.viewEntry(), fresh)
+				for !publishEntryReplacement(item.viewEntry(), fresh) {
 					runtime.Gosched()
 				}
 				return true
@@ -66,7 +66,7 @@ func (h *Map[K, V]) Update(key K, edit func(*V)) bool {
 	}
 }
 
-func (h *Map[K, V]) editPoolEntry(old *Entry[K, V], edit func(*V)) bool {
+func (h *Map[K, V]) editPoolEntry(old *embeddedEntry[K, V], edit func(*V)) bool {
 	old, fresh, found := h.preparePoolReplacement(old, old.value)
 	if !found {
 		return false

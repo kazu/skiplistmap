@@ -44,7 +44,7 @@ func TestDeletePurgeDummyTrace(t *testing.T) {
 				t.Fatal("fixture lookup returned no entry")
 			}
 			entry, retry := h.matchCopyEntryWithDummy(entry, 17, 7, target.Key(), true, &saved)
-			if retry || entry != &target || saved != &middle {
+			if retry || entry != &target.embeddedEntry || saved != &middle {
 				t.Fatal("lookup did not return the last dummy before its matching entry")
 			}
 
@@ -53,7 +53,7 @@ func TestDeletePurgeDummyTrace(t *testing.T) {
 			saved = &b.dummy
 			entry = h.searchCopyEntry[noDummyTrace](b, &b.dummy, 17, true, &saved)
 			entry, retry = h.matchCopyEntry(entry, 17, 7, target.Key(), true)
-			if retry || entry != &target || saved != &b.dummy {
+			if retry || entry != &target.embeddedEntry || saved != &b.dummy {
 				t.Fatal("ordinary lookup changed tracking state or the matching entry")
 			}
 		})

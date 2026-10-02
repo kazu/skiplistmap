@@ -83,16 +83,18 @@ Mapがpool内の要素を移動・再利用する場合、以前取得したポ�
 限らない。変更はMapのメソッドを通す。保持のためだけの新しいregistryや所有者表は
 追加しない。
 
-非embedded modeのEntryと、両modeの外部Entryは、更新ごとに新しいEntryを公開し、rootから更新コピーを保持する。
-古いEntryの参照は古い値を指す。保持したrootの更新履歴は自動回収しないため、
-更新回数に応じて保持メモリが増える。pool配列を移動した場合もrootの参照を引き継ぐ。
+非embedded modeのEntryと、両modeの外部Entryは、更新ごとにpool外へコピーを作って公開する。
+StoreItemで渡された実体も、その更新コピーもpoolへ収容しない。
+古いEntryの参照は古い値を指す。更新から戻った後も、現在登録中のコピーを
+更新前EntryからのGo参照で生かす。この参照は外部用Entryだけにあり、内部のembeddedEntryにはない。
+公開のNext/Prevは内部slotを飛ばして外部Entryを返し、内部slotを大きいEntryへ変換しない。
 
 embedded modeのpool要素は更新を別slotにコピーして公開し、旧slotを削除して再利用する。
 再利用時には任意のK/Vの読み取りと書き換えが競合するため、再利用対象のEntryだけに
-atomicカウンタによる読み取り保護を置く。読み手の終了を待ってpayloadを書き換える。
+既存のstateフィールド内のatomicカウンタによる読み取り保護を置く。読み手の終了を待ってpayloadを書き換える。
 RWMutexは使わないが、embedded modeの読み取りにはatomic操作が増える。
-slotの公開世代・削除状態も再確認する。LoadItemで得たslotを現在値の固定snapshotとして
-保持することはできない。キーと値の組はGetまたはRangeで取得する。
+slotの公開世代・削除状態も再確認する。embedded modeのpool slotは公開Entryとして返さない。
+キーと値の組はGetまたはRangeで取得する。
 
 外部Entryは `NewEntry[K,V](key,value)` で作るか、所有者のstructや配列内のゼロEntryを
 `InitEntry(key,value)` で初期化する。InitEntryは初回だけtrueを返す。
@@ -186,7 +188,7 @@ Vが指す別allocation内のフィールドからEntryへは戻らない。こ�
 | 現在の関数・型 | 型付き化で行うこと |
 |---|---|
 | Map、OptHMap、New、NewHMap | K/Vを型引数で運び、オプションも同じMap型を受ける |
-| entryPayload、entryHMap、copyEntry | key/valueをK/Vにし、コピー公開とrootからの保持を維持する |
+| entryPayload、entryHMap、copyEntry | key/valueをK/Vにし、外部Entryの更新コピーはpool外に置く |
 | KeyToHash、equalKeys、equalItemKey | キー自身のKeyHash/Equalへ接続し、通常経路のtype switchとreflect比較を除く |
 | mapheadFromLListHead | MapHeadへの復元は維持し、実Entryへ戻す場所でEntryView相当の型付き復元を使う |
 | matchEntry、matchNeighbors、readMatchingEntry | 同じハッシュ対の候補もEqualで判別し、既存の公開世代・削除・移動確認を保つ |

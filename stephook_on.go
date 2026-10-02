@@ -175,11 +175,11 @@ func StepCheckPooledItems[K Key[K], V any](h *Map[K, V]) error {
 		for i := range h.pooler.itemPool {
 			for cur := h.pooler.itemPool[i].DirectNext(); cur.DirectNext() != cur; cur = cur.DirectNext() {
 				sp := samepleItemPoolFromListHead[K, V](cur)
-				if cap(sp.items) == 0 {
+				if sp.items.Cap() == 0 {
 					continue
 				}
-				lo := uintptr(unsafe.Pointer(&sp.items[:1][0]))
-				spans = append(spans, span{lo, lo + uintptr(cap(sp.items))*SampleItemSize[K, V]()})
+				lo := uintptr(sp.items.data)
+				spans = append(spans, span{lo, lo + uintptr(sp.items.Cap())*sp.items.stride})
 			}
 		}
 	}

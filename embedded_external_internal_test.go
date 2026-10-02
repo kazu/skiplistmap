@@ -12,7 +12,7 @@ func TestEmbeddedExternalPoolMovesAndSplits(t *testing.T) {
 	keys := make([]Uint64Key, n)
 	entries := make([]*Entry[Uint64Key, int], n)
 	defer runtime.KeepAlive(entries)
-	var first *Entry[Uint64Key, int]
+	var first *embeddedEntry[Uint64Key, int]
 	for i := range keys {
 		reverse := uint64(1<<61) + uint64(i)<<55
 		keys[i] = Uint64Key(bits.Reverse64(reverse))
@@ -33,7 +33,7 @@ func TestEmbeddedExternalPoolMovesAndSplits(t *testing.T) {
 	owners := make(map[*bucket[Uint64Key, int]]bool)
 	for i, key := range keys {
 		item, ok := m.LoadItemForTest(key)
-		if !ok || item.Value() != i || entries[i] != nil && item != entries[i] {
+		if !ok || item.Value() != i || entries[i] != nil && item != &entries[i].embeddedEntry {
 			t.Fatalf("LoadItem(%d)=(%p,%v), external=%p", i, item, ok, entries[i])
 		}
 		owners[m.findBucket(bits.Reverse64(uint64(key))).toBase()] = true

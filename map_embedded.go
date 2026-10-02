@@ -17,7 +17,7 @@ import (
 	"github.com/kazu/skiplistmap/atomic_util"
 )
 
-func (h *Map[K, V]) bsearchBybucket(bucket *bucket[K, V], reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry[K, V] {
+func (h *Map[K, V]) bsearchBybucket(bucket *bucket[K, V], reverseNoMask uint64, ignoreBucketEnry bool) *embeddedEntry[K, V] {
 
 	stepAt("bsearch.begin", unsafe.Pointer(bucket), nil)
 	pool := bucket.toBase().itemPool()
@@ -31,25 +31,25 @@ func (h *Map[K, V]) bsearchBybucket(bucket *bucket[K, V], reverseNoMask uint64, 
 	// insertToPool may put a new array into the pool while the search reads
 	// the old one; the search starts again when the array changed under it
 	for {
-		version := pool.publication.Load()
+		version := pool.arrayState.Load()
 		data := atomic.LoadPointer(&items.data)
 		l := items.Len()
 		stepAt("bsearch.snapshot", unsafe.Pointer(pool), nil)
-		if version&1 != 0 || pool.publication.Load() != version {
+		if version&1 != 0 || pool.arrayState.Load() != version {
 			runtime.Gosched()
 			continue
 		}
-		snapshot := unsafe.Slice((*SampleItem[K, V])(data), l)
+		snapshot := unsafe.Slice((*embeddedEntry[K, V])(data), l)
 
 		idx := sort.Search(l, func(i int) bool {
-			item := skipDeletedItems[K, V](&snapshot[i], &snapshot[0])
+			item := skipDeletedItems[K, V](&snapshot[i], &snapshot[0], unsafe.Sizeof(embeddedEntry[K, V]{}))
 			return atomic.LoadUint64(&item.reverse) >= reverseNoMask
 			//return items.reverseAt(i) >= reverseNoMask
 		})
 		stepAt("bsearch.searched", unsafe.Pointer(bucket), nil)
 		// Equal reverses sit next to each other; a purged placeholder may
 		// precede the live entry of the same key, so skip ignored matches.
-		var found *SampleItem[K, V]
+		var found *embeddedEntry[K, V]
 		for ; idx < l && atomic.LoadUint64(&snapshot[idx].reverse) == reverseNoMask; idx++ {
 			item := &snapshot[idx]
 			// A reused slot can expose its new hash before Set links it.
@@ -90,7 +90,7 @@ func (h *Map[K, V]) bsearchBybucket(bucket *bucket[K, V], reverseNoMask uint64, 
 				continue
 			}
 		}
-		if pool.publication.Load() != version {
+		if pool.arrayState.Load() != version {
 			continue
 		}
 		if found != nil {
@@ -109,7 +109,7 @@ func (h *Map[K, V]) bsearchBybucket(bucket *bucket[K, V], reverseNoMask uint64, 
 	return nil
 }
 
-func (h *Map[K, V]) searchKeyFromEmbeddedPool(k uint64, ignoreBucketEnry bool) HMapEntry[K, V] {
+func (h *Map[K, V]) searchKeyFromEmbeddedPool(k uint64, ignoreBucketEnry bool) *embeddedEntry[K, V] {
 	rev := bits.Reverse64(k)
 	//return h.searchByEmbeddedbucket(h.findBucket(rev), rev, ignoreBucketEnry)
 	return h.bsearchBybucket(h.findBucket(rev), rev, ignoreBucketEnry)
@@ -148,7 +148,7 @@ func (h *Map[K, V]) makeBucket2(bucket *bucket[K, V]) (err error) {
 	b.LevelHead.Init()
 	b.initItemPool()
 
-	olen := len(bucket.itemPool().items)
+	olen := bucket.itemPool().items.Len()
 	nPool, err2 := bucket.itemPool()._split(idx, false)
 	_ = err2
 	b.setItemPool(nPool)
@@ -361,14 +361,14 @@ type unlocker func(mu sync.Locker)
 // appendLast takes the slot after the last one for the key of reverse. It
 // writes reverse into the slot before the slot counts in the length, so that
 // a binary search over the slots never meets a slot of reverse 0 there.
-func (sp *samepleItemPool[K, V]) appendLast(reverse uint64, mu sync.Locker) (newItem MapItem[K, V], nPool *samepleItemPool[K, V], fn unlocker) {
+func (sp *samepleItemPool[K, V]) appendLast(reverse uint64, mu sync.Locker) (newItem *embeddedEntry[K, V], nPool *samepleItemPool[K, V], fn unlocker) {
 
 	if mu != nil {
 		mu.Lock()
 		fn = lazyUnlock
 	}
 
-	var new *SampleItem[K, V]
+	var new *embeddedEntry[K, V]
 	items := sp.ptrItems()
 	l := items.Len()
 	if l >= items.Cap() {
@@ -390,42 +390,42 @@ func (sp *samepleItemPool[K, V]) appendLast(reverse uint64, mu sync.Locker) (new
 	return nil, nil, fn
 }
 
-func (sp *samepleItemPool[K, V]) insertToPool(reverse uint64, mu sync.Locker) (newItem MapItem[K, V], nPool *samepleItemPool[K, V], fn unlocker) {
+func (sp *samepleItemPool[K, V]) insertToPool(reverse uint64, mu sync.Locker) (newItem *embeddedEntry[K, V], nPool *samepleItemPool[K, V], fn unlocker) {
 	if mu != nil {
 		mu.Lock()
 		fn = lazyUnlock
 	}
 
-	olen := len(sp.items)
-	ocap := cap(sp.items)
+	olen := sp.items.Len()
+	ocap := sp.items.Cap()
 
 	// require insert
 	if IsDebug() {
 		var b strings.Builder
-		for i := range sp.items {
-			sp.items[i].PtrMapHead().dump[K, V](&b)
+		for i := 0; i < sp.items.Len(); i++ {
+			sp.items.at(i).PtrMapHead().dump[K, V](&b)
 		}
 		Log(LogDebug, "B: itemPool.items\n%s\n", b.String())
 	}
 	// FIXME: should disable not IsDebug()
 	//sp.validateItems()
-	if olen != len(sp.items) {
+	if olen != sp.items.Len() {
 		Log(LogDebug, "update olen")
 		newItem, nPool, _ = sp.getWithFn(reverse, nil)
 		return newItem, nPool, fn
 	}
-	//olen = len(sp.items)
+	//olen = sp.items.Len()
 	nlen := int64(olen)
 
 	for i := 0; i < olen; i++ {
-		//for i := range sp.items {
-		if sp.items[i].reverse < reverse {
+		//for i := 0; i < sp.items.Len(); i++ {
+		if sp.items.at(i).reverse < reverse {
 			continue
 		}
 		if i == olen-1 {
 			//fmt.Printf("invalid")
 		}
-		if !atomic.CompareAndSwapInt64(&nlen, int64(len(sp.items)), nlen+1) {
+		if !atomic.CompareAndSwapInt64(&nlen, int64(sp.items.Len()), nlen+1) {
 			Log(LogDebug, "update olen")
 			newItem, nPool, _ = sp.getWithFn(reverse, nil)
 			return newItem, nPool, fn
@@ -433,15 +433,15 @@ func (sp *samepleItemPool[K, V]) insertToPool(reverse uint64, mu sync.Locker) (n
 		// copy to new slice
 		newItems := newPoolItems[K, V](olen+1, maxInts(ocap, olen+1), true)
 		if i > 0 {
-			copyPoolItems(newItems[0:i], sp.items[0:i])
+			copyPoolItems(newItems.slice(0, i), sp.items.slice(0, i))
 		}
-		copyPoolItems(newItems[i+1:], sp.items[i:])
+		copyPoolItems(newItems.slice(i+1, newItems.Len()), sp.items.slice(i, sp.items.Len()))
 
 		replacePoolItems(newItems, sp.items, i)
-		newItems[i].PtrMapHead().reverse = reverse
+		newItems.at(i).PtrMapHead().reverse = reverse
 
 		oldItems := sp.ptrItems().dup()
-		newItemSlice := toItemSlice[K, V](newItems)
+		newItemSlice := newItems
 		stepAt("insertToPool.publish", unsafe.Pointer(sp), nil)
 		sp.publishItems(&newItemSlice)
 
@@ -450,13 +450,13 @@ func (sp *samepleItemPool[K, V]) insertToPool(reverse uint64, mu sync.Locker) (n
 
 		if IsDebug() {
 			var b strings.Builder
-			for i := range sp.items {
-				sp.items[i].PtrMapHead().dump[K, V](&b)
+			for i := 0; i < sp.items.Len(); i++ {
+				sp.items.at(i).PtrMapHead().dump[K, V](&b)
 			}
 			fmt.Printf("A: itemPool.items\n%s\n", b.String())
 		}
 
-		return &sp.items[i], nil, lazyUnlock
+		return sp.items.at(i), nil, lazyUnlock
 	}
 	return sp.getWithFn(reverse, nil)
 	//return nil, nil, nil
@@ -464,7 +464,7 @@ func (sp *samepleItemPool[K, V]) insertToPool(reverse uint64, mu sync.Locker) (n
 }
 
 //go:norace
-func (sp *samepleItemPool[K, V]) getWithFn(reverse uint64, mu sync.Locker) (new MapItem[K, V], nPool *samepleItemPool[K, V], fn unlocker) {
+func (sp *samepleItemPool[K, V]) getWithFn(reverse uint64, mu sync.Locker) (new *embeddedEntry[K, V], nPool *samepleItemPool[K, V], fn unlocker) {
 
 	items := *sp.ptrItems()
 	olen := items.Len()
@@ -564,39 +564,39 @@ func (sp *samepleItemPool[K, V]) expand(mu sync.Locker) (unlocker, error) {
 		fn = lazyUnlock
 	}
 
-	olen := len(sp.items)
-	//ocap := cap(sp.items)
+	olen := sp.items.Len()
+	//ocap := sp.items.Cap()
 
-	if olen != len(sp.items) {
+	if olen != sp.items.Len() {
 		Log(LogDebug, "update olen")
 		_, e := sp.expand(nil)
 		return fn, e
 	}
 	nlen := int64(olen)
 
-	if !atomic.CompareAndSwapInt64(&nlen, int64(len(sp.items)), nlen+1) {
+	if !atomic.CompareAndSwapInt64(&nlen, int64(sp.items.Len()), nlen+1) {
 		Log(LogDebug, "update olen")
 		_, e := sp.expand(nil)
 		return fn, e
 	}
 
-	nCap := PoolCap(len(sp.items))
+	nCap := PoolCap(sp.items.Len())
 
 	newItems := newPoolItems[K, V](olen, nCap, true)
-	toPtrItemSlice[K, V](&newItems).CopyDataFrom(0, sp.ptrItems(), 0, olen)
+	newItems.CopyDataFrom(0, sp.ptrItems(), 0, olen)
 
 	replacePoolItems(newItems, sp.items, -1)
 
 	oldItems := sp.ptrItems().dup()
-	sp.publishItems(toPtrItemSlice[K, V](&newItems))
+	sp.publishItems(&newItems)
 
 	// for debug
 	_ = oldItems
 
 	if IsDebug() {
 		var b strings.Builder
-		for i := range sp.items {
-			sp.items[i].PtrMapHead().dump[K, V](&b)
+		for i := 0; i < sp.items.Len(); i++ {
+			sp.items.at(i).PtrMapHead().dump[K, V](&b)
 		}
 		fmt.Printf("A: itemPool.items\n%s\n", b.String())
 	}
@@ -633,8 +633,8 @@ func holeListHeadsOfSampleItem[K Key[K], V any]() (before, after elist_head.List
 
 func (sp *samepleItemPool[K, V]) findIdx(reverse uint64) (int, error) {
 
-	for i := range sp.items {
-		if reverse <= sp.items[i].reverse {
+	for i := 0; i < sp.items.Len(); i++ {
+		if reverse <= sp.items.at(i).reverse {
 			return i, nil
 		}
 	}
@@ -648,19 +648,20 @@ func (sp *samepleItemPool[K, V]) split(idx int) (nPool *samepleItemPool[K, V], e
 }
 func (sp *samepleItemPool[K, V]) _split(idx int, connect bool) (nPool *samepleItemPool[K, V], err error) {
 
-	nlen := int64(len(sp.items))
+	nlen := int64(sp.items.Len())
 	if int(nlen) <= idx {
 		return nil, ErrIdxOverflow
 	}
 
 	nPool = &samepleItemPool[K, V]{reusable: sp.reusable}
 
-	if !atomic.CompareAndSwapInt64(&nlen, int64(len(sp.items)), nlen+1) {
+	if !atomic.CompareAndSwapInt64(&nlen, int64(sp.items.Len()), nlen+1) {
 		return sp._split(idx, connect)
 	}
 
 	// sp keeps its items: the caller shrinks sp after nPool's bucket is readable.
 	spItems := sp.ptrItems()
+	nPool.items.stride = spItems.stride
 	nPool.ptrItems().CopyFrom(spItems, idx, spItems.Len()-idx)
 	nPool.Init()
 	//sp.validateItems()
@@ -678,7 +679,7 @@ func (sp *samepleItemPool[K, V]) initFreeList() {
 	elist_head.InitAsEmpty(&sp.freeHead, &sp.freeTail)
 }
 
-func (sp *samepleItemPool[K, V]) PushWithOrder(item *SampleItem[K, V]) error {
+func (sp *samepleItemPool[K, V]) PushWithOrder(item *embeddedEntry[K, V]) error {
 
 	p := uintptr(unsafe.Pointer(item.PtrListHead()))
 
@@ -729,37 +730,19 @@ type sliceHeader struct {
 }
 type itemSlice[K Key[K], V any] struct {
 	sliceHeader
+	stride uintptr
 }
 
-func sampleItemItemsOffset[K Key[K], V any]() uintptr {
-	return unsafe.Offsetof(EmptysamepleItemPool[K, V]().items)
-}
-func itemSize[K Key[K], V any]() uintptr {
-	return unsafe.Sizeof(SampleItem[K, V]{})
-}
-
-func toPtrItemSlice[K Key[K], V any](items *[]SampleItem[K, V]) (list *itemSlice[K, V]) {
-	return (*itemSlice[K, V])(unsafe.Pointer(items))
-}
-
-func toItemSlice[K Key[K], V any](items []SampleItem[K, V]) (list itemSlice[K, V]) {
-	slice := (*itemSlice[K, V])(unsafe.Pointer(&items))
-	list.data = atomic.LoadPointer(&slice.data)
-	list.len = atomic_util.LoadInt(&slice.len)
-	list.cap = atomic_util.LoadInt(&slice.cap)
-	return
-}
-
-func (sp *samepleItemPool[K, V]) ptrItems() (result *itemSlice[K, V]) {
-	return (*itemSlice[K, V])(unsafe.Add(unsafe.Pointer(sp), sampleItemItemsOffset[K, V]()))
+func (sp *samepleItemPool[K, V]) ptrItems() *itemSlice[K, V] {
+	return &sp.items
 }
 
 // publishItems replaces the array under the bucket lock. An odd publication
 // means readers cannot yet pair its data pointer with its length.
 func (sp *samepleItemPool[K, V]) publishItems(items *itemSlice[K, V]) {
-	sp.publication.Add(1)
+	sp.arrayState.Add(1)
 	sp.ptrItems().CopyFrom(items, 0, items.Len())
-	sp.publication.Add(1)
+	sp.arrayState.Add(1)
 }
 
 func (sp *samepleItemPool[K, V]) itemSlice(isNoneZero bool) (result itemSlice[K, V]) {
@@ -769,6 +752,7 @@ func (sp *samepleItemPool[K, V]) itemSlice(isNoneZero bool) (result itemSlice[K,
 		result.data = atomic.LoadPointer(&ptr.data)
 		result.len = atomic_util.LoadInt(&ptr.len)
 		result.cap = atomic_util.LoadInt(&ptr.cap)
+		result.stride = ptr.stride
 
 		if result.data != nil {
 			break
@@ -780,12 +764,12 @@ func (sp *samepleItemPool[K, V]) itemSlice(isNoneZero bool) (result itemSlice[K,
 	return
 }
 
-func (list *itemSlice[K, V]) at(i int) (result *SampleItem[K, V]) {
+func (list *itemSlice[K, V]) at(i int) (result *embeddedEntry[K, V]) {
 
 	return list._at(i, true, false)
 }
 
-func (list *itemSlice[K, V]) _at(i int, checklen bool, skipOnDelete bool) (result *SampleItem[K, V]) {
+func (list *itemSlice[K, V]) _at(i int, checklen bool, skipOnDelete bool) (result *embeddedEntry[K, V]) {
 
 	if checklen && atomic_util.LoadInt(&list.len) <= i {
 		return nil
@@ -794,17 +778,17 @@ func (list *itemSlice[K, V]) _at(i int, checklen bool, skipOnDelete bool) (resul
 	}
 
 	data := atomic.LoadPointer(&list.data)
-	pCur := unsafe.Add(data, i*int(itemSize[K, V]()))
+	pCur := unsafe.Add(data, i*int(list.stride))
 	if !skipOnDelete {
-		return (*SampleItem[K, V])(pCur)
+		return (*embeddedEntry[K, V])(pCur)
 	}
 
-	return skipDeletedItems[K, V]((*SampleItem[K, V])(pCur), (*SampleItem[K, V])(data))
+	return skipDeletedItems[K, V]((*embeddedEntry[K, V])(pCur), (*embeddedEntry[K, V])(data), list.stride)
 }
 
-func skipDeletedItems[K Key[K], V any](item, first *SampleItem[K, V]) *SampleItem[K, V] {
+func skipDeletedItems[K Key[K], V any](item, first *embeddedEntry[K, V], stride uintptr) *embeddedEntry[K, V] {
 	for item.IsDeleted() && item != first {
-		item = (*SampleItem[K, V])(unsafe.Add(unsafe.Pointer(item), -int(itemSize[K, V]())))
+		item = (*embeddedEntry[K, V])(unsafe.Add(unsafe.Pointer(item), -int(stride)))
 	}
 	return item
 }
@@ -859,7 +843,7 @@ func (list *itemSlice[K, V]) CopyDataFrom(head int, src *itemSlice[K, V], start,
 }
 
 func (list *itemSlice[K, V]) dup() (new *itemSlice[K, V]) {
-	new = &itemSlice[K, V]{}
+	new = &itemSlice[K, V]{stride: list.stride}
 	new.init()
 	new.CopyFrom(list, 0, list.Len())
 	return
@@ -867,8 +851,8 @@ func (list *itemSlice[K, V]) dup() (new *itemSlice[K, V]) {
 
 func (list *itemSlice[K, V]) reverseAt(idx int) (r uint64) {
 
-	var toReverse = unsafe.Offsetof(EmptySampleHMapEntry[K, V]().reverse)
-	ptr := unsafe.Add(atomic.LoadPointer(&list.data), idx*int(SampleItemSize[K, V]())+int(toReverse))
+	var toReverse = unsafe.Offsetof(embeddedEntry[K, V]{}.reverse)
+	ptr := unsafe.Add(atomic.LoadPointer(&list.data), idx*int(list.stride)+int(toReverse))
 	r = atomic.LoadUint64((*uint64)(ptr))
 	return r
 }
@@ -878,36 +862,55 @@ func (list *itemSlice[K, V]) reduceCap() int {
 	return 0
 }
 
-func newPoolItems[K Key[K], V any](length, capacity int, reusable bool) []Entry[K, V] {
-	items := make([]Entry[K, V], length, capacity)
+func newPoolItems[K Key[K], V any](length, capacity int, reusable bool) itemSlice[K, V] {
+	var data unsafe.Pointer
+	stride := unsafe.Sizeof(Entry[K, V]{})
 	if reusable {
-		for i := range items[:capacity] {
-			items[:capacity][i].reusable = true
+		stride = unsafe.Sizeof(embeddedEntry[K, V]{})
+		items := make([]embeddedEntry[K, V], capacity)
+		for i := range items {
+			items[i].state = mapIsReusable
 		}
+		data = unsafe.Pointer(unsafe.SliceData(items))
+	} else {
+		items := make([]Entry[K, V], capacity)
+		data = unsafe.Pointer(unsafe.SliceData(items))
 	}
-	return items
+	return itemSlice[K, V]{sliceHeader: sliceHeader{data: data, len: length, cap: capacity}, stride: stride}
 }
-func copyPoolItems[K Key[K], V any](dst, src []Entry[K, V]) {
-	for i := range src {
-		dst[i].copyFrom(&src[i])
+
+func (list *itemSlice[K, V]) slice(start, end int) itemSlice[K, V] {
+	return itemSlice[K, V]{
+		sliceHeader: sliceHeader{
+			data: unsafe.Add(atomic.LoadPointer(&list.data), uintptr(start)*list.stride),
+			len:  end - start,
+			cap:  list.Cap() - start,
+		},
+		stride: list.stride,
 	}
 }
 
-func replacePoolItems[K Key[K], V any](dst, src []Entry[K, V], exclude int) {
-	for i := range src {
+func copyPoolItems[K Key[K], V any](dst, src itemSlice[K, V]) {
+	for i := 0; i < src.Len(); i++ {
+		dst.at(i).copyFrom(src.at(i))
+	}
+}
+
+func replacePoolItems[K Key[K], V any](dst, src itemSlice[K, V], exclude int) {
+	for i := 0; i < src.Len(); i++ {
 		j := i
 		if exclude >= 0 && i >= exclude {
 			j++
 		}
-		dst[j].ListHead.Init()
-		if src[i].IsIgnored() || !src[i].waitPayload() {
-			dst[j].Delete()
-			if linkedEntry(&src[i].ListHead) {
-				src[i].ListHead.MarkForDelete()
+		dst.at(j).ListHead.Init()
+		if src.at(i).IsIgnored() || !src.at(i).waitPayload() {
+			dst.at(j).Delete()
+			if linkedEntry(&src.at(i).ListHead) {
+				src.at(i).ListHead.MarkForDelete()
 			}
 			continue
 		}
-		_, moved, published := replaceEntryListNode(&src[i], &dst[j], "copy.poolmove.inserted")
+		_, moved, published := replaceEntryListNode(src.at(i), dst.at(j), "copy.poolmove.inserted")
 		if !published {
 			moved.Delete()
 		}

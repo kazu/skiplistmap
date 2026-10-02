@@ -80,7 +80,7 @@ func TestEntryCopyRetirementDoesNotHideLiveKey(t *testing.T) {
 	s := newStepper(t)
 	read := s.stopAt("map.key.dataRead", isNode(unsafe.Pointer(e.PtrListHead())))
 	defer read.Release()
-	var got *smap.Entry[smap.StringKey, any]
+	var got *smap.TestEntry[smap.StringKey, any]
 	var found bool
 	lookup := goStep(t, func() { got, found = m.LoadItemForTest("key") })
 	read.waitReached(t, lookup)
@@ -93,7 +93,7 @@ func TestEntryCopyRetirementDoesNotHideLiveKey(t *testing.T) {
 	waitDone(t, lookup, "lookup before replacement marks")
 	mark.Release()
 	waitDone(t, writer, "replacement")
-	if !found || got != e || !updated {
+	if !found || got.PtrMapHead() != e.PtrMapHead() || !updated {
 		t.Fatalf("found=%v, entry=%p (want %p), updated=%v", found, got, e, updated)
 	}
 	runtime.KeepAlive(e)

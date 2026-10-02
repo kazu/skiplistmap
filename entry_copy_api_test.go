@@ -52,20 +52,20 @@ func TestEntryCopyStoreItemOrCopy(t *testing.T) {
 			if !ok || fresh == e || fresh == nil {
 				t.Fatal("retired entry was not copied")
 			}
-			if stored, ok := m.LoadItemForTest(1); !ok || stored != fresh {
+			if stored, ok := m.LoadItemForTest(1); !ok || stored.PtrMapHead() != fresh.PtrMapHead() {
 				t.Fatal("copy was not linked")
 			}
 			if !m.Set(2, 20) {
 				t.Fatal("Set failed")
 			}
 			pooled, _ := m.LoadItemForTest(2)
-			if got, ok := m.StoreItemOrCopy(pooled); ok || got != nil {
+			if got, ok := m.StoreItemOrCopyForTest(pooled); ok || got != nil {
 				t.Fatal("pool entry was copied")
 			}
 			if !m.Purge(2) {
 				t.Fatal("pool Purge failed")
 			}
-			if got, ok := m.StoreItemOrCopy(pooled); ok || got != nil {
+			if got, ok := m.StoreItemOrCopyForTest(pooled); ok || got != nil {
 				t.Fatal("retired pool entry was copied")
 			}
 			runtime.KeepAlive(e)
@@ -90,7 +90,7 @@ func TestEntryCopyStoreItemOrCopyExistingKey(t *testing.T) {
 			if got, ok := b.Get(1); !ok || got != 10 || b.Len() != 1 || a.Len() != 0 {
 				t.Fatal("existing-key update changed StoreItem semantics")
 			}
-			if stored, _ := b.LoadItemForTest(1); stored == fresh || !fresh.PtrListHead().IsSingle() {
+			if stored, _ := b.LoadItemForTest(1); stored.PtrMapHead() == fresh.PtrMapHead() || !fresh.PtrListHead().IsSingle() {
 				t.Fatal("update linked the supplied copy")
 			}
 			runtime.KeepAlive(e)

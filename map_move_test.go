@@ -99,16 +99,16 @@ func Test_StoreItemRefusesAnItemOfThePool(t *testing.T) {
 	if !ok {
 		t.Fatalf("LoadItem did not find the key")
 	}
-	if other.base.StoreItem(item) {
+	if other.base.StoreItemForTest(item) {
 		t.Errorf("StoreItem of an item of the pool of another map = true")
 	}
 	if !m.base.Purge("k") {
 		t.Fatalf("Purge = false")
 	}
-	if other.base.StoreItem(item) {
+	if other.base.StoreItemForTest(item) {
 		t.Errorf("StoreItem of an item of the pool of another map, after Purge = true")
 	}
-	if m.base.StoreItem(item) {
+	if m.base.StoreItemForTest(item) {
 		t.Errorf("StoreItem of an item of the pool of the map itself, after Purge = true")
 	}
 	if _, ok := other.Get("k"); ok {

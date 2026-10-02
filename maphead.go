@@ -23,10 +23,21 @@ const (
 	mapIsBusy
 	// mapIsRetired survives link initialization after deletion or replacement.
 	mapIsRetired
-	// Adding mapKeyWriting before and after replacing a pooled key/value
-	// pair makes this bit odd during publication and advances its version.
-	mapKeyWriting
+	mapPayloadInitializing
+	mapPayloadReady
+	mapIsReusable
+	mapReaderUnit
 )
+
+const mapPayloadState = mapPayloadInitializing | mapPayloadReady
+
+// The reader count shares the existing state word. Its all-ones value means
+// an exclusive writer; readers wait rather than overflowing this range.
+const mapReadersMask = ((1 << 16) - 1) * mapReaderUnit
+
+// The upper 40 bits remain the payload version, odd while it is being written.
+const mapKeyWriting = mapReaderUnit << 16
+const mapTransientState = mapIsBusy | mapReadersMask
 
 type MapHead struct {
 	state    mapState
@@ -159,12 +170,12 @@ func (mhead *MapHead) dump[K Key[K], V any](w io.Writer) {
 
 }
 
-func fromMapHead[K Key[K], V any](mhead *MapHead) *Entry[K, V] {
+func fromMapHead[K Key[K], V any](mhead *MapHead) *embeddedEntry[K, V] {
 	return mhead.recoverEntry[K, V]()
 }
 
 func (mhead *MapHead) PtrMapHead() *MapHead { return mhead }
-func (mhead *MapHead) recoverEntry[K Key[K], V any]() *Entry[K, V] {
+func (mhead *MapHead) recoverEntry[K Key[K], V any]() *embeddedEntry[K, V] {
 	if mhead == nil || mhead.IsDummy() {
 		return nil
 	}

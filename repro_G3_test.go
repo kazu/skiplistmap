@@ -78,10 +78,8 @@ func Test_G3DeleteStoppedAfterItsLookupLeavesTheItemOfItsKeyStoredMeanwhile(t *t
 	item, ok := m.base.LoadItemForTest(skiplistmap.StringKey(keys[1]))
 	if okD && ok {
 		switch {
-		case item ==
-			skiplistmap.MapItem[skiplistmap.StringKey, any](u) && item.Value() == uValue:
-		case item ==
-			skiplistmap.MapItem[skiplistmap.StringKey, any](v) && item.Value() == vValue:
+		case item.PtrMapHead() == u.PtrMapHead() && item.Value() == uValue:
+		case item.PtrMapHead() == v.PtrMapHead() && item.Value() == vValue:
 		default:
 			t.Errorf("after Delete(k) returned true, the item of k is %p with the value %p; want u %p with the value of u %p, or v %p with the value of v %p (StoreItem(u) = %v)",
 				item, item.Value(), u, uValue, v, vValue, okS)

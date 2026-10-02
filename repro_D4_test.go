@@ -226,7 +226,7 @@ func d4Check(h *Map[StringKey, any],
 	}
 	sort.Slice(keys, func(i, j int) bool { return rev(keys[i]) < rev(keys[j]) })
 	var ranged []string
-	h.RangeItemForTest(func(item MapItem[StringKey, any]) bool {
+	h.RangeItemForTest(func(item *TestEntry[StringKey, any]) bool {
 		ranged = append(ranged, string(item.Key()))
 		return len(ranged) <= len(keys)
 	})

@@ -360,7 +360,7 @@ func (b *bucket[K, V]) _validateItemsNear() {
 
 }
 
-func (b *bucket[K, V]) GetItem(r uint64) (MapItem[K, V], *samepleItemPool[K, V], unlocker) {
+func (b *bucket[K, V]) GetItem(r uint64) (*embeddedEntry[K, V], *samepleItemPool[K, V], unlocker) {
 	return b.itemPool().getWithFn(r, &b.muPool)
 }
 

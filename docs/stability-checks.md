@@ -1,10 +1,10 @@
 # Stability checks
 
 この開発ブランチはGo 1.27.1と隣の`elist_head`・`loncha`のcheckoutを使う。
-elist_headは`2c24bde5ba616f2bf716d8fe007c9da91a57a831`、lonchaは
+elist_headは`ec42b76be1bc4de322da2b6fd0b3d68d5014ed44`、lonchaは
 `1a71ffebf3c97146f935f257d249261470a54b46`を検証対象とする。
 型移行前の比較ではelist_headの`cab6a1bff65b540c8a777c20e9a41cb8899b6d4c`を使用した。
-017の依存修正は、隣接要素を並行して置換したときの進行停止を防ぐ。
+024で専用の`ReplaceWith`を廃止し、Mapの更新は既存の挿入・削除を組み合わせる。
 `deps/elist_head`のsubmoduleは使わない。
 
 既存checkoutを切り替えず依存側の専用worktreeで検証する場合は、Go workspaceで
@@ -28,7 +28,7 @@ Nushell でも `make ci` を実行する。
 
 ゲートは vet、通常、race、checkptr、`stephook` タグ付き race の順に確認する。
 タグ付き検証は RMap の全テスト、バケットの J51/J56、型付きMap・キー照合・
-slot再利用・コピー更新・外部Entry混在・Update callback・分割と更新の並行テスト、elist_head の置換テスト、
+slot再利用・コピー更新・外部Entry混在・Update callback・分割と更新の並行テスト、elist_head の挿入・削除と移動との並行テスト、
 lista の `TestLenRestartsAfterCurrentNodeIsDeleted` を対象にする。
 通常・race・checkptr・vet は上記の全対象パッケージを検証する。
 各ビルドの Test・Example・Fuzz seed を一つずつ別プロセスで実行し、いずれかが

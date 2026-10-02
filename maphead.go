@@ -21,6 +21,8 @@ const (
 	// mapIsBusy marks an entry that a StoreItem, a Set, a Delete or a Purge
 	// is writing, which the others refuse
 	mapIsBusy
+	// mapIsRetired survives link initialization after deletion or replacement.
+	mapIsRetired
 	// Adding mapKeyWriting before and after replacing a pooled key/value
 	// pair makes this bit odd during publication and advances its version.
 	mapKeyWriting
@@ -47,7 +49,7 @@ func (mh *MapHead) IsIgnored() bool {
 // them, so that of two deletes of one entry only one counts it. busy reports
 // that it set nothing as another call holds mapIsBusy.
 func (mh *MapHead) claimDelete(hold mapState) (won, busy bool) {
-	return mh.claimLive(mapIsDeleted | hold)
+	return mh.claimLive(mapIsDeleted | mapIsRetired | hold)
 }
 
 func (mh *MapHead) claimLive(hold mapState) (won, busy bool) {

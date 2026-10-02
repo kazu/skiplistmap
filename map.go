@@ -930,8 +930,10 @@ func (h *Map[K, V]) Set(key K, value V) bool {
 // Otherwise the map links freed memory (a dangling reference). The map never
 // moves item. If the key is already present, only the value is stored into
 // the existing item, and item is not linked. StoreItem returns false for an
-// item still linked, in this map or in another: an item that Purge took out
-// of the map that holds it is stored again. It returns false also while
+// item still linked, in this map or in another. An entry deleted or retired
+// by replacement cannot be stored again, even after Purge or link initialization;
+// use Entry.Copy or StoreItemOrCopy to store its data in a new entry.
+// It returns false also while
 // another StoreItem, a Delete or a Purge of item is running, and for an
 // item that the item pool of a map handed out, as the items stored by Set
 // are, which LoadItem, RangeItem and a walk of the list return: the pool
@@ -944,9 +946,31 @@ func (h *Map[K, V]) StoreItem(item MapItem[K, V]) bool {
 	return ok
 }
 
+// StoreItemOrCopy stores item as StoreItem does. Only a refusal due to deletion
+// or retirement causes it to copy item and try StoreItem with the copy. Pool
+// entries and busy entries are refused without copying.
+// It returns the entry passed to the successful StoreItem, or nil on failure.
+// Keep the returned entry reachable as required by StoreItem, and keep any
+// previously stored root alive for its existing map too. If the key already
+// exists, StoreItem updates that entry instead of linking the returned entry.
+func (h *Map[K, V]) StoreItemOrCopy(item MapItem[K, V]) (*Entry[K, V], bool) {
+	ok, retired := h.storeItem(item)
+	if retired {
+		item = item.Copy()
+		ok = h.StoreItem(item)
+	}
+	if !ok {
+		return nil, false
+	}
+	return item, true
+}
+
 func (h *Map[K, V]) storeItem(item MapItem[K, V]) (ok, retired bool) {
 	if item.PtrMapHead().isPoolItem() {
 		return false, false
+	}
+	if state := mapState(atomic.LoadUint64((*uint64)(&item.state))); state&mapIsRetired != 0 {
+		return false, state&mapIsBusy == 0
 	}
 	// an item still linked is refused also when its key is present, where
 	// the value would go into the item found
@@ -956,6 +980,10 @@ func (h *Map[K, V]) storeItem(item MapItem[K, V]) (ok, retired bool) {
 	stepAt("storeItem.checked", unsafe.Pointer(item.PtrListHead()), nil)
 	if !item.PtrMapHead().claimBusy() {
 		return false, false
+	}
+	if mapState(atomic.LoadUint64((*uint64)(&item.state)))&mapIsRetired != 0 {
+		item.PtrMapHead().releaseBusy()
+		return false, true
 	}
 	if !item.PtrListHead().IsSingle() {
 		item.PtrMapHead().releaseBusy()

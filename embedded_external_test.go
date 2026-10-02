@@ -174,11 +174,16 @@ func TestEmbeddedExternalBoundaryHashes(t *testing.T) {
 			if !m.Purge(key) || m.Len() != 0 {
 				t.Fatal("Purge")
 			}
-			if !m.StoreItem(e) {
-				t.Fatal("StoreItem after Purge")
+			if m.StoreItem(e) {
+				t.Fatal("retired StoreItem after Purge")
 			}
-			if got, ok := m.LoadItem(key); !ok || got != e {
-				t.Fatalf("reinserted LoadItem=(%p,%v), want %p", got, ok, e)
+			fresh := e.Copy()
+			defer runtime.KeepAlive(fresh)
+			if !m.StoreItem(fresh) {
+				t.Fatal("StoreItem copy after Purge")
+			}
+			if got, ok := m.LoadItem(key); !ok || got != fresh {
+				t.Fatalf("reinserted LoadItem=(%p,%v), want %p", got, ok, fresh)
 			}
 		})
 	}

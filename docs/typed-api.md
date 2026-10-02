@@ -74,6 +74,10 @@ nilと空のbyte列は従来どおり等しく、同じハッシュ対を返す�
 含まれる場合、値のコピーはそれらの参照先を深くコピーするものではない。
 
 StoreItemで渡すEntryは利用者が生かす。相対リンクはGCの到達可能性を作らない。
+削除または更新で退役した同一実体の再登録はfalseになる。`Copy`はリンク・削除履歴を持たない
+新しいEntryへキー・値だけを浅くコピーする。`StoreItemOrCopy`は退役による拒否だけをコピーで
+再試行し、成功時に格納に使用した元Entryまたはコピーを返す。呼出し側は返された実体も保持する。
+同じキーが既にある場合は既存Entryを更新し、渡した実体やコピーはリンクしない。
 Deleteだけではリンクから外れないため、削除したという理由だけで保持をやめない。
 Mapがpool内の要素を移動・再利用する場合、以前取得したポインタは現在の値を表すとは
 限らない。変更はMapのメソッドを通す。保持のためだけの新しいregistryや所有者表は
@@ -109,6 +113,8 @@ slotの公開世代・削除状態も再確認する。LoadItemで得たslotを�
 | 現在値を更新 | `Update(key K, edit func(*V)) bool` |
 | 値を取得 | `Get(key K) (V, bool)` |
 | 外部のEntryを登録 | `StoreItem(item *Entry[K,V]) bool` |
+| Entryのキーと値を浅くコピー | `(*Entry[K,V]).Copy() *Entry[K,V]` |
+| 退役済みならコピーして登録 | `StoreItemOrCopy(item *Entry[K,V]) (*Entry[K,V], bool)` |
 | Entryを取得 | `LoadItem(key K) (*Entry[K,V], bool)` |
 | 削除 | `Delete(key K) bool`、`Purge(key K) bool` |
 | 事前計算ハッシュによる取得 | `GetByHash(hash, conflict uint64) (V, bool)`、`LoadItemByHash(hash, conflict uint64) (*Entry[K,V], bool)` |

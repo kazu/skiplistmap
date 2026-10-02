@@ -3,6 +3,7 @@
 package skiplistmap_test
 
 import (
+	"runtime"
 	"testing"
 
 	"github.com/kazu/skiplistmap"
@@ -14,13 +15,13 @@ import (
 //  1. GD: m.Delete(k) finds u and stops at map.delete.found, before it
 //     claims u.
 //  2. m.Purge(k) claims u, takes it out of the list and returns true.
-//  3. GS: m.StoreItem(u) clears the delete that the Purge left on u, finds the
-//     place between x and z, and stops at elist.add.cas1, before it links u
+//  3. GS: m.StoreItem(copy) uses a fresh copy of u, finds the
+//     place between x and z, and stops at elist.add.cas1, before it links copy
 //     from x.
 //  4. m.StoreItem(v) links v between x and z and returns true.
-//  5. GS goes on: its CAS of x.next fails on v, it puts u back, finds v with
+//  5. GS goes on: its CAS of x.next fails on v, it puts copy back, finds v with
 //     the key k, stores the value of u into v, and returns true.
-//  6. GD goes on: it claims u, which no list holds, and returns false.
+//  6. GD goes on: u remains deleted, and GD returns false.
 //
 // The result must be linearizable. GD deletes k only while m holds it: after
 // the store that links k first, and before the other one. So if GD returns
@@ -45,9 +46,14 @@ func Test_G3DeleteStoppedAfterItsLookupLeavesTheItemOfItsKeyStoredMeanwhile(t *t
 	if !m.base.Purge(skiplistmap.StringKey(keys[1])) {
 		t.Fatalf("Purge(k) returned false")
 	}
-	stS := s.stopAt("elist.add.cas1", isNode(nodeOf(u)))
+	if m.base.StoreItem(u) {
+		t.Fatal("retired StoreItem(u) succeeded")
+	}
+	fresh := u.Copy()
+	defer runtime.KeepAlive(fresh)
+	stS := s.stopAt("elist.add.cas1", isNode(nodeOf(fresh)))
 	var okS bool
-	doneS := goStep(t, func() { okS = m.base.StoreItem(u) })
+	doneS := goStep(t, func() { okS = m.base.StoreItem(fresh) })
 	stS.waitReached(t, doneS)
 	if !m.base.StoreItem(v) {
 		t.Fatalf("StoreItem(v) returned false")
@@ -56,6 +62,9 @@ func Test_G3DeleteStoppedAfterItsLookupLeavesTheItemOfItsKeyStoredMeanwhile(t *t
 	waitDone(t, doneS, "StoreItem(u)")
 	stD.Release()
 	waitDone(t, doneD, "Delete(k)")
+	if okD {
+		t.Error("stale Delete removed a fresh copy")
+	}
 
 	found := 0
 	for _, k := range keys {

@@ -179,11 +179,13 @@ func Test_HMap(t *testing.T) {
 			}
 
 			var last *skiplistmap.Entry[skiplistmap.StringKey, any]
-			m.base.RangeItem(func(e *skiplistmap.Entry[skiplistmap.StringKey, any]) bool {
+			m.base.RangeItemForTest(func(e *skiplistmap.Entry[skiplistmap.StringKey, any]) bool {
 				last = e
 				return true
 			})
-			assert.Same(t, last, m.base.Last())
+			value, ok := m.base.Last()
+			assert.True(t, ok)
+			assert.Equal(t, last.Value(), value)
 		})
 
 	}

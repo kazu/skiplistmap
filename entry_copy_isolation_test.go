@@ -55,8 +55,8 @@ func TestEntryCopyRouteIsolation(t *testing.T) {
 				t.Fatalf("Get: %v %v", v, ok)
 			}
 			hash, conflict := skiplistmap.KeyToHash("value")
-			if _, ok := m.LoadItemByHash(hash, conflict); !ok {
-				t.Fatal("LoadItemByHash")
+			if value, ok := m.GetByHash(hash, conflict); !ok || value != 1 {
+				t.Fatalf("GetByHash: %v %v", value, ok)
 			}
 			n := 0
 			m.Range(func(k skiplistmap.StringKey, v any) bool { n++; return true })

@@ -3,6 +3,7 @@
 package skiplistmap_test
 
 import (
+	"runtime"
 	"testing"
 	"time"
 
@@ -46,8 +47,7 @@ func Test_ReproG2StoreItemAgainAfterDelete(t *testing.T) {
 	})
 }
 
-// Purge(b) takes b out of the list, so StoreItem of the same object stores
-// it again.
+// Purge(b) takes b out of the list, but only a fresh copy can be stored again.
 func Test_StoreItemAgainAfterPurge(t *testing.T) {
 	m, keys, items := storeAdjacent(t)
 	if !m.base.Purge(skiplistmap.StringKey(keys[1])) {
@@ -57,8 +57,13 @@ func Test_StoreItemAgainAfterPurge(t *testing.T) {
 		t.Fatalf("Purge(%q) left b linked", keys[1])
 	}
 	runWithDeadline(t, 10*time.Second, func() {
-		if !m.base.StoreItem(&items[1]) {
-			t.Errorf("StoreItem(%q) after Purge = false", keys[1])
+		if m.base.StoreItem(&items[1]) {
+			t.Errorf("retired StoreItem(%q) after Purge = true", keys[1])
+		}
+		fresh := items[1].Copy()
+		defer runtime.KeepAlive(fresh)
+		if !m.base.StoreItem(fresh) {
+			t.Errorf("StoreItem copy of %q after Purge = false", keys[1])
 		}
 		assertStoredInOrder(t, m, keys)
 	})

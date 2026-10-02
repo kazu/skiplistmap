@@ -590,7 +590,12 @@ func (h *Map[K, V]) getWithBucket(k, conflict uint64) (MapItem[K, V], *bucket[K,
 }
 
 func (h *Map[K, V]) getItemWithBucket(k, conflict uint64, key K, byKey bool) (MapItem[K, V], *bucket[K, V], bool) {
+	item, bucket, _, found := h.lookupItem[noDummyTrace](k, conflict, key, byKey)
+	return item, bucket, found
+}
 
+func (h *Map[K, V]) lookupItem[T dummyTrace](k, conflict uint64, key K, byKey bool) (MapItem[K, V], *bucket[K, V], *MapHead, bool) {
+	var trace T
 	if EnableStats {
 		h.mu.Lock()
 		DebugStats[CntOfGet]++
@@ -600,6 +605,7 @@ func (h *Map[K, V]) getItemWithBucket(k, conflict uint64, key K, byKey bool) (Ma
 		var bucket *bucket[K, V]
 		var reverse uint64
 		var e HMapEntry[K, V]
+		var dummy *MapHead
 
 		if h.isEmbededItemInBucket {
 			reverse = bits.Reverse64(k)
@@ -611,25 +617,33 @@ func (h *Map[K, V]) getItemWithBucket(k, conflict uint64, key K, byKey bool) (Ma
 			if !h.isEmbededItemInBucket && bucket.head() == nil {
 				bucket, reverse = h.searchBucket4update(k)
 			}
-			e = h.searchBybucket(bucket, reverse, true)
+			if len(trace) != 0 {
+				e = h.searchCopyBucket[saveDummyTrace](bucket, reverse, true, &dummy)
+			} else {
+				e = h.searchBybucket(bucket, reverse, true)
+			}
 		}
 
 		if e == nil {
 			if atomic.LoadUint64(&Failreverse) == 0 {
 				atomic.CompareAndSwapUint64(&Failreverse, 0, bits.Reverse64(k))
 			}
-			return nil, bucket, false
+			return nil, bucket, dummy, false
 		}
 		var retry bool
-		e, retry = h.matchEntry(e, bits.Reverse64(k), conflict, key, byKey, h.isEmbededItemInBucket)
+		if len(trace) != 0 && !h.isEmbededItemInBucket {
+			e, retry = h.matchCopyEntryWithDummy(e, bits.Reverse64(k), conflict, key, byKey, &dummy)
+		} else {
+			e, retry = h.matchEntry(e, bits.Reverse64(k), conflict, key, byKey, h.isEmbededItemInBucket)
+		}
 		if retry {
 			continue
 		}
 		if e == nil {
-			return nil, bucket, false
+			return nil, bucket, dummy, false
 		}
 
-		return e, bucket, true
+		return e, bucket, dummy, true
 	}
 
 }
@@ -660,42 +674,42 @@ func (h *Map[K, V]) searchBucket(k uint64) (result *bucket[K, V]) {
 	return
 }
 
-// Get ... return the value for a key, if not found, ok is false
+// Get returns the value for key, or false if none is found. Concurrent removal
+// of a traversal node may also make the lookup fail while key remains present.
 func (h *Map[K, V]) Get(key K) (value V, ok bool) {
 	hash, conflict := key.KeyHash()
 	return h.getValueMatching(hash, conflict, key, true)
 }
 
 // GetByHash returns the value of one entry matching the hash pair.
+// As with Get, concurrent removal may make the lookup fail.
 func (h *Map[K, V]) GetByHash(hash, conflict uint64) (value V, ok bool) {
 	return h.getValueMatching(hash, conflict, *new(K), false)
 }
 
-// LoadItem ... return key/value item with embedded-linked-list. if not found, ok is false
-//
-// An item stored by Set lives in the map's item pool, and a later Set of a
-// new key can move it to a new array: when the pool grows, and with
-// UseEmbeddedPool also on an insert that is not at the end of the bucket's
-// array. After such a Set, a read through the returned item can be a stale
-// read and a write through it a lost update. With UseEmbeddedPool, the slot
-// of a deleted item can also be reused for another key; if the returned item
-// still points to that slot, it then reads and writes that key's entry. So
-// use the returned item only when it is read, and change entries through the
-// map's methods (Set, Delete, Purge). If the caller serializes all writes,
-// the item stays valid until the next write. An item stored by StoreItem is
-// kept alive by the caller and never moves.
+// LoadItem returns the entry for key, or false if not found.
+// It panics with UseEmbeddedPool; use Get to read a value instead.
+// Updates may replace the entry. Change entries through the map's methods.
 func (h *Map[K, V]) LoadItem(key K) (item MapItem[K, V], success bool) {
+	h.checkEntryAccess()
 	hash, conflict := key.KeyHash()
 	item, _, success = h.getItemWithBucket(hash, conflict, key, true)
 	return
 }
 
 // LoadItemByHash returns one entry matching the hash pair of KeyToHash.
-// The returned item is valid only when it is read, as described in LoadItem.
+// It panics with UseEmbeddedPool; use GetByHash to read a value instead.
+// Updates may replace the entry, as described in LoadItem.
 func (h *Map[K, V]) LoadItemByHash(k uint64, conflict uint64) (item MapItem[K, V], success bool) {
-
+	h.checkEntryAccess()
 	item, success = h._get(k, conflict)
 	return
+}
+
+func (h *Map[K, V]) checkEntryAccess() {
+	if h.isEmbededItemInBucket {
+		panic("skiplistmap: entry access is unavailable with UseEmbeddedPool; use Get or Range")
+	}
 }
 
 func (h *Map[K, V]) loadItem(k uint64, conflict uint64, key K) (item MapItem[K, V], bucket *bucket[K, V], lock *trylock.Mutex, found bool) {
@@ -765,7 +779,7 @@ var madeBucket int32 = 0
 // When Set adds a new key, the item that holds it lives in the map's item
 // pool, whose array keeps it reachable for the GC. A map without
 // UseEmbeddedPool creates the pool on the first such Set if it has none. For
-// a key already present, Set stores only the value into the existing item.
+// a key already present, Set publishes a replacement entry with the new value.
 func (h *Map[K, V]) Set(key K, value V) bool {
 	atomic.StoreInt32(&madeBucket, 0)
 
@@ -914,33 +928,65 @@ func (h *Map[K, V]) Set(key K, value V) bool {
 // item while a StoreItem of item is still linking it returns false without
 // UseEmbeddedPool; embedded writers serialize through the bucket lock.
 // Otherwise the map links freed memory (a dangling reference). The map never
-// moves item. If the key is already present, only the value is stored into
-// the existing item, and item is not linked. StoreItem returns false for an
-// item still linked, in this map or in another: an item that Purge took out
-// of the map that holds it is stored again. It returns false also while
+// moves item. If the key is already present, its value is updated in the map,
+// and item is not linked. StoreItem returns false for an
+// item still linked, in this map or in another. An entry deleted or retired
+// by replacement cannot be stored again, even after Purge or link initialization;
+// use Entry.Copy or StoreItemOrCopy to store its data in a new entry.
+// It returns false also while
 // another StoreItem, a Delete or a Purge of item is running, and for an
-// item that the item pool of a map handed out, as the items stored by Set
-// are, which LoadItem, RangeItem and a walk of the list return: the pool
-// moves and reuses them (see LoadItem).
+// item owned by the map's item pool, such as an item stored by Set.
+// Entry retrieval APIs are unavailable with UseEmbeddedPool (see LoadItem).
 // With UseEmbeddedPool, external entries coexist with pool entries and do
 // not move when the pool grows. Updates publish copies retained by the
 // original external entry, as they do without UseEmbeddedPool.
 func (h *Map[K, V]) StoreItem(item MapItem[K, V]) bool {
+	ok, _ := h.storeItem(item)
+	return ok
+}
+
+// StoreItemOrCopy stores item as StoreItem does. Only a refusal due to deletion
+// or retirement causes it to copy item and try StoreItem with the copy. Pool
+// entries and busy entries are refused without copying.
+// It returns the entry passed to the successful StoreItem, or nil on failure.
+// Keep the returned entry reachable as required by StoreItem, and keep any
+// previously stored root alive for its existing map too. If the key already
+// exists, StoreItem updates that entry instead of linking the returned entry.
+func (h *Map[K, V]) StoreItemOrCopy(item MapItem[K, V]) (*Entry[K, V], bool) {
+	ok, retired := h.storeItem(item)
+	if retired {
+		item = item.Copy()
+		ok = h.StoreItem(item)
+	}
+	if !ok {
+		return nil, false
+	}
+	return item, true
+}
+
+func (h *Map[K, V]) storeItem(item MapItem[K, V]) (ok, retired bool) {
 	if item.PtrMapHead().isPoolItem() {
-		return false
+		return false, false
+	}
+	if state := mapState(atomic.LoadUint64((*uint64)(&item.state))); state&mapIsRetired != 0 {
+		return false, state&mapIsBusy == 0
 	}
 	// an item still linked is refused also when its key is present, where
 	// the value would go into the item found
 	if !item.PtrListHead().IsSingle() {
-		return false
+		return false, false
 	}
 	stepAt("storeItem.checked", unsafe.Pointer(item.PtrListHead()), nil)
 	if !item.PtrMapHead().claimBusy() {
-		return false
+		return false, false
+	}
+	if mapState(atomic.LoadUint64((*uint64)(&item.state)))&mapIsRetired != 0 {
+		item.PtrMapHead().releaseBusy()
+		return false, true
 	}
 	if !item.PtrListHead().IsSingle() {
 		item.PtrMapHead().releaseBusy()
-		return false
+		return false, false
 	}
 	k, conflict := item.KeyHash()
 
@@ -957,9 +1003,9 @@ func (h *Map[K, V]) StoreItem(item MapItem[K, V]) bool {
 	if found {
 		ok := h._update(oitem, item.Value())
 		item.PtrMapHead().releaseBusy()
-		return ok
+		return ok, false
 	}
-	return h.setItem(k, conflict, bucket, item, true)
+	return h.setItem(k, conflict, bucket, item, true), false
 }
 
 func (h *Map[K, V]) eachEntry(start *elist_head.ListHead, fn func(*entryHMap[K, V])) {
@@ -1178,21 +1224,6 @@ func (h *Map[K, V]) linkEntry(start *elist_head.ListHead, node *MapHead, item *E
 
 	cnt := 0
 
-	defer func() {
-		if !EnableStats || node.IsIgnored() {
-			return
-		}
-
-		if h.SearchKey(bits.Reverse64(node.reverse), ignoreBucketEntry(false)) == nil {
-			o := sharedSearchOpt(nil)
-			o.Lock()
-			o.e = ErrItemInvalidAdd
-			o.Unlock()
-			sharedSearchOpt(o)
-		}
-
-	}()
-
 RETRY:
 	// the item pool moves item to a larger array before item is linked: the copy
 	// is linked instead
@@ -1286,7 +1317,7 @@ RETRY:
 	if opt != nil && opt.bucket != nil && opt.bucket.entry(h) != nil {
 		// pos, _ = h.find(start, func(ehead HMapEntry) bool {
 		// 	return node.reverse < ehead.PtrMapHead().reverse || (node.IsDummy() && node.reverse == ehead.PtrMapHead().reverse)
-		// }, ignoreBucketEntry(false))
+		// })
 		nextE := nextMapHead(opt.bucket.entry(h))
 		if nextE.PtrMapHead().reverse <= EmptyMapHead.fromListHead(opt.bucket.head()).reverse {
 			Log(LogWarn, "map.add2() re-try get target")
@@ -1732,73 +1763,23 @@ func prevAsE[K Key[K], V any](e HMapEntry[K, V]) HMapEntry[K, V] {
 	return nil
 }
 
-var _sharedSearchOpt atomic.Pointer[searchOpt]
-
 func init() {
 	// lista reads this for every list, so it is set once, before any
 	// goroutine uses a map
 	list_head.MODE_CONCURRENT = true
-
-	o := &searchOpt{}
-	o._ignoreBucketEntry.Store(true)
-
-	_sharedSearchOpt.Store(o)
 }
 
-type searchOpt struct {
-	e                  error
-	_ignoreBucketEntry atomic.Bool
-	sync.Mutex
-}
-
-func sharedSearchOpt(setter *searchOpt) *searchOpt {
-
-	if setter != nil {
-		_sharedSearchOpt.Store(setter)
-		return setter
+// SearchKey returns one live value matching the primary hash k, or false if
+// none is found or concurrent removal invalidates the candidate.
+// Use Get or GetByHash when the key or conflict hash is known.
+func (h *Map[K, V]) SearchKey(k uint64) (V, bool) {
+	defer runtime.KeepAlive(h)
+	e := h.searchKey(k, true)
+	if e == nil {
+		var zero V
+		return zero, false
 	}
-	return _sharedSearchOpt.Load()
-}
-
-func (o *searchOpt) ignoreBucketEntry() bool {
-	return o._ignoreBucketEntry.Load()
-}
-
-type searchArg func(*searchOpt) searchArg
-
-func ignoreBucketEntry(t bool) searchArg {
-
-	return func(opt *searchOpt) searchArg {
-		prev := opt._ignoreBucketEntry.Load()
-		opt._ignoreBucketEntry.Store(t)
-		return ignoreBucketEntry(prev)
-	}
-}
-
-func (o *searchOpt) Options(opts ...searchArg) (previous searchArg) {
-
-	o.Lock()
-	defer o.Unlock()
-	for _, fn := range opts {
-		previous = fn(o)
-	}
-	return previous
-}
-
-// SearchKey ... search the entry of the hash k of KeyToHash.
-// The returned entry is valid only when it is read, as described in LoadItem.
-func (h *Map[K, V]) SearchKey(k uint64, opts ...searchArg) HMapEntry[K, V] {
-
-	conf := sharedSearchOpt(nil)
-	previous := conf.Options(opts...)
-	defer func() {
-		if previous != nil {
-			conf.Options(previous)
-			sharedSearchOpt(conf)
-		}
-	}()
-	return h.searchKey(k, conf.ignoreBucketEntry())
-
+	return h.readEntryValue(e, bits.Reverse64(k))
 }
 
 func (h *Map[K, V]) searchKey(k uint64, ignoreBucketEnry bool) HMapEntry[K, V] {
@@ -1881,6 +1862,10 @@ func (h *Map[K, V]) searchBybucket(lbCur *bucket[K, V], reverseNoMask uint64, ig
 }
 
 func (h *Map[K, V]) _searchBybucket(lbCur *bucket[K, V], reverse uint64, ignore bool) *Entry[K, V] {
+	return h.searchCopyBucket[noDummyTrace](lbCur, reverse, ignore, nil)
+}
+
+func (h *Map[K, V]) searchCopyBucket[T dummyTrace](lbCur *bucket[K, V], reverse uint64, ignore bool, dummy **MapHead) *Entry[K, V] {
 	if lbCur == nil {
 		return nil
 	}
@@ -1888,7 +1873,7 @@ func (h *Map[K, V]) _searchBybucket(lbCur *bucket[K, V], reverse uint64, ignore 
 	if h.modeForBucket == CombineSearch2 && b.reverse > reverse {
 		b = b.NextOnLevel()
 	}
-	return h.searchCopyEntry(b, b.entry(h), reverse, ignore)
+	return h.searchCopyEntry[T](b, b.entry(h), reverse, ignore, dummy)
 }
 
 // Delete marks the matching entry deleted so subsequent lookups cannot find it.
@@ -1917,9 +1902,10 @@ func (h *Map[K, V]) deleteItem(key K) (MapItem[K, V], *bucket[K, V], *MapHead, b
 	var item MapItem[K, V]
 	var bucket *bucket[K, V]
 	var lock *trylock.Mutex
+	var dummy *MapHead
 	for {
 		var ok bool
-		item, bucket, ok = h.getItemWithBucket(k, conflict, key, true)
+		item, bucket, dummy, ok = h.lookupItem[saveDummyTrace](k, conflict, key, true)
 		if !ok {
 			return nil, nil, nil, false
 		}
@@ -1941,7 +1927,7 @@ func (h *Map[K, V]) deleteItem(key K) (MapItem[K, V], *bucket[K, V], *MapHead, b
 	// the item pool moves the item to a larger array: a delete that found
 	// the item and one that found its copy claim one node
 	if entry := item; !h.isEmbededItemInBucket {
-		return h.deleteEntry(entry, bucket)
+		return h.deleteEntry(entry, bucket, dummy)
 	}
 	origin := elist_head.FindOrigin(item.PtrListHead())
 	mh := mapheadFromLListHead(origin)
@@ -2015,6 +2001,11 @@ func (h *Map[K, V]) purgeItem(key K) bool {
 	}
 	defer mh.releaseBusy()
 	head := item.PtrListHead()
+	if !mh.isPoolItem() {
+		// A split may have changed the bucket since the first lookup.
+		k, _ := item.KeyHash()
+		bucket, _ = h.searchBucket4update(k)
+	}
 	for {
 		// an item that the item pool moves stays linked, with its marks;
 		// so do the links that a Set of the item wrote meanwhile
@@ -2094,9 +2085,14 @@ func (h *Map[K, V]) purgeInEmbedded(key K) bool {
 // RangeItem ... calls f sequentially for each key and value present in the map.
 // called ordre is reverse key order
 //
-// The item passed to f is valid only when it is read, as described in
-// LoadItem. RangeItem does not provide a snapshot during concurrent updates.
+// It panics with UseEmbeddedPool; use Range to visit keys and values instead.
+// RangeItem does not provide a snapshot during concurrent updates.
 func (h *Map[K, V]) RangeItem(f func(*Entry[K, V]) bool) {
+	h.checkEntryAccess()
+	h.rangeItem(f)
+}
+
+func (h *Map[K, V]) rangeItem(f func(*Entry[K, V]) bool) {
 	defer runtime.KeepAlive(h)
 	for cur := h.head.DirectNext(); !cur.Empty(); cur = cur.DirectNext() {
 		mh := mapheadFromLListHead(cur)
@@ -2119,7 +2115,7 @@ func (h *Map[K, V]) RangeItem(f func(*Entry[K, V]) bool) {
 // order is reverse key order
 // Range does not provide a snapshot during concurrent updates.
 func (h *Map[K, V]) Range(f func(K, V) bool) {
-	h.RangeItem(func(e *Entry[K, V]) bool {
+	h.rangeItem(func(e *Entry[K, V]) bool {
 		key, value, state := e.loadTypedKeyValue()
 		if state&(mapIsDummy|mapIsDeleted) != 0 {
 			return true
@@ -2131,10 +2127,19 @@ func (h *Map[K, V]) Range(f func(K, V) bool) {
 	})
 }
 
-// First returns the first live entry, skipping dummies, or nil when empty.
-// Pool items are valid only when read, as described in LoadItem.
-func (h *Map[K, V]) First() *Entry[K, V] {
-	for head := h.head.DirectNext(); !head.Empty(); head = head.DirectNext() {
+// First returns the first live value in Range order. It returns false when
+// empty or when concurrent removal or reuse invalidates the candidate.
+func (h *Map[K, V]) First() (V, bool) { return h.endValue(false) }
+
+// Last returns the last live value in Range order. It returns false when
+// empty or when concurrent removal or reuse invalidates the candidate.
+func (h *Map[K, V]) Last() (V, bool) { return h.endValue(true) }
+
+func (h *Map[K, V]) first() *Entry[K, V] {
+	for head := h.head.DirectNext(); head != h.tail; head = head.DirectNext() {
+		if head.Empty() {
+			return nil
+		}
 		if !mapheadFromLListHead(head).IsIgnored() {
 			return entryHMapFromListHead[K, V](head)
 		}
@@ -2142,10 +2147,11 @@ func (h *Map[K, V]) First() *Entry[K, V] {
 	return nil
 }
 
-// Last returns the last live entry, skipping dummies, or nil when empty.
-// Pool items are valid only when read, as described in LoadItem.
-func (h *Map[K, V]) Last() *Entry[K, V] {
-	for head := h.tail.DirectPrev(); !head.Empty(); head = head.DirectPrev() {
+func (h *Map[K, V]) last() *Entry[K, V] {
+	for head := h.tail.DirectPrev(); head != h.head; head = head.DirectPrev() {
+		if head.Empty() {
+			return nil
+		}
 		if !mapheadFromLListHead(head).IsIgnored() {
 			return entryHMapFromListHead[K, V](head)
 		}

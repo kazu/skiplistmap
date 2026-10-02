@@ -16,6 +16,8 @@ import (
 //
 // Points and arguments:
 //   - "update.lookup" (item, bucket): Update found a candidate, before acquiring protection.
+//   - "end.selected" (item, nil): First/Last selected an entry, before observing its payload generation.
+//   - "search.unmarked" (item, nil): a copy-entry search checked the cursor mark, before reading its hash or links.
 //   - "set.identity" (item, nil): an embedded slot has its new hashes, before its key and value.
 //   - "bsearch.snapshot" (pool, nil): the search read the pool's data pointer and length.
 //   - "slice.dataPublished" (slice, nil): CopyFrom published data, before cap and len.
@@ -60,15 +62,16 @@ import (
 //   - "makeBucket2.added" (new bucket, bucket): makeBucket2 of bucket returned from addBucket of new bucket; before it turns a negative level of new bucket positive.
 //   - "set.slotTaken" (item, bucket): Set of a key not present in a map with the embedded pool took item, a slot of the pool of bucket, from getWithFn; before it stores the reverse and the conflict of the key into item.
 //   - "get.found" (item, nil): a lookup found item by searchKey, before checking its key identity.
-//   - "get.beforeValue" (item, nil): Get or GetByHash found a candidate, before reading its key/value publication.
+//   - "get.beforeValue" (item, nil): a value lookup selected an entry, before reading its key/value publication.
 //   - "key.dataRead" (item, nil): a read captured the typed key/value and released its slot read protection, before the caller validates the publication.
 //   - "range.keyRead" (item, nil): Range captured the key and value, before calling the visitor.
-//   - "range.item" (item, nil): embedded RangeItem selected a live item, before its visitor reads the payload.
+//   - "range.item" (item, nil): internal embedded traversal selected a live item, before reading its payload.
 //   - "delete.found" (item, nil): Delete found item by LoadItem; before it runs Delete on item.
 //   - "purge.lenLowered" (item, pool): purgeInEmbedded found item in the last slot of pool and lowered the length of pool over it; before it runs shrinkLen.
 //   - "update.found" (item, nil): an update found the entry to replace, before publishing its new value.
 //   - "storeItem.checked" (item, nil): StoreItem found item not linked; before it takes the mapIsBusy of item.
-//   - "delete.claimed" (item, nil): deleteItem, of Delete or Purge, ran claimDelete on the node that FindOrigin returned for item; before it reads the result.
+//   - "delete.claimed" (item, nil): Delete or Purge marked a nonembedded entry deleted (after checking membership for a caller-owned entry), or attempted claimDelete on an embedded entry; before updating the count.
+//   - "delete.scan" (cursor, item): caller-owned membership confirmation is about to advance from cursor toward item while holding item's busy bit.
 //   - "item.copy.read" (copy, item): copyFrom read the value and the state of item, whose array the item pool moves to a larger one, to copy them into copy; before it stores them into copy.
 type StepHook func(point string, a, b unsafe.Pointer)
 

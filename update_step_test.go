@@ -25,7 +25,7 @@ func TestUpdateRetriesBeforeCallback(t *testing.T) {
 					} else {
 						m.Set(1, 7)
 					}
-					old, _ := m.LoadItem(1)
+					old, _ := m.LoadItemForTest(1)
 					s := newStepper(t)
 					lookup := s.stopAt("map.update.lookup", isNode(nodeOf(old)))
 					calls, seen := 0, 0

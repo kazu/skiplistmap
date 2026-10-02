@@ -74,6 +74,10 @@ nilと空のbyte列は従来どおり等しく、同じハッシュ対を返す�
 含まれる場合、値のコピーはそれらの参照先を深くコピーするものではない。
 
 StoreItemで渡すEntryは利用者が生かす。相対リンクはGCの到達可能性を作らない。
+削除または更新で退役した同一実体の再登録はfalseになる。`Copy`はリンク・削除履歴を持たない
+新しいEntryへキー・値だけを浅くコピーする。`StoreItemOrCopy`は退役による拒否だけをコピーで
+再試行し、成功時に格納に使用した元Entryまたはコピーを返す。呼出し側は返された実体も保持する。
+同じキーが既にある場合は既存Entryを更新し、渡した実体やコピーはリンクしない。
 Deleteだけではリンクから外れないため、削除したという理由だけで保持をやめない。
 Mapがpool内の要素を移動・再利用する場合、以前取得したポインタは現在の値を表すとは
 限らない。変更はMapのメソッドを通す。保持のためだけの新しいregistryや所有者表は
@@ -108,7 +112,11 @@ slotの公開世代・削除状態も再確認する。LoadItemで得たslotを�
 | 値を設定 | `Set(key K, value V) bool` |
 | 現在値を更新 | `Update(key K, edit func(*V)) bool` |
 | 値を取得 | `Get(key K) (V, bool)` |
+| 先頭・末尾の値を取得 | `First() (V, bool)`、`Last() (V, bool)` |
+| 主ハッシュによる値の取得 | `SearchKey(hash uint64) (V, bool)` |
 | 外部のEntryを登録 | `StoreItem(item *Entry[K,V]) bool` |
+| Entryのキーと値を浅くコピー | `(*Entry[K,V]).Copy() *Entry[K,V]` |
+| 退役済みならコピーして登録 | `StoreItemOrCopy(item *Entry[K,V]) (*Entry[K,V], bool)` |
 | Entryを取得 | `LoadItem(key K) (*Entry[K,V], bool)` |
 | 削除 | `Delete(key K) bool`、`Purge(key K) bool` |
 | 事前計算ハッシュによる取得 | `GetByHash(hash, conflict uint64) (V, bool)`、`LoadItemByHash(hash, conflict uint64) (*Entry[K,V], bool)` |
@@ -118,6 +126,10 @@ slotの公開世代・削除状態も再確認する。LoadItemで得たslotを�
 
 GetByHashとLoadItemByHashには検索するキーが無いため、ハッシュ対が一致する要素の
 一つを返す従来の意味を保つ。キーを受け取る操作はEqualまで確認する。
+embedded poolではLoadItem・LoadItemByHash・RangeItemはpanicする。
+値の取得・列挙にはGet・GetByHash・Rangeを使う。First・Last・SearchKeyは両modeで値を返す。
+並行する削除や再利用で取得候補が無効になった場合は、ゼロ値とfalseを返す。
+探索経路を削除で失った場合も失敗し得る。並行更新中のfalseは対象の不在を保証しない。
 
 OptHMapは現在の関数形式のまま型付きにし、その定義は
 `func(*Map[K,V]) OptHMap[K,V]`となる。オプション生成関数のK/Vも明示する。
@@ -129,8 +141,8 @@ ItemFnによる実体型の復元はEntry[K,V]と型付きListで置き換える
 `Update`は現在値の取得とcallbackによる更新を同じ保護の内側で行う。
 task017で接続したSet/_updateに加え、task019で提供する。
 
-All/Keys/Valuesは型付きRangeItemに被せる。走査順と削除状態の扱いはRangeItemに
-従い、走査全体のsnapshotを新たに保証しない。yieldがfalseなら生産側を止める。
+All/ValuesはRange、Keysは非公開のentry走査を使う。走査全体のsnapshotを
+新たに保証しない。yieldがfalseなら生産側を止める。
 KeysはVを取り出さず、不要な値コピーを避ける。
 maps.CollectはGo標準mapが受け取れるcomparableなKで使え、slices.Sortedは順序付けできる
 Kで使える。BytesKeyや独自Keyすべてが、それらの標準関数で使えるとはしない。
@@ -181,7 +193,7 @@ Vが指す別allocation内のフィールドからEntryへは戻らない。こ�
 | StoreItem、setItem | 呼び出し側のEntryをコピーせずに登録し、pool由来のitemの再登録を引き続き拒否する |
 | bsearchBybucket、getItemWithBucket | poolの二分探索と隣接するリンク区間を使い、外部Entryとの混在も検索する |
 | lockFoundItem、deleteItem、purgeItem | owner bucket・slot・世代の再確認を保ち、外部Entryをpool slotと取り違えない |
-| RangeItem、Range、First、Last | 実Entryの型を統一し、sentinel/dummyを返さない。All/Keys/Valuesを接続する |
+| RangeItem、Range、First、Last | 内部のEntry走査を共有し、sentinel/dummyを返さない。First/Lastは値を返し、embeddedのRangeItemは利用不可。All/Keys/Valuesを接続する |
 
 ## 後続タスクの範囲
 
@@ -205,8 +217,8 @@ HMapEntry、MapItem、SampleItem、entryHMap、copyEntryは型付きEntryの別�
 interfaceへの変換は行わない。ItemFnは削除した。型パラメータの制約としてのanyと、
 利用者が明示的にVとして選んだanyは、内部でK/Vを型消去する経路とは区別する。
 
-First/Lastはsentinelやdummyを除いた実Entryを返し、空ならnilを返す。
-以前の末尾dummyをLastの結果として扱うコードは、実Entryを受け取るよう変更する。
+First/Lastはsentinelやdummyを除いた先頭・末尾の値を返す。
+空の場合や並行削除・再利用で候補が無効になった場合は、ゼロ値とfalseを返す。
 
 ## 試作で確認する範囲
 

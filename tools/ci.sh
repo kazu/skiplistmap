@@ -41,7 +41,7 @@ for mode in "${modes[@]}"; do
 			if [[ "$mode" == step ]]; then
 				case "$package" in
 					github.com/kazu/skiplistmap/rmap) tests='^(Test|Example|Fuzz)' ;;
-					github.com/kazu/skiplistmap) tests='^Test_(J(51|56)|OperationsDistinguishSameHashPair|EmbeddedGetDoesNotReadReusedSlot|EmbeddedRangeKeepsKeyAndValueTogether|DifferentKeysWithSameHashPair)|^Test(Typed|EntryCopy|EmbeddedExternal|Update|_PurgeAndSet|_StepRaceSplit|_ConcurrentUpdateWhileGrowing)' ;;
+					github.com/kazu/skiplistmap) tests='^Test_(J(51|56)|OperationsDistinguishSameHashPair|EmbeddedGetDoesNotReadReusedSlot|EmbeddedRangeKeepsKeyAndValueTogether|DifferentKeysWithSameHashPair|F2)|^Test(Typed|EntryCopy|EntryValue|SearchIntermediatePurged|EmbeddedEntryAccess|EmbeddedExternal|Update|DeletePurge|_PurgeAndSet|_StepRaceSplit|_ConcurrentUpdateWhileGrowing)' ;;
 					github.com/kazu/elist_head) tests='^TestReplace(Node|WithAdjacent)|^TestAdjacent' ;;
 					github.com/kazu/loncha/lista_encabezado) tests='^TestLenRestartsAfterCurrentNodeIsDeleted$' ;;
 					*) continue ;;

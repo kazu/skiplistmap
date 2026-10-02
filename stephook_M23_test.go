@@ -170,7 +170,7 @@ func m23StoredNode(t *testing.T, h *Map[StringKey, any],
 	if !h.Set(StringKey(key), key) {
 		t.Fatalf("Set(%q) failed", key)
 	}
-	item, ok := h.LoadItem(StringKey(key))
+	item, ok := h.LoadItemForTest(StringKey(key))
 	if !ok {
 		t.Fatalf("LoadItem(%q) not found", key)
 	}

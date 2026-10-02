@@ -21,6 +21,8 @@ const (
 	// mapIsBusy marks an entry that a StoreItem, a Set, a Delete or a Purge
 	// is writing, which the others refuse
 	mapIsBusy
+	// mapIsRetired survives link initialization after deletion or replacement.
+	mapIsRetired
 	// Adding mapKeyWriting before and after replacing a pooled key/value
 	// pair makes this bit odd during publication and advances its version.
 	mapKeyWriting
@@ -47,6 +49,10 @@ func (mh *MapHead) IsIgnored() bool {
 // them, so that of two deletes of one entry only one counts it. busy reports
 // that it set nothing as another call holds mapIsBusy.
 func (mh *MapHead) claimDelete(hold mapState) (won, busy bool) {
+	return mh.claimLive(mapIsDeleted | mapIsRetired | hold)
+}
+
+func (mh *MapHead) claimLive(hold mapState) (won, busy bool) {
 	for {
 		s := atomic.LoadUint64((*uint64)(&mh.state))
 		if mapState(s)&mapIsDeleted != 0 {
@@ -55,7 +61,7 @@ func (mh *MapHead) claimDelete(hold mapState) (won, busy bool) {
 		if mapState(s)&mapIsBusy != 0 {
 			return false, true
 		}
-		if atomic.CompareAndSwapUint64((*uint64)(&mh.state), s, s|uint64(mapIsDeleted|hold)) {
+		if atomic.CompareAndSwapUint64((*uint64)(&mh.state), s, s|uint64(hold)) {
 			return true, false
 		}
 	}

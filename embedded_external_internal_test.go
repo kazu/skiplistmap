@@ -21,7 +21,7 @@ func TestEmbeddedExternalPoolMovesAndSplits(t *testing.T) {
 				t.Fatalf("Set(%d)", i)
 			}
 			if i == 0 {
-				first, _ = m.LoadItem(keys[i])
+				first, _ = m.LoadItemForTest(keys[i])
 			}
 		} else {
 			entries[i] = NewEntry(keys[i], i)
@@ -32,13 +32,13 @@ func TestEmbeddedExternalPoolMovesAndSplits(t *testing.T) {
 	}
 	owners := make(map[*bucket[Uint64Key, int]]bool)
 	for i, key := range keys {
-		item, ok := m.LoadItem(key)
+		item, ok := m.LoadItemForTest(key)
 		if !ok || item.Value() != i || entries[i] != nil && item != entries[i] {
 			t.Fatalf("LoadItem(%d)=(%p,%v), external=%p", i, item, ok, entries[i])
 		}
 		owners[m.findBucket(bits.Reverse64(uint64(key))).toBase()] = true
 	}
-	if current, _ := m.LoadItem(keys[0]); current == first {
+	if current, _ := m.LoadItemForTest(keys[0]); current == first {
 		t.Fatal("fixture did not move the first pool entry")
 	}
 	if len(owners) < 2 {
@@ -49,7 +49,12 @@ func TestEmbeddedExternalPoolMovesAndSplits(t *testing.T) {
 			t.Fatalf("Purge(%d)", i)
 		}
 		if entries[i] != nil {
-			if !m.StoreItem(entries[i]) {
+			if m.StoreItem(entries[i]) {
+				t.Fatalf("retired StoreItem after split/Purge(%d)", i)
+			}
+			fresh := entries[i].Copy()
+			defer runtime.KeepAlive(fresh)
+			if !m.StoreItem(fresh) {
 				t.Fatalf("StoreItem after split/Purge(%d)", i)
 			}
 		} else if !m.Set(key, i) {

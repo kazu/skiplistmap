@@ -26,7 +26,7 @@ func Test_D2DeletesAcrossAnExpandBothReturnTrue(t *testing.T) {
 	m := newStepMap()
 	setKeys(t, m, keys[:n])
 	k := keys[5]
-	item, ok := m.base.LoadItem(skiplistmap.StringKey(k))
+	item, ok := m.base.LoadItemForTest(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found")
 	}
@@ -70,7 +70,7 @@ func Test_D2DeleteOfTheCopyGetsAheadOfTheOldItem(t *testing.T) {
 	m := newStepMap()
 	setKeys(t, m, keys[:n])
 	k := keys[5]
-	item, ok := m.base.LoadItem(skiplistmap.StringKey(k))
+	item, ok := m.base.LoadItemForTest(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found")
 	}
@@ -110,7 +110,7 @@ func Test_D2OriginStaysUntilTheCopyIsDeleted(t *testing.T) {
 	m := newStepMap()
 	setKeys(t, m, keys)
 	k := keys[5]
-	item, ok := m.base.LoadItem(skiplistmap.StringKey(k))
+	item, ok := m.base.LoadItemForTest(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found")
 	}
@@ -138,9 +138,7 @@ func Test_D2OriginStaysUntilTheCopyIsDeleted(t *testing.T) {
 	assertStoredInOrder(t, m, withoutKey(keys, 5))
 }
 
-// A Delete that lost its claim must not touch an item stored again: GB finds
-// u, an item of StoreItem, and stops; a Purge of the key of u returns true,
-// and GB then loses its claim on u; StoreItem stores u again, and GB goes on.
+// A Delete that found an old entry must not touch its newly stored copy.
 func Test_D2LostDeleteLeavesAnItemStoredAgain(t *testing.T) {
 	keys := adjacentKeys(2)
 	items := newStepItems(keys[:1])
@@ -158,13 +156,15 @@ func Test_D2LostDeleteLeavesAnItemStoredAgain(t *testing.T) {
 	if !m.base.Purge(skiplistmap.StringKey(keys[0])) {
 		t.Fatalf("Purge(u) returned false")
 	}
-	claimed := s.stopAt("map.delete.claimed", isNode(nodeOf(u)))
-	found.Release()
-	claimed.waitReached(t, doneB)
-	if !m.base.StoreItem(u) {
-		t.Fatalf("StoreItem(u) after Purge(u) returned false")
+	if m.base.StoreItem(u) {
+		t.Fatal("retired StoreItem(u) succeeded")
 	}
-	claimed.Release()
+	fresh := u.Copy()
+	defer runtime.KeepAlive(fresh)
+	if !m.base.StoreItem(fresh) {
+		t.Fatal("StoreItem(copy) failed")
+	}
+	found.Release()
 	waitDone(t, doneB, "Delete(u) of GB")
 
 	assertStoredInOrder(t, m, keys)
@@ -182,7 +182,7 @@ func Test_D2LostDeleteDeletesTheCopiesOfItsItem(t *testing.T) {
 	m := newStepMap()
 	setKeys(t, m, keys[:n])
 	k := keys[5]
-	item, ok := m.base.LoadItem(skiplistmap.StringKey(k))
+	item, ok := m.base.LoadItemForTest(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found")
 	}
@@ -193,7 +193,7 @@ func Test_D2LostDeleteDeletesTheCopiesOfItsItem(t *testing.T) {
 	doneL := goStep(t, func() { m.base.Delete(skiplistmap.StringKey(k)) })
 	found.waitReached(t, doneL)
 	m.Set(keys[n], &list_head.ListHead{})
-	item, ok = m.base.LoadItem(skiplistmap.StringKey(k))
+	item, ok = m.base.LoadItemForTest(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found after the expand")
 	}
@@ -224,7 +224,7 @@ func Test_D2DeleteOfAMiddleCopyAfterTheOriginIsGone(t *testing.T) {
 	m := newStepMap()
 	setKeys(t, m, keys[:n+1])
 	k := keys[5]
-	item, ok := m.base.LoadItem(skiplistmap.StringKey(k))
+	item, ok := m.base.LoadItemForTest(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found")
 	}
@@ -236,7 +236,7 @@ func Test_D2DeleteOfAMiddleCopyAfterTheOriginIsGone(t *testing.T) {
 	doneB := goStep(t, func() { okB = m.base.Delete(skiplistmap.StringKey(k)) })
 	stB.waitReached(t, doneB)
 	setKeys(t, m, keys[n+1:])
-	item, ok = m.base.LoadItem(skiplistmap.StringKey(k))
+	item, ok = m.base.LoadItemForTest(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found after the second expand")
 	}
@@ -272,7 +272,7 @@ func Test_D2DeletesAcrossTwoExpands(t *testing.T) {
 	m := newStepMap()
 	setKeys(t, m, keys[:n])
 	k := keys[5]
-	item, ok := m.base.LoadItem(skiplistmap.StringKey(k))
+	item, ok := m.base.LoadItemForTest(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found")
 	}

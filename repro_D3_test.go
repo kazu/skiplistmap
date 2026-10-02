@@ -161,7 +161,7 @@ func testD3StoreItemRefusesADeleteBetweenTheCASesOfItsInsert(t *testing.T, purge
 	a := &items[0]
 	m := newStepMap()
 	setKeys(t, m, []string{keys[0], keys[2]})
-	zItem, ok := m.base.LoadItem(skiplistmap.StringKey(keys[2]))
+	zItem, ok := m.base.LoadItemForTest(skiplistmap.StringKey(keys[2]))
 	if !ok {
 		t.Fatalf("LoadItem(z) not found")
 	}
@@ -209,7 +209,7 @@ func Test_D3StoreItemTakingItsItemAgainRefusesAPurgeThatFoundItBefore(t *testing
 	u := &items[0]
 	m := newStepMap()
 	setKeys(t, m, []string{keys[0], keys[2], keys[3]})
-	zItem, ok := m.base.LoadItem(skiplistmap.StringKey(keys[2]))
+	zItem, ok := m.base.LoadItemForTest(skiplistmap.StringKey(keys[2]))
 	if !ok {
 		t.Fatalf("LoadItem(z) not found")
 	}
@@ -287,12 +287,12 @@ func Test_D3StoreItemRefusesAPurgeBeforeItsInsertAtTheTail(t *testing.T) {
 	u := &items[0]
 	m := newStepMap()
 	setKeys(t, m, []string{keys[0], keys[2]})
-	xItem, ok := m.base.LoadItem(skiplistmap.StringKey(keys[0]))
+	xItem, ok := m.base.LoadItemForTest(skiplistmap.StringKey(keys[0]))
 	if !ok {
 		t.Fatalf("LoadItem(x) not found")
 	}
 	x := nodeOf(xItem)
-	zItem, ok := m.base.LoadItem(skiplistmap.StringKey(keys[2]))
+	zItem, ok := m.base.LoadItemForTest(skiplistmap.StringKey(keys[2]))
 	if !ok {
 		t.Fatalf("LoadItem(z) not found")
 	}

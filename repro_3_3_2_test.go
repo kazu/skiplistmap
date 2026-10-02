@@ -123,7 +123,7 @@ func r332SplitMap(t *testing.T) (*Map[StringKey, any],
 			t.Fatalf("Set(%q) failed", k)
 		}
 	}
-	item, ok := h.LoadItem(StringKey(keys[1]))
+	item, ok := h.LoadItemForTest(StringKey(keys[1]))
 	if !ok {
 		t.Fatalf("LoadItem(%q) not found", keys[1])
 	}
@@ -557,7 +557,7 @@ func r332SplitNode[K interface {
 			t.Fatalf("Set(%q) failed", k)
 		}
 	}
-	item, ok := h.LoadItem(K(keys[1]))
+	item, ok := h.LoadItemForTest(K(keys[1]))
 	if !ok {
 		t.Fatalf("LoadItem(%q) not found", keys[1])
 	}

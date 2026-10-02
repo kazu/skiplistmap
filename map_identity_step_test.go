@@ -23,7 +23,7 @@ func Test_OperationsDistinguishSameHashPair(t *testing.T) {
 	if value, ok := m.Get(key); ok {
 		t.Errorf("Get returned colliding other key: %v", value)
 	}
-	if _, ok := m.LoadItem(key); ok || m.Delete(key) || m.Purge(key) {
+	if _, ok := m.LoadItemForTest(key); ok || m.Delete(key) || m.Purge(key) {
 		t.Fatal("an operation accepted the colliding other key")
 	}
 	m.StoreItem(&items[1])
@@ -44,7 +44,7 @@ func Test_OperationsDistinguishSameHashPair(t *testing.T) {
 	if !m.Delete(key) || m.Delete(key) {
 		t.Fatal("Delete did not count the actual key exactly once")
 	}
-	remaining, ok := m.LoadItemByHash(hash, conflict)
+	remaining, ok := m.LoadItemByHashForTest(hash, conflict)
 	if !ok || remaining.Key().name != "other" || remaining.Value() != 0 || m.Len() != 1 {
 		t.Fatalf("Delete lost the colliding entry: %v, %v, Len=%d", remaining, ok, m.Len())
 	}
@@ -53,15 +53,15 @@ func Test_OperationsDistinguishSameHashPair(t *testing.T) {
 
 func Test_EmbeddedGetDoesNotReadReusedSlot(t *testing.T) {
 	for _, point := range []string{"map.get.beforeValue", "map.key.dataRead"} {
-		for _, byHash := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/byHash=%v", point, byHash), func(t *testing.T) {
-				testEmbeddedGetReusedSlot(t, point, byHash)
+		for _, api := range []string{"Get", "GetByHash", "SearchKey"} {
+			t.Run(fmt.Sprintf("%s/%s", point, api), func(t *testing.T) {
+				testEmbeddedGetReusedSlot(t, point, api)
 			})
 		}
 	}
 }
 
-func testEmbeddedGetReusedSlot(t *testing.T, point string, byHash bool) {
+func testEmbeddedGetReusedSlot(t *testing.T, point, api string) {
 	keys := adjacentKeys(2)
 	for i := 0; ; i++ {
 		candidate := fmt.Sprintf("a-longer-replacement-key-%d", i)
@@ -74,7 +74,7 @@ func testEmbeddedGetReusedSlot(t *testing.T, point string, byHash bool) {
 	if !m.Set(skiplistmap.StringKey(keys[0]), 10) {
 		t.Fatal("initial Set failed")
 	}
-	old, ok := m.LoadItem(skiplistmap.StringKey(keys[0]))
+	old, ok := m.LoadItemForTest(skiplistmap.StringKey(keys[0]))
 	if !ok {
 		t.Fatal("initial key missing")
 	}
@@ -84,7 +84,9 @@ func testEmbeddedGetReusedSlot(t *testing.T, point string, byHash bool) {
 	var found bool
 	hash, conflict := skiplistmap.KeyToHash(keys[0])
 	done := goStep(t, func() {
-		if byHash {
+		if api == "SearchKey" {
+			value, found = m.SearchKey(hash)
+		} else if api == "GetByHash" {
 			value, found = m.GetByHash(hash, conflict)
 		} else {
 			value, found = m.Get(skiplistmap.StringKey(keys[0]))
@@ -94,7 +96,7 @@ func testEmbeddedGetReusedSlot(t *testing.T, point string, byHash bool) {
 	if !m.Purge(skiplistmap.StringKey(keys[0])) || !m.Set(skiplistmap.StringKey(keys[1]), 20) {
 		t.Fatal("slot reuse failed")
 	}
-	replacement, ok := m.LoadItem(skiplistmap.StringKey(keys[1]))
+	replacement, ok := m.LoadItemForTest(skiplistmap.StringKey(keys[1]))
 	if !ok || replacement != old {
 		t.Fatal("replacement did not reuse the slot")
 	}

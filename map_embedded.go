@@ -901,13 +901,15 @@ func replacePoolItems[K Key[K], V any](dst, src []Entry[K, V], exclude int) {
 		}
 		dst[j].ListHead.Init()
 		if src[i].IsIgnored() || !src[i].waitPayload() {
+			dst[j].Delete()
 			if linkedEntry(&src[i].ListHead) {
 				src[i].ListHead.MarkForDelete()
 			}
 			continue
 		}
-		for src[i].ListHead.ReplaceWith(&dst[j].ListHead) != nil {
-			runtime.Gosched()
+		_, moved, published := replaceEntryListNode(&src[i], &dst[j], "copy.poolmove.inserted")
+		if !published {
+			moved.Delete()
 		}
 	}
 }

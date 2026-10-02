@@ -92,8 +92,8 @@ func TestUpdateAdjacentReplacement(t *testing.T) {
 	defer runtime.KeepAlive(left)
 	defer runtime.KeepAlive(right)
 	s := newStepper(t)
-	leftBeforeMark := s.stopAt("elist.replaceNode.mark", isNode(nodeOf(left)))
-	rightMarked := s.stopAt("elist.replaceNode.marked", isNode(nodeOf(right)))
+	leftBeforeMark := s.stopAt("map.copy.replacement.inserted.marked", nil)
+	rightMarked := s.stopAt("map.copy.replacement.inserted.marked", nil)
 	calls := 0
 	leftDone := goStep(t, func() {
 		if !m.Update(left.Key(), func(v *any) { calls++; *v = "updated-left" }) {

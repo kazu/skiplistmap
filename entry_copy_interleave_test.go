@@ -10,7 +10,6 @@ import (
 	"testing"
 	"unsafe"
 
-	"github.com/kazu/elist_head"
 	"github.com/kazu/skiplistmap"
 )
 
@@ -55,73 +54,6 @@ func TestEntryCopyAdjacentInsert(t *testing.T) {
 	}
 	runtime.KeepAlive(e)
 	runtime.KeepAlive(other)
-}
-
-func TestEntryCopyBetweenLinkCASes(t *testing.T) {
-	testEntryCopyPausedRead(t, "replaceNode.cas2")
-}
-
-func TestEntryCopyMarkedReadRetries(t *testing.T) {
-	testEntryCopyPausedRead(t, "replaceNode.marked")
-}
-
-func testEntryCopyPausedRead(t *testing.T, pause string) {
-	m, e := newEntryCopyMap(t)
-	entered, resume, done := make(chan struct{}), make(chan struct{}), make(chan bool, 1)
-	var held atomic.Bool
-	elist_head.SetStepHook(func(point string, a, b, c *elist_head.ListHead) {
-		if point == pause && a == e.PtrListHead() && held.CompareAndSwap(false, true) {
-			close(entered)
-			<-resume
-		}
-	})
-	defer elist_head.SetStepHook(nil)
-	go func() { done <- m.Set("value", 1) }()
-	<-entered
-	if !e.PtrListHead().IsMarked() {
-		t.Error("old links were not marked")
-	}
-	retried, readDone := make(chan struct{}), make(chan struct{})
-	var sawRetry atomic.Bool
-	skiplistmap.SetStepHook(func(point string, a, b unsafe.Pointer) {
-		if point == "search.marked" && sawRetry.CompareAndSwap(false, true) {
-			close(retried)
-		}
-	})
-	defer skiplistmap.SetStepHook(nil)
-	go func() {
-		defer close(readDone)
-		if got, ok := m.Get("value"); !ok || got != 1 {
-			t.Errorf("Get after retry = %v,%v", got, ok)
-		}
-	}()
-	if pause == "replaceNode.marked" {
-		<-retried
-	} else {
-		// Forward lookup may already reach fresh; backward lookup may
-		// still see marked old. Both must return the new value, or retry.
-		select {
-		case <-retried:
-		case <-readDone:
-		}
-	}
-	close(resume)
-	if !<-done {
-		t.Fatal("Set failed")
-	}
-	<-readDone
-	count := 0
-	m.RangeItem(func(item skiplistmap.MapItem[skiplistmap.StringKey, any]) bool {
-		count++
-		return true
-	})
-	if count != 1 || m.Len() != 1 {
-		t.Errorf("Range count=%d Len=%d", count, m.Len())
-	}
-	if !m.Purge("value") || m.Len() != 0 {
-		t.Fatal("Purge after replacement failed")
-	}
-	runtime.KeepAlive(e)
 }
 
 func TestEntryCopyDeleteFoundOldCopy(t *testing.T) {

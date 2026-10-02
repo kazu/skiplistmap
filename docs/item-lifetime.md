@@ -9,6 +9,7 @@ Mapから得たEntryのポインタは、取得後もMapの現在値を指し続
 並行する削除やslot再利用で候補を検証できなくなった場合は、ゼロ値とfalseを返す。
 また、探索途中のノードが削除されて経路を失った場合も取得は失敗し得るため、
 並行更新中のfalseはmap内に対象が存在しないことの保証ではない。
+`Update`も同じキーへの並行更新・slot再利用中に失敗し得る。falseを返した呼出しはcallbackを呼ばず、値を変更しない。
 内部のentry取得は非公開の`first`・`last`・`searchKey`で行う。
 規則は`Set`、`StoreItem`、`LoadItem`、`LoadItemByHash`、`SearchKey`、`RangeItem`、
 `First`、`Last`のgodocにある。ここでは型付きMapの事例、modeごとの保持・移動・再利用を説明する。

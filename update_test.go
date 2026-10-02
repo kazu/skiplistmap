@@ -60,22 +60,26 @@ func TestUpdateConcurrent(t *testing.T) {
 					m.Set(1, 0)
 				}
 				var wg sync.WaitGroup
-				var calls atomic.Int32
+				var successes atomic.Int32
 				for range 4 {
 					wg.Add(1)
 					go func() {
 						defer wg.Done()
 						for range 100 {
-							if !m.Update(1, func(v *int) { calls.Add(1); *v++ }) {
-								t.Error("existing key disappeared")
-								return
+							calls := 0
+							updated := m.Update(1, func(v *int) { calls++; *v++ })
+							if (updated && calls != 1) || (!updated && calls != 0) {
+								t.Errorf("updated=%v calls=%d", updated, calls)
+							}
+							if updated {
+								successes.Add(1)
 							}
 						}
 					}()
 				}
 				wg.Wait()
-				if v, ok := m.Get(1); !ok || v != 400 || calls.Load() != 400 {
-					t.Fatalf("value=%d present=%v calls=%d", v, ok, calls.Load())
+				if v, ok := m.Get(1); !ok || v != int(successes.Load()) {
+					t.Fatalf("value=%d present=%v successful updates=%d", v, ok, successes.Load())
 				}
 			})
 		}
@@ -184,15 +188,20 @@ func TestUpdateWhileGrowing(t *testing.T) {
 			m.StoreItem(entry)
 			m.Set(2, 0)
 			var wg sync.WaitGroup
+			var successes [2]atomic.Int32
 			for _, key := range []skiplistmap.IntKey{1, 2} {
 				for range 2 {
 					wg.Add(1)
 					go func(key skiplistmap.IntKey) {
 						defer wg.Done()
 						for range 100 {
-							if !m.Update(key, func(v *int) { *v++ }) {
-								t.Error("lost key")
-								return
+							calls := 0
+							updated := m.Update(key, func(v *int) { calls++; *v++ })
+							if (updated && calls != 1) || (!updated && calls != 0) {
+								t.Errorf("key=%d updated=%v calls=%d", key, updated, calls)
+							}
+							if updated {
+								successes[key-1].Add(1)
 							}
 						}
 					}(key)
@@ -216,8 +225,9 @@ func TestUpdateWhileGrowing(t *testing.T) {
 			}()
 			wg.Wait()
 			for _, key := range []skiplistmap.IntKey{1, 2} {
-				if got, ok := m.Get(key); !ok || got != 200 {
-					t.Fatalf("key %d = %d, %v", key, got, ok)
+				want := int(successes[key-1].Load())
+				if got, ok := m.Get(key); !ok || got != want {
+					t.Fatalf("key %d = %d, %v; successful updates=%d", key, got, ok, want)
 				}
 			}
 			for key := skiplistmap.IntKey(3); key < 131; key++ {

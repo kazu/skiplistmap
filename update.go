@@ -7,8 +7,10 @@ import (
 	"github.com/lk4d4/trylock"
 )
 
-// Update calls edit once for an existing key and returns true after publishing
-// the edited value. For an absent key it returns false without calling edit.
+// Update calls edit once after finding and protecting an existing key, then
+// returns true after publishing the edited value. It returns false without
+// calling edit if the key is absent or concurrent changes invalidate the lookup.
+// A false result during concurrent updates does not prove the key is absent.
 // A nil edit panics, including when the key is absent.
 //
 // The value pointer is valid only during edit: do not retain it or pass it to

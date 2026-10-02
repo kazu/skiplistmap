@@ -146,8 +146,12 @@ func Test_F2DeleteStoppedAfterItsLookupLeavesTheItemStoredIntoAnotherMap(t *test
 	if !m0.base.Purge(key) {
 		t.Fatal("m0.Purge(k) returned false")
 	}
-	if !m1.base.StoreItem(u) {
-		t.Fatal("m1.StoreItem(u) returned false")
+	if m1.base.StoreItem(u) {
+		t.Fatal("m1.StoreItem reused the retired entry")
+	}
+	fresh := u.Copy()
+	if !m1.base.StoreItem(fresh) {
+		t.Fatal("m1.StoreItem(copy) returned false")
 	}
 	st.Release()
 	waitDone(t, done, "m0.Delete(k)")
@@ -164,6 +168,7 @@ func Test_F2DeleteStoppedAfterItsLookupLeavesTheItemStoredIntoAnotherMap(t *test
 		t.Errorf("m1.Len() = %d, want 1", got)
 	}
 	runtime.KeepAlive(items)
+	runtime.KeepAlive(fresh)
 }
 
 func TestDeletePurgeAfterConcurrentDelete(t *testing.T) {
@@ -209,7 +214,7 @@ func TestDeletePurgeAfterConcurrentDelete(t *testing.T) {
 	}
 }
 
-func TestDeletePurgeAfterEntryReuse(t *testing.T) {
+func TestDeletePurgeAfterEntryCopy(t *testing.T) {
 	for _, operation := range []string{"Delete", "Purge"} {
 		for _, destination := range []string{"detached", "same", "other", "other-with-replacement"} {
 			t.Run(operation+"/"+destination, func(t *testing.T) {
@@ -235,13 +240,17 @@ func TestDeletePurgeAfterEntryReuse(t *testing.T) {
 				if !m0.base.Purge(key) {
 					t.Fatal("Purge before reuse failed")
 				}
+				if m0.base.StoreItem(&items[0]) || m1.base.StoreItem(&items[0]) {
+					t.Fatal("retired entry was reused")
+				}
+				fresh := items[0].Copy()
 				switch destination {
 				case "same":
-					if !m0.base.StoreItem(&items[0]) {
+					if !m0.base.StoreItem(fresh) {
 						t.Fatal("same-map StoreItem failed")
 					}
 				case "other", "other-with-replacement":
-					if !m1.base.StoreItem(&items[0]) {
+					if !m1.base.StoreItem(fresh) {
 						t.Fatal("other-map StoreItem failed")
 					}
 					if destination == "other-with-replacement" && !m0.base.StoreItem(&replacements[0]) {
@@ -250,11 +259,11 @@ func TestDeletePurgeAfterEntryReuse(t *testing.T) {
 				}
 				st.Release()
 				waitDone(t, done, operation)
-				if deleted != (destination == "same") {
+				if deleted {
 					t.Errorf("%s returned %v", operation, deleted)
 				}
 				want0, want1 := 0, 0
-				if destination == "other-with-replacement" {
+				if destination == "same" || destination == "other-with-replacement" {
 					want0 = 1
 				}
 				if destination == "other" || destination == "other-with-replacement" {
@@ -271,6 +280,7 @@ func TestDeletePurgeAfterEntryReuse(t *testing.T) {
 				}
 				runtime.KeepAlive(items)
 				runtime.KeepAlive(replacements)
+				runtime.KeepAlive(fresh)
 			})
 		}
 	}

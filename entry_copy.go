@@ -92,7 +92,7 @@ func (h *Map[K, V]) deleteEntry(entry *entryHMap[K, V], bucket *bucket[K, V], du
 						entry.releaseBusy()
 						return nil, nil, nil, false
 					}
-					atomic.OrUint64((*uint64)(&entry.state), uint64(mapIsDeleted))
+					atomic.OrUint64((*uint64)(&entry.state), uint64(mapIsDeleted|mapIsRetired))
 				}
 				stepAt("delete.claimed", unsafe.Pointer(&entry.ListHead), nil)
 				h.AddLen(-1)

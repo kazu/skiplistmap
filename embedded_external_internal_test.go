@@ -49,7 +49,12 @@ func TestEmbeddedExternalPoolMovesAndSplits(t *testing.T) {
 			t.Fatalf("Purge(%d)", i)
 		}
 		if entries[i] != nil {
-			if !m.StoreItem(entries[i]) {
+			if m.StoreItem(entries[i]) {
+				t.Fatalf("retired StoreItem after split/Purge(%d)", i)
+			}
+			fresh := entries[i].Copy()
+			defer runtime.KeepAlive(fresh)
+			if !m.StoreItem(fresh) {
 				t.Fatalf("StoreItem after split/Purge(%d)", i)
 			}
 		} else if !m.Set(key, i) {

@@ -80,3 +80,11 @@ User自身にリンクや取得メソッドを要求しない。呼出し側のs
 embedded poolの要素とも混在できる。配列が移動しても外部Entryは同じアドレスに残る。
 混在の実行例は`ExampleMap_StoreItem_embedded`。
 `Delete`だけでリンクから外れたとは扱わず、削除したという理由だけで保持をやめない。
+
+削除または更新で退役した外部Entryは、Purgeやリンク初期化後も同じ実体を再登録できない。
+`Entry.Copy`はキーと値を浅くコピーした新しいEntryを返し、リンク・削除履歴・更新履歴を引き継がない。
+外側のstructはコピーしない。外側のstructへ埋め込む場合は、その新しいゼロEntryを`InitEntry`する。
+`StoreItemOrCopy`は削除履歴による拒否の場合だけコピーして格納を試す。成功時に返す元Entryまたは
+コピーは呼出し側が保持し、元mapに必要な古いrootの保持も続ける。失敗時はnilとfalseを返す。
+同じキーが既にある場合はそのEntryを更新するため、返すEntryが`LoadItem`の結果と一致するとは限らない。
+実行例は`ExampleEntry_Copy`と`ExampleMap_StoreItemOrCopy`。

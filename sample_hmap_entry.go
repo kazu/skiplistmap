@@ -43,8 +43,10 @@ func (e *Entry[K, V]) SetValue(value V) bool {
 	e.storeTypedKeyValue(e.Key(), value)
 	return true
 }
-func (e *Entry[K, V]) Delete() { atomic.OrUint64((*uint64)(&e.state), uint64(mapIsDeleted)) }
-func (e *Entry[K, V]) Setup()  { e.reverse, e.conflict = e.KeyHash() }
+func (e *Entry[K, V]) Delete() {
+	atomic.OrUint64((*uint64)(&e.state), uint64(mapIsDeleted|mapIsRetired))
+}
+func (e *Entry[K, V]) Setup() { e.reverse, e.conflict = e.KeyHash() }
 
 func (e *Entry[K, V]) copyFrom(src *Entry[K, V]) {
 	key, value, state := src.loadTypedKeyValue()

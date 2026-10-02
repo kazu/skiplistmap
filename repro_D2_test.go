@@ -138,9 +138,7 @@ func Test_D2OriginStaysUntilTheCopyIsDeleted(t *testing.T) {
 	assertStoredInOrder(t, m, withoutKey(keys, 5))
 }
 
-// A Delete that lost its claim must not touch an item stored again: GB finds
-// u, an item of StoreItem, and stops; a Purge of the key of u returns true,
-// and GB then loses its claim on u; StoreItem stores u again, and GB goes on.
+// A Delete that found an old entry must not touch its newly stored copy.
 func Test_D2LostDeleteLeavesAnItemStoredAgain(t *testing.T) {
 	keys := adjacentKeys(2)
 	items := newStepItems(keys[:1])
@@ -158,13 +156,15 @@ func Test_D2LostDeleteLeavesAnItemStoredAgain(t *testing.T) {
 	if !m.base.Purge(skiplistmap.StringKey(keys[0])) {
 		t.Fatalf("Purge(u) returned false")
 	}
-	claimed := s.stopAt("map.delete.claimed", isNode(nodeOf(u)))
-	found.Release()
-	claimed.waitReached(t, doneB)
-	if !m.base.StoreItem(u) {
-		t.Fatalf("StoreItem(u) after Purge(u) returned false")
+	if m.base.StoreItem(u) {
+		t.Fatal("retired StoreItem(u) succeeded")
 	}
-	claimed.Release()
+	fresh := u.Copy()
+	defer runtime.KeepAlive(fresh)
+	if !m.base.StoreItem(fresh) {
+		t.Fatal("StoreItem(copy) failed")
+	}
+	found.Release()
 	waitDone(t, doneB, "Delete(u) of GB")
 
 	assertStoredInOrder(t, m, keys)

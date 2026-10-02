@@ -30,6 +30,14 @@ func NewEntry[K Key[K], V any](key K, value V) *Entry[K, V] {
 	return e
 }
 
+// Copy returns a new caller-owned entry with a shallow copy of e's key and
+// value. It shares any referenced data, but not links, deletion history or
+// retained replacements. An enclosing struct is not copied.
+func (e *Entry[K, V]) Copy() *Entry[K, V] {
+	key, value, _ := e.loadTypedKeyValue()
+	return NewEntry(key, value)
+}
+
 // InitEntry initializes a zero Entry in place, including an Entry embedded in
 // a caller-owned struct or array. It returns false if already initialized.
 // Do not copy an Entry after initialization.

@@ -940,21 +940,26 @@ func (h *Map[K, V]) Set(key K, value V) bool {
 // not move when the pool grows. Updates publish copies retained by the
 // original external entry, as they do without UseEmbeddedPool.
 func (h *Map[K, V]) StoreItem(item MapItem[K, V]) bool {
+	ok, _ := h.storeItem(item)
+	return ok
+}
+
+func (h *Map[K, V]) storeItem(item MapItem[K, V]) (ok, retired bool) {
 	if item.PtrMapHead().isPoolItem() {
-		return false
+		return false, false
 	}
 	// an item still linked is refused also when its key is present, where
 	// the value would go into the item found
 	if !item.PtrListHead().IsSingle() {
-		return false
+		return false, false
 	}
 	stepAt("storeItem.checked", unsafe.Pointer(item.PtrListHead()), nil)
 	if !item.PtrMapHead().claimBusy() {
-		return false
+		return false, false
 	}
 	if !item.PtrListHead().IsSingle() {
 		item.PtrMapHead().releaseBusy()
-		return false
+		return false, false
 	}
 	k, conflict := item.KeyHash()
 
@@ -971,9 +976,9 @@ func (h *Map[K, V]) StoreItem(item MapItem[K, V]) bool {
 	if found {
 		ok := h._update(oitem, item.Value())
 		item.PtrMapHead().releaseBusy()
-		return ok
+		return ok, false
 	}
-	return h.setItem(k, conflict, bucket, item, true)
+	return h.setItem(k, conflict, bucket, item, true), false
 }
 
 func (h *Map[K, V]) eachEntry(start *elist_head.ListHead, fn func(*entryHMap[K, V])) {

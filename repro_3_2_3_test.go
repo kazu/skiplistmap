@@ -44,7 +44,7 @@ func Test_Repro_3_2_3_RangeItemLeavesWaitNoMark(t *testing.T) {
 	if mode := r323ElistMode(); mode != list_head.TravDirect {
 		t.Fatalf("mode of elist before RangeItem = %v, want TravDirect", mode)
 	}
-	m.base.RangeItem(func(skiplistmap.MapItem[skiplistmap.StringKey, any]) bool {
+	m.base.RangeItemForTest(func(skiplistmap.MapItem[skiplistmap.StringKey, any]) bool {
 		return true
 	})
 	if mode := r323ElistMode(); mode != list_head.TravDirect {
@@ -145,7 +145,7 @@ func newR323Map(t *testing.T) *r323Map {
 func splitNextToMarkedEntry(t *testing.T, p *r323Map) {
 	t.Helper()
 	m := p.m
-	itemD, ok := m.base.LoadItem(skiplistmap.StringKey(p.d))
+	itemD, ok := m.base.LoadItemForTest(skiplistmap.StringKey(p.d))
 	if !ok {
 		t.Fatalf("LoadItem(%q) not found", p.d)
 	}
@@ -199,7 +199,7 @@ func splitNextToMarkedEntry(t *testing.T, p *r323Map) {
 // with a nil pointer dereference in _InsertBefore.
 func Test_Repro_3_2_3_SplitPanicsAfterRangeItem(t *testing.T) {
 	p := newR323Map(t)
-	p.m.base.RangeItem(func(skiplistmap.MapItem[skiplistmap.StringKey, any]) bool {
+	p.m.base.RangeItemForTest(func(skiplistmap.MapItem[skiplistmap.StringKey, any]) bool {
 		return true
 	})
 	splitNextToMarkedEntry(t, p)

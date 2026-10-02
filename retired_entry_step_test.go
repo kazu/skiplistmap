@@ -82,7 +82,7 @@ func TestEntryCopyRetirementDoesNotHideLiveKey(t *testing.T) {
 	defer read.Release()
 	var got *smap.Entry[smap.StringKey, any]
 	var found bool
-	lookup := goStep(t, func() { got, found = m.LoadItem("key") })
+	lookup := goStep(t, func() { got, found = m.LoadItemForTest("key") })
 	read.waitReached(t, lookup)
 	mark := s.stopAt("elist.replaceNode.mark", isNode(unsafe.Pointer(e.PtrListHead())))
 	defer mark.Release()

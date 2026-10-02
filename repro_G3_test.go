@@ -75,7 +75,7 @@ func Test_G3DeleteStoppedAfterItsLookupLeavesTheItemOfItsKeyStoredMeanwhile(t *t
 	if got := m.base.Len(); got != found {
 		t.Errorf("Len() = %d, but Get finds %d keys (StoreItem(u) = %v, Delete(k) = %v)", got, found, okS, okD)
 	}
-	item, ok := m.base.LoadItem(skiplistmap.StringKey(keys[1]))
+	item, ok := m.base.LoadItemForTest(skiplistmap.StringKey(keys[1]))
 	if okD && ok {
 		switch {
 		case item ==

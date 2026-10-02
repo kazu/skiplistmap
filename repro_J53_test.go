@@ -29,7 +29,7 @@ func Test_J53SetOfKeyPresentWritesSlotReusedAfterDelete(t *testing.T) {
 	setKeys(t, m, []string{a, k, c})
 
 	v2, v3 := &list_head.ListHead{}, &list_head.ListHead{}
-	itemK, ok := m.base.LoadItem(skiplistmap.StringKey(k))
+	itemK, ok := m.base.LoadItemForTest(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found")
 	}
@@ -45,7 +45,7 @@ func Test_J53SetOfKeyPresentWritesSlotReusedAfterDelete(t *testing.T) {
 	if !m.Set(k2, v3) {
 		t.Fatalf("Set(k2, v3) = false")
 	}
-	it2, ok := m.base.LoadItem(skiplistmap.StringKey(k2))
+	it2, ok := m.base.LoadItemForTest(skiplistmap.StringKey(k2))
 	if !ok {
 		t.Fatalf("LoadItem(k2) not found after Set(k2, v3)")
 	}

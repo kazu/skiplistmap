@@ -95,7 +95,7 @@ func Test_StoreItemRefusesAnItemOfThePool(t *testing.T) {
 	if !m.Set("k", &list_head.ListHead{}) {
 		t.Fatalf("Set failed")
 	}
-	item, ok := m.base.LoadItem("k")
+	item, ok := m.base.LoadItemForTest("k")
 	if !ok {
 		t.Fatalf("LoadItem did not find the key")
 	}

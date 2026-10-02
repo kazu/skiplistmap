@@ -64,7 +64,7 @@ func TestTypedValuesSkipsRetiredSlot(t *testing.T) {
 func TestTypedDeleteWaitsForPoolReplacement(t *testing.T) {
 	m := skiplistmap.New[skiplistmap.StringKey, int]()
 	m.Set("a", 1)
-	entry, ok := m.LoadItem("a")
+	entry, ok := m.LoadItemForTest("a")
 	if !ok {
 		t.Fatal("missing initial entry")
 	}

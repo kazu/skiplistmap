@@ -26,7 +26,7 @@ func Test_D2DeletesAcrossAnExpandBothReturnTrue(t *testing.T) {
 	m := newStepMap()
 	setKeys(t, m, keys[:n])
 	k := keys[5]
-	item, ok := m.base.LoadItem(skiplistmap.StringKey(k))
+	item, ok := m.base.LoadItemForTest(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found")
 	}
@@ -70,7 +70,7 @@ func Test_D2DeleteOfTheCopyGetsAheadOfTheOldItem(t *testing.T) {
 	m := newStepMap()
 	setKeys(t, m, keys[:n])
 	k := keys[5]
-	item, ok := m.base.LoadItem(skiplistmap.StringKey(k))
+	item, ok := m.base.LoadItemForTest(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found")
 	}
@@ -110,7 +110,7 @@ func Test_D2OriginStaysUntilTheCopyIsDeleted(t *testing.T) {
 	m := newStepMap()
 	setKeys(t, m, keys)
 	k := keys[5]
-	item, ok := m.base.LoadItem(skiplistmap.StringKey(k))
+	item, ok := m.base.LoadItemForTest(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found")
 	}
@@ -182,7 +182,7 @@ func Test_D2LostDeleteDeletesTheCopiesOfItsItem(t *testing.T) {
 	m := newStepMap()
 	setKeys(t, m, keys[:n])
 	k := keys[5]
-	item, ok := m.base.LoadItem(skiplistmap.StringKey(k))
+	item, ok := m.base.LoadItemForTest(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found")
 	}
@@ -193,7 +193,7 @@ func Test_D2LostDeleteDeletesTheCopiesOfItsItem(t *testing.T) {
 	doneL := goStep(t, func() { m.base.Delete(skiplistmap.StringKey(k)) })
 	found.waitReached(t, doneL)
 	m.Set(keys[n], &list_head.ListHead{})
-	item, ok = m.base.LoadItem(skiplistmap.StringKey(k))
+	item, ok = m.base.LoadItemForTest(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found after the expand")
 	}
@@ -224,7 +224,7 @@ func Test_D2DeleteOfAMiddleCopyAfterTheOriginIsGone(t *testing.T) {
 	m := newStepMap()
 	setKeys(t, m, keys[:n+1])
 	k := keys[5]
-	item, ok := m.base.LoadItem(skiplistmap.StringKey(k))
+	item, ok := m.base.LoadItemForTest(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found")
 	}
@@ -236,7 +236,7 @@ func Test_D2DeleteOfAMiddleCopyAfterTheOriginIsGone(t *testing.T) {
 	doneB := goStep(t, func() { okB = m.base.Delete(skiplistmap.StringKey(k)) })
 	stB.waitReached(t, doneB)
 	setKeys(t, m, keys[n+1:])
-	item, ok = m.base.LoadItem(skiplistmap.StringKey(k))
+	item, ok = m.base.LoadItemForTest(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found after the second expand")
 	}
@@ -272,7 +272,7 @@ func Test_D2DeletesAcrossTwoExpands(t *testing.T) {
 	m := newStepMap()
 	setKeys(t, m, keys[:n])
 	k := keys[5]
-	item, ok := m.base.LoadItem(skiplistmap.StringKey(k))
+	item, ok := m.base.LoadItemForTest(skiplistmap.StringKey(k))
 	if !ok {
 		t.Fatalf("LoadItem(k) not found")
 	}

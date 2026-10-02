@@ -33,6 +33,9 @@ SEARCH:
 			if cur.PtrListHead().IsMarked() {
 				break
 			}
+			if stepEnabled {
+				stepAt("search.unmarked", unsafe.Pointer(cur.PtrListHead()), nil)
+			}
 			if EnableStats && ignoreDummy {
 				h.mu.Lock()
 				if forward {

@@ -188,19 +188,19 @@ func d4Check(h *Map[StringKey, any],
 		if got, ok := h.Get(StringKey(k)); !ok || got != v {
 			return fmt.Errorf("Get(%q) = %v, %v; want %q, true", k, got, ok, v)
 		}
-		item, ok := h.LoadItem(StringKey(k))
+		item, ok := h.LoadItemForTest(StringKey(k))
 		if !ok || item.Key() != StringKey(k) || item.Value() != v {
 			return fmt.Errorf("LoadItem(%q) failed: %v", k, ok)
 		}
 		hash, conflict := KeyToHash(k)
-		item, ok = h.LoadItemByHash(hash, conflict)
+		item, ok = h.LoadItemByHashForTest(hash, conflict)
 		if !ok || item.Key() != StringKey(k) || item.Value() != v {
 			return fmt.Errorf("LoadItemByHash(%q) failed: %v", k, ok)
 		}
 		for _, ignore := range []bool{true, false} {
-			e := h.SearchKey(hash, ignoreBucketEntry(ignore))
+			e := h.searchKey(hash, ignore)
 			if e == nil || e.PtrMapHead().reverse != bits.Reverse64(hash) {
-				return fmt.Errorf("SearchKey(%q, ignoreBucketEntry(%v)) did not find the key", k, ignore)
+				return fmt.Errorf("searchKey(%q, %v) did not find the key", k, ignore)
 			}
 		}
 	}
@@ -208,12 +208,12 @@ func d4Check(h *Map[StringKey, any],
 		if _, ok := h.Get(StringKey(k)); ok {
 			return fmt.Errorf("Get(%q) found a purged key", k)
 		}
-		if _, ok := h.LoadItem(StringKey(k)); ok {
+		if _, ok := h.LoadItemForTest(StringKey(k)); ok {
 			return fmt.Errorf("LoadItem(%q) found a purged key", k)
 		}
 		hash, _ := KeyToHash(k)
-		if e := h.SearchKey(hash, ignoreBucketEntry(true)); e != nil && e.PtrMapHead().reverse == bits.Reverse64(hash) {
-			return fmt.Errorf("SearchKey(%q, ignoreBucketEntry(true)) found a purged key", k)
+		if e := h.searchKey(hash, true); e != nil && e.PtrMapHead().reverse == bits.Reverse64(hash) {
+			return fmt.Errorf("searchKey(%q, true) found a purged key", k)
 		}
 	}
 	keys := make([]string, 0, len(want))
@@ -226,7 +226,7 @@ func d4Check(h *Map[StringKey, any],
 	}
 	sort.Slice(keys, func(i, j int) bool { return rev(keys[i]) < rev(keys[j]) })
 	var ranged []string
-	h.RangeItem(func(item MapItem[StringKey, any]) bool {
+	h.RangeItemForTest(func(item MapItem[StringKey, any]) bool {
 		ranged = append(ranged, string(item.Key()))
 		return len(ranged) <= len(keys)
 	})

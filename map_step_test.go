@@ -243,7 +243,7 @@ func assertStoredInOrder(t *testing.T, m *WrapHMap, keys []string) {
 	}
 	var got []string
 	runWithDeadline(t, 10*time.Second, func() {
-		m.base.RangeItem(func(item skiplistmap.MapItem[skiplistmap.StringKey, any]) bool {
+		m.base.RangeItemForTest(func(item skiplistmap.MapItem[skiplistmap.StringKey, any]) bool {
 			got = append(got, string(item.Key()))
 			return true
 		})

@@ -113,8 +113,8 @@ func (h *Map[K, V]) deleteEntry(entry *entryHMap[K, V], bucket *bucket[K, V], du
 	}
 }
 
-// reachableFromDummy runs with the caller-owned entry busy. The bucket dummy
-// remains in the original map even if the entry was purged and reused elsewhere.
+// reachableFromDummy runs with the caller-owned entry busy and retries from
+// the saved dummy if traversal reaches a purged neighbor.
 func (entry *Entry[K, V]) reachableFromDummy(dummy *elist_head.ListHead) bool {
 	reverse := atomic.LoadUint64(&entry.reverse)
 	startReverse := atomic.LoadUint64(&mapheadFromLListHead(dummy).reverse)

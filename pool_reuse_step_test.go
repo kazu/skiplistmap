@@ -24,7 +24,7 @@ func Test_EmbeddedDeleteDoesNotDeleteReusedSlot(t *testing.T) {
 			if middle && !m.Set(skiplistmap.StringKey(keys[2]), 30) {
 				t.Fatal("Set of the following key failed")
 			}
-			old, ok := m.LoadItem(skiplistmap.StringKey(keys[0]))
+			old, ok := m.LoadItemForTest(skiplistmap.StringKey(keys[0]))
 			if !ok {
 				t.Fatal("initial key missing")
 			}
@@ -39,7 +39,7 @@ func Test_EmbeddedDeleteDoesNotDeleteReusedSlot(t *testing.T) {
 			if !m.Set(skiplistmap.StringKey(keys[1]), 20) {
 				t.Fatal("Set of the replacement key failed")
 			}
-			replacement, ok := m.LoadItem(skiplistmap.StringKey(keys[1]))
+			replacement, ok := m.LoadItemForTest(skiplistmap.StringKey(keys[1]))
 			if !ok || replacement != old {
 				t.Fatal("replacement did not reuse the purged slot")
 			}
@@ -114,7 +114,7 @@ func Test_EmbeddedReuseDoesNotPublishPreviousValue(t *testing.T) {
 			if !m.Set(skiplistmap.StringKey(keys[0]), 10) || (tc.middle && !m.Set(skiplistmap.StringKey(keys[2]), 30)) {
 				t.Fatal("initial Set failed")
 			}
-			old, ok := m.LoadItem(skiplistmap.StringKey(keys[0]))
+			old, ok := m.LoadItemForTest(skiplistmap.StringKey(keys[0]))
 			if !ok {
 				t.Fatal("initial key missing")
 			}

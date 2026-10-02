@@ -124,7 +124,7 @@ func tryJ11Keys(t *testing.T, first, rest []string) (j11Keys, bool) {
 // j11Node returns the list node of the item that holds key in m.
 func j11Node(t *testing.T, m *WrapHMap, key string) unsafe.Pointer {
 	t.Helper()
-	item, ok := m.base.LoadItem(skiplistmap.StringKey(key))
+	item, ok := m.base.LoadItemForTest(skiplistmap.StringKey(key))
 	if !ok {
 		t.Fatalf("LoadItem(%q) not found", key)
 	}
@@ -154,7 +154,7 @@ func purgeWithSplitBeforeLock(t *testing.T, splitWhileFound bool, wait time.Dura
 	if !splitWhileFound {
 		j11Set(t, m, k.extra)
 	}
-	itemA, ok := m.base.LoadItem(skiplistmap.StringKey(k.a))
+	itemA, ok := m.base.LoadItemForTest(skiplistmap.StringKey(k.a))
 	if !ok {
 		t.Fatalf("LoadItem(%q) not found", k.a)
 	}
@@ -184,7 +184,7 @@ func purgeWithSplitBeforeLock(t *testing.T, splitWhileFound bool, wait time.Dura
 	done2 := goStep(t, func() { ok2 = m.Set(k.b, &list_head.ListHead{}) })
 	setFinished = waitAtMost(done2, wait)
 	if setFinished {
-		if itemB, ok := m.base.LoadItem(skiplistmap.StringKey(k.b)); ok {
+		if itemB, ok := m.base.LoadItemForTest(skiplistmap.StringKey(k.b)); ok {
 			t.Logf("Set(%q) finished while Purge(%q) was stopped; b reused the slot of a: %v",
 				k.b, k.a, unsafe.Pointer(itemB.PtrListHead()) == nodeA)
 		}

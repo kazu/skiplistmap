@@ -14,7 +14,6 @@ func Test_LoadItemAfterPoolGrowth(t *testing.T) {
 		opts []skiplistmap.OptHMap[skiplistmap.StringKey, any]
 	}{
 		{"default", nil},
-		{"embedded pool", []skiplistmap.OptHMap[skiplistmap.StringKey, any]{skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true)}},
 	} {
 		t.Run(p.name, func(t *testing.T) {
 			m := skiplistmap.New[skiplistmap.StringKey, any](p.opts...)

@@ -90,42 +90,79 @@ func TestDeletePurgeDummyAfterSplit(t *testing.T) {
 
 func TestDeletePurgeDummyCursorPurged(t *testing.T) {
 	for _, operation := range []string{"Delete", "Purge"} {
-		t.Run(operation, func(t *testing.T) {
-			keys := adjacentKeys(3)
-			items := newStepItems(keys)
-			m := newStepMap().base
-			for i := range items {
-				if !m.StoreItem(&items[i]) {
-					t.Fatal("StoreItem failed")
+		for _, destination := range []string{"detached", "copied-to-other-map"} {
+			t.Run(operation+"/"+destination, func(t *testing.T) {
+				keys := adjacentKeys(3)
+				items := newStepItems(keys)
+				m := newStepMap().base
+				for i := range items {
+					if !m.StoreItem(&items[i]) {
+						t.Fatal("StoreItem failed")
+					}
 				}
-			}
-			s := newStepper(t)
-			st := s.stopAt("map.delete.scan", func(a, b, _ unsafe.Pointer) bool {
-				return b == nodeOf(&items[1]) && (a == nodeOf(&items[0]) || a == nodeOf(&items[2]))
+				s := newStepper(t)
+				first := s.stopAt("map.delete.scan", func(_, b, _ unsafe.Pointer) bool {
+					return b == nodeOf(&items[1])
+				})
+				defer first.Release()
+				st := s.stopAt("map.delete.scan", func(a, b, _ unsafe.Pointer) bool {
+					return b == nodeOf(&items[1]) && (a == nodeOf(&items[0]) || a == nodeOf(&items[2]))
+				})
+				defer st.Release()
+				var deleted bool
+				done := goStep(t, func() {
+					if operation == "Delete" {
+						deleted = m.Delete(items[1].Key())
+					} else {
+						deleted = m.Purge(items[1].Key())
+					}
+				})
+				first.waitReached(t, done)
+				dummy, _ := s.args("map.delete.scan")
+				first.Release()
+				st.waitReached(t, done)
+				cursor, _ := s.args("map.delete.scan")
+				other := newStepMap().base
+				var copied *skiplistmap.Entry[skiplistmap.StringKey, any]
+				for _, i := range []int{0, 2} {
+					if cursor != nodeOf(&items[i]) {
+						continue
+					}
+					if !m.Purge(items[i].Key()) {
+						t.Fatal("cursor Purge failed")
+					}
+					if destination == "copied-to-other-map" {
+						if other.StoreItem(&items[i]) {
+							t.Fatal("retired cursor was reused")
+						}
+						copied = items[i].Copy()
+						if !other.StoreItem(copied) {
+							t.Fatal("cursor copy insertion failed")
+						}
+					}
+				}
+				restarts := s.count("map.delete.scan", dummy)
+				st.Release()
+				waitDone(t, done, "deletion after cursor Purge")
+				if !deleted || m.Len() != 1 {
+					t.Fatalf("deleted = %v, Len = %d", deleted, m.Len())
+				}
+				if s.count("map.delete.scan", dummy) != restarts+1 {
+					t.Fatal("deletion did not retry from the saved dummy")
+				}
+				if _, found := m.Get(items[1].Key()); found {
+					t.Fatal("target remains present after deletion")
+				}
+				if copied != nil {
+					stored, found := other.LoadItem(copied.Key())
+					if !found || stored != copied || other.Len() != 1 {
+						t.Fatal("deletion changed the cursor copy in the other map")
+					}
+				}
+				runtime.KeepAlive(items)
+				runtime.KeepAlive(copied)
 			})
-			defer st.Release()
-			var deleted bool
-			done := goStep(t, func() {
-				if operation == "Delete" {
-					deleted = m.Delete(items[1].Key())
-				} else {
-					deleted = m.Purge(items[1].Key())
-				}
-			})
-			st.waitReached(t, done)
-			cursor, _ := s.args("map.delete.scan")
-			for _, i := range []int{0, 2} {
-				if cursor == nodeOf(&items[i]) && !m.Purge(items[i].Key()) {
-					t.Fatal("cursor Purge failed")
-				}
-			}
-			st.Release()
-			waitDone(t, done, "deletion after cursor Purge")
-			if !deleted || m.Len() != 1 {
-				t.Fatalf("deleted = %v, Len = %d", deleted, m.Len())
-			}
-			runtime.KeepAlive(items)
-		})
+		}
 	}
 }
 
@@ -162,7 +199,7 @@ func Test_F2DeleteStoppedAfterItsLookupLeavesTheItemStoredIntoAnotherMap(t *test
 		t.Errorf("m0.Len() = %d, want 0", got)
 	}
 	if _, ok := m1.Get(keys[0]); !ok {
-		t.Error("m1.Get(k) not found after m1.StoreItem(u) returned true")
+		t.Error("m1.Get(k) not found after m1.StoreItem(copy) returned true")
 	}
 	if got := m1.base.Len(); got != 1 {
 		t.Errorf("m1.Len() = %d, want 1", got)

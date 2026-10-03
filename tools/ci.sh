@@ -42,7 +42,7 @@ for mode in "${modes[@]}"; do
 				case "$package" in
 					github.com/kazu/skiplistmap/rmap) tests='^(Test|Example|Fuzz)' ;;
 					github.com/kazu/skiplistmap) tests='^Test_(J(51|56)|OperationsDistinguishSameHashPair|EmbeddedGetDoesNotReadReusedSlot|EmbeddedRangeKeepsKeyAndValueTogether|DifferentKeysWithSameHashPair|F2)|^Test(Typed|EntryCopy|EntryValue|SearchIntermediatePurged|EmbeddedEntryAccess|EmbeddedExternal|Update|DeletePurge|_PurgeAndSet|_StepRaceSplit|_ConcurrentUpdateWhileGrowing)' ;;
-					github.com/kazu/elist_head) tests='^TestReplace(Node|WithAdjacent)|^TestAdjacent' ;;
+					github.com/kazu/elist_head) tests='^Test(MarkForDelete|InsertBefore|TryInsertBefore)' ;;
 					github.com/kazu/loncha/lista_encabezado) tests='^TestLenRestartsAfterCurrentNodeIsDeleted$' ;;
 					*) continue ;;
 				esac

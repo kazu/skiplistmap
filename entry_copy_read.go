@@ -29,6 +29,7 @@ SEARCH:
 		if len(trace) != 0 {
 			*dummy = nil
 		}
+	WALK:
 		for cur != nil {
 			if cur.PtrListHead().IsMarked() {
 				break
@@ -51,7 +52,31 @@ SEARCH:
 			r := atomic.LoadUint64(&cur.reverse)
 			if r == reverse {
 				if !cur.IsDummy() && (!ignoreDummy || !cur.IsIgnored()) {
-					return entryHMapFromListHead[K, V](cur.PtrListHead())
+					match := cur
+					// Copies are inserted before their old entry. A backward
+					// search must reach the start of this hash group first;
+					// key/conflict matching then sees newer copies first.
+					for head := cur.PtrListHead(); !forward; {
+						prev := head.DirectPrev()
+						if prev == head || prev.Empty() {
+							break
+						}
+						if prev.IsMarked() {
+							break WALK
+						}
+						mh := mapheadFromLListHead(prev)
+						if atomic.LoadUint64(&mh.reverse) != reverse {
+							break
+						}
+						if len(trace) != 0 && mh.IsDummy() {
+							*dummy = mh
+						}
+						if !mh.IsDummy() && (!ignoreDummy || !mh.IsIgnored()) {
+							match = mh
+						}
+						head = prev
+					}
+					return entryHMapFromListHead[K, V](match.PtrListHead())
 				}
 				// A replacement may have retired this cursor after the
 				// first mark check. Do not skip it and report a missing key.

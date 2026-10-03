@@ -8,6 +8,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/cornelk/hashmap"
 )
 
 // Legacy benchmark copied from master. Keep its worker assignment, key mask,
@@ -128,8 +130,8 @@ func Benchmark_Map(b *testing.B) {
 		{"skiplistmap5    ", 100, 100000, 0, 0x080, skiplistmap.CombineSearch3, &typedBenchmarkMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, false},
 
 		// use
-		//{"hashmap.HashMap              ", 100, 100000, 0, 0x000, 0, hashMap{m: &hashmap.HashMap{}}},
-		//{"cmap.Cmap              	   ", 100, 100000, 0, 0x000, 0, cMap{}},
+		{"hashmap.HashMap              ", 100, 100000, 0, 0x000, 0, hashMap{m: &hashmap.HashMap{}}, true},
+		{"cmap.Cmap              	   ", 100, 100000, 0, 0x000, 0, &cMap{}, true},
 
 		// {"skiplistmap                  ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]())},
 		// {"skiplistmap3                 ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]())},
@@ -157,8 +159,8 @@ func Benchmark_Map(b *testing.B) {
 		// use
 		// {"skiplistmap4    ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch4, &typedBenchmarkMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]()}, false},
 		// {"skiplistmap4    ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch4, &typedBenchmarkMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]()}, false},
-		// {"hashmap.HashMap              ", 100, 100000, 50, 0x000, 0, hashMap{m: &hashmap.HashMap{}}},
-		// {"cmap.Cmap              	   ", 100, 100000, 50, 0x000, 0, cMap{}},
+		{"hashmap.HashMap              ", 100, 100000, 50, 0x000, 0, hashMap{m: &hashmap.HashMap{}}, true},
+		{"cmap.Cmap              	   ", 100, 100000, 50, 0x000, 0, &cMap{}, true},
 
 		//{"RMap                         ", 100, 100000, 50, 0x000, 0, newWRMap()},
 	}

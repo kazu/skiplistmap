@@ -25,19 +25,21 @@ Nushell でも `make ci` を実行する。
 対象はskiplistmapリポジトリ内の全パッケージ。依存リポジトリの単体テストは実行しない。
 Go 1.27.1、Bash、`xargs` が必要。
 
-ゲートは vet、通常、race、checkptr、`stephook` タグ付き race の順に確認する。
+ゲートは vet、race、`stephook` タグ付き race の順に確認する。
 タグ付き検証は RMap の全テスト、バケットの J51/J56、型付きMap・キー照合・
 slot再利用・コピー更新・外部Entry混在・Update callback・分割と更新の並行テストを対象にする。
-通常・race・checkptr は全パッケージを一つずつ `go test -v` で検証する。
+通常の検証と checkptr は race 付きの `go test -v` に含める。
+負荷の大きいテストは Makefile の `STRESS_TESTS` で分け、`make ci` では実行しない。
+`make stress` はそれらを race 付きで実行し、分割中の並行更新は `stephook` 付きでも検証する。
 vet は全パッケージで copylocks 以外の検査を行い、copylocks は本体ソースで検査する。
 履歴ベンチマークの値レシーバーによる意図的な lock のコピーは変更しない。
 既存の `//go:nocheckptr` は残っているため、その関数内の安全性まで保証する
-検査ではない。checkptr は `-gcflags=all=-d=checkptr` を使用する。
+検査ではない。
 
-race だけ再確認する場合は、Bash と Nushell のどちらでも次を実行する。
+通常のテストだけ再確認する場合は、Bash と Nushell のどちらでも次を実行する。
 
 ```bash
-make race
+make test
 ```
 
 rmap の追加 fuzz 検証は、Bash で次のように実行できる。

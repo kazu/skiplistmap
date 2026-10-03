@@ -8,9 +8,6 @@ export GOMAXPROCS="${GOMAXPROCS:-4}"
 
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/skiplistmap-ci.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
-root=$PWD
-elist_root=$(go list -m -f '{{.Dir}}' github.com/kazu/elist_head)
-loncha_root=$(go list -m -f '{{.Dir}}' github.com/kazu/loncha)
 modes=("$@")
 if ((${#modes[@]} == 0)); then
 	modes=(normal race checkptr step)
@@ -25,25 +22,16 @@ for mode in "${modes[@]}"; do
 		step) flags=(-race -tags=stephook) ;;
 		*) echo "Unknown mode: $mode" >&2; exit 2 ;;
 	esac
-	for module in "$root" "$elist_root" "$loncha_root"; do
-		cd "$module"
-		pattern=./...
-		if [[ "$module" == "$loncha_root" ]]; then
-			# This is the loncha package imported by skiplistmap.
-			pattern=./lista_encabezado
-		fi
 		if [[ "$mode" == normal ]]; then
-			go vet "$pattern"
+			go vet ./...
 		fi
-		go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' "$pattern" > "$scratch/packages"
+		go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./... > "$scratch/packages"
 		while IFS= read -r package; do
 			[[ -n "$package" ]] || continue
 			if [[ "$mode" == step ]]; then
 				case "$package" in
 					github.com/kazu/skiplistmap/rmap) tests='^(Test|Example|Fuzz)' ;;
 					github.com/kazu/skiplistmap) tests='^Test_(J(51|56)|OperationsDistinguishSameHashPair|EmbeddedGetDoesNotReadReusedSlot|EmbeddedRangeKeepsKeyAndValueTogether|DifferentKeysWithSameHashPair|F2)|^Test(Typed|EntryCopy|EntryValue|EntryStorage|EntryNext|EntryInitialization|EntryRetention|RegisteredEntry|SearchIntermediatePurged|EmbeddedEntryAccess|EmbeddedExternal|Update|DeletePurge|_PurgeAndSet|_StepRaceSplit|_ConcurrentUpdateWhileGrowing)' ;;
-					github.com/kazu/elist_head) tests='^Test(MarkForDelete|InsertBefore|TryInsertBefore)' ;;
-					github.com/kazu/loncha/lista_encabezado) tests='^TestLenRestartsAfterCurrentNodeIsDeleted$' ;;
 					*) continue ;;
 				esac
 			else
@@ -81,5 +69,4 @@ for mode in "${modes[@]}"; do
 				done
 			done < "$scratch/names"
 		done < "$scratch/packages"
-	done
 done

@@ -8,22 +8,22 @@ import (
 
 type HMapEntry[K Key[K], V any] = *Entry[K, V]
 type MapItem[K Key[K], V any] = *Entry[K, V]
-type entryHMap[K Key[K], V any] = Entry[K, V]
+type entryHMap[K Key[K], V any] = embeddedEntry[K, V]
 type copyEntry[K Key[K], V any] = Entry[K, V]
 type SampleItem[K Key[K], V any] = Entry[K, V]
 
-// NewEntryMap creates a caller-owned root for immutable replacement entries.
+// NewEntryMap creates a caller-owned entry for immutable replacement entries.
 func NewEntryMap[K Key[K], V any](key K, value V) *Entry[K, V] {
 	return NewEntry(key, value)
 }
-func emptyEntryHMap[K Key[K], V any]() *Entry[K, V] { return nil }
-func EmptyEntryHMap[K Key[K], V any]() *Entry[K, V] { return nil }
-func emptyBucket[K Key[K], V any]() *bucket[K, V]   { return nil }
+func emptyEntryHMap[K Key[K], V any]() *embeddedEntry[K, V] { return nil }
+func EmptyEntryHMap[K Key[K], V any]() *Entry[K, V]         { return nil }
+func emptyBucket[K Key[K], V any]() *bucket[K, V]           { return nil }
 
-func entryHMapFromPlistHead[K Key[K], V any](head unsafe.Pointer) *Entry[K, V] {
+func entryHMapFromPlistHead[K Key[K], V any](head unsafe.Pointer) *embeddedEntry[K, V] {
 	return entryHMapFromListHead[K, V]((*elist_head.ListHead)(head))
 }
-func entryHMapFromListHead[K Key[K], V any](head *elist_head.ListHead) *Entry[K, V] {
+func entryHMapFromListHead[K Key[K], V any](head *elist_head.ListHead) *embeddedEntry[K, V] {
 	if head == nil || mapheadFromLListHead(head).IsDummy() {
 		return nil
 	}
@@ -34,11 +34,11 @@ func entryHMapOffset[K Key[K], V any]() uintptr {
 	return e.Offset()
 }
 
-type CondOfFinder[K Key[K], V any] func(ehead *entryHMap[K, V]) bool
+type CondOfFinder[K Key[K], V any] func(ehead *Entry[K, V]) bool
 
 func CondOfFind[K Key[K], V any](reverse uint64, l sync.Locker) CondOfFinder[K, V] {
 
-	return func(ehead *entryHMap[K, V]) bool {
+	return func(ehead *Entry[K, V]) bool {
 
 		if EnableStats {
 			l.Lock()

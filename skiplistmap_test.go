@@ -75,7 +75,7 @@ func Test_ConccurentWriteEmbeddedBucket(t *testing.T) {
 
 				s := item
 				s.InitEntry("???", i)
-				m.TestSet(bits.Reverse64(key+i), i, bucket, s)
+				m.SetEntryForTest(bits.Reverse64(key+i), i, bucket, s)
 				if fn != nil {
 					bucket.RunLazyUnlocker(fn)
 				}
@@ -178,8 +178,8 @@ func Test_HMap(t *testing.T) {
 				}
 			}
 
-			var last *skiplistmap.Entry[skiplistmap.StringKey, any]
-			m.base.RangeItemForTest(func(e *skiplistmap.Entry[skiplistmap.StringKey, any]) bool {
+			var last *skiplistmap.TestEntry[skiplistmap.StringKey, any]
+			m.base.RangeItemForTest(func(e *skiplistmap.TestEntry[skiplistmap.StringKey, any]) bool {
 				last = e
 				return true
 			})

@@ -101,14 +101,14 @@ func maxInts(ints ...int) (max int) {
 }
 
 func NilMapEntry[K Key[K], V any]() HMapEntry[K, V] {
-	return (*entryHMap[K, V])(nil)
+	return nil
 }
 
 // insertInOrder links center just before right in one attempt, only if the
 // entry that is before right when center is linked does not come after center.
 // It returns an error without linking center otherwise; the caller finds the
 // position again.
-func insertInOrder[K Key[K], V any](right, center *elist_head.ListHead, entry HMapEntry[K, V]) error {
+func insertInOrder[K Key[K], V any](right, center *elist_head.ListHead, entry *embeddedEntry[K, V]) error {
 
 	if err := checkLinkBefore(right, center); err != nil {
 		return err
@@ -138,21 +138,21 @@ func checkLinkBefore(right, center *elist_head.ListHead) error {
 // canLinkAfter reports whether center may be linked just after left: left
 // does not come after center, and left is not a live entry of the key of
 // center, which another store may have linked since center was looked up.
-func canLinkAfter[K Key[K], V any](left, center *MapHead, entry HMapEntry[K, V]) bool {
+func canLinkAfter[K Key[K], V any](left, center *MapHead, entry *embeddedEntry[K, V]) bool {
 	return left.Empty() || (atomic.LoadUint64(&left.reverse) <= atomic.LoadUint64(&center.reverse) && (entry == nil || linkedSameKey[K, V](left, center, entry) == nil))
 }
 
 // linkedSameKey returns the live entry of the key of center among left and
 // the entries before left with the reverse of center, or nil. Entries of one
 // reverse lie in any order, including distinct keys with equal hash pairs.
-func linkedSameKey[K Key[K], V any](left, center *MapHead, entry HMapEntry[K, V]) *MapHead {
+func linkedSameKey[K Key[K], V any](left, center *MapHead, entry *embeddedEntry[K, V]) *MapHead {
 	for cur := left.PtrListHead(); !cur.Empty(); cur = cur.DirectPrev() {
 		m := mapheadFromLListHead(cur)
 		if atomic.LoadUint64(&m.reverse) != atomic.LoadUint64(&center.reverse) {
 			break
 		}
 		if sameKeyLinked(m, center) {
-			other := entry.HmapEntryFromListHead(m.PtrListHead())
+			other := entryHMapFromListHead[K, V](m.PtrListHead())
 			if !equalItemKey[K, V](other, entry.Key()) {
 				continue
 			}

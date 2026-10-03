@@ -40,8 +40,9 @@ func makeReuseValue(n uint64) reuseValue {
 }
 
 func TestTypedEntryReuseSnapshot(t *testing.T) {
-	e := NewEntry(Uint64Key(0), makeReuseValue(0))
-	e.reusable = true
+	e := &embeddedEntry[Uint64Key, reuseValue]{}
+	e.InitEntry(Uint64Key(0), makeReuseValue(0))
+	e.state |= mapIsReusable
 	start := make(chan struct{})
 	var wg sync.WaitGroup
 	wg.Add(2)

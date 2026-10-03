@@ -47,7 +47,7 @@ func TestEmbeddedExternalEntries(t *testing.T) {
 				}
 				for j := 0; j <= i; j++ {
 					got, ok := m.LoadItemForTest(keys[j])
-					if !ok || got.Value() != j || entries[j] != nil && got != entries[j] {
+					if !ok || got.Value() != j || entries[j] != nil && got.PtrMapHead() != entries[j].PtrMapHead() {
 						t.Fatalf("after insert %d: LoadItem(%d)=(%p,%v), external=%p", i, j, got, ok, entries[j])
 					}
 				}
@@ -58,7 +58,7 @@ func TestEmbeddedExternalEntries(t *testing.T) {
 			for i, key := range keys {
 				if entries[i] == nil {
 					item, _ := m.LoadItemForTest(key)
-					if m.StoreItem(item) {
+					if m.StoreItemForTest(item) {
 						t.Fatalf("StoreItem accepted pool item %d", i)
 					}
 				}
@@ -150,7 +150,7 @@ func ExampleMap_StoreItem_embedded() {
 	m.StoreItem(&owner.entry)
 	m.Set(2, "pooled")
 	got, ok := m.LoadItemForTest(1)
-	fmt.Println(ok, got == &owner.entry, owner.note)
+	fmt.Println(ok, got.PtrMapHead() == owner.entry.PtrMapHead(), owner.note)
 	fmt.Println(m.Get(2))
 	runtime.KeepAlive(owner)
 	// Output:
@@ -168,7 +168,7 @@ func TestEmbeddedExternalBoundaryHashes(t *testing.T) {
 			if !m.StoreItem(e) {
 				t.Fatal("StoreItem")
 			}
-			if got, ok := m.LoadItemForTest(key); !ok || got != e {
+			if got, ok := m.LoadItemForTest(key); !ok || got.PtrMapHead() != e.PtrMapHead() {
 				t.Fatalf("LoadItem=(%p,%v), want %p", got, ok, e)
 			}
 			if !m.Purge(key) || m.Len() != 0 {
@@ -182,7 +182,7 @@ func TestEmbeddedExternalBoundaryHashes(t *testing.T) {
 			if !m.StoreItem(fresh) {
 				t.Fatal("StoreItem copy after Purge")
 			}
-			if got, ok := m.LoadItemForTest(key); !ok || got != fresh {
+			if got, ok := m.LoadItemForTest(key); !ok || got.PtrMapHead() != fresh.PtrMapHead() {
 				t.Fatalf("reinserted LoadItem=(%p,%v), want %p", got, ok, fresh)
 			}
 		})

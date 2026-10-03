@@ -16,7 +16,7 @@ type dummyTrace interface{ ~[0]byte | ~[1]byte }
 type noDummyTrace [0]byte
 type saveDummyTrace [1]byte
 
-func (h *Map[K, V]) searchCopyEntry[T dummyTrace](b *bucket[K, V], start *MapHead, reverse uint64, ignoreDummy bool, dummy **MapHead) HMapEntry[K, V] {
+func (h *Map[K, V]) searchCopyEntry[T dummyTrace](b *bucket[K, V], start *MapHead, reverse uint64, ignoreDummy bool, dummy **MapHead) *embeddedEntry[K, V] {
 	var trace T
 	if start == nil {
 		return nil
@@ -118,11 +118,11 @@ NOT_FOUND:
 
 }
 
-func (h *Map[K, V]) matchCopyEntry(entry *entryHMap[K, V], reverse, conflict uint64, key K, byKey bool) (HMapEntry[K, V], bool) {
+func (h *Map[K, V]) matchCopyEntry(entry *entryHMap[K, V], reverse, conflict uint64, key K, byKey bool) (*embeddedEntry[K, V], bool) {
 	return h.matchCopyEntryWithDummy(entry, reverse, conflict, key, byKey, nil)
 }
 
-func (h *Map[K, V]) matchCopyEntryWithDummy(entry *entryHMap[K, V], reverse, conflict uint64, key K, byKey bool, dummy **MapHead) (HMapEntry[K, V], bool) {
+func (h *Map[K, V]) matchCopyEntryWithDummy(entry *entryHMap[K, V], reverse, conflict uint64, key K, byKey bool, dummy **MapHead) (*embeddedEntry[K, V], bool) {
 	stepAt("copy.match", unsafe.Pointer(entry.PtrListHead()), nil)
 	matches := func(e *entryHMap[K, V]) bool {
 		return !e.IsIgnored() && atomic.LoadUint64(&e.reverse) == reverse &&
@@ -180,7 +180,7 @@ func (h *Map[K, V]) matchCopyEntryWithDummy(entry *entryHMap[K, V], reverse, con
 	return nil, entry.ListHead.IsMarked()
 }
 
-func (h *Map[K, V]) rangeCopyEntries(first *entryHMap[K, V], f func(MapItem[K, V]) bool) {
+func (h *Map[K, V]) rangeCopyEntries(first *entryHMap[K, V], f func(*embeddedEntry[K, V]) bool) {
 	stepAt("copy.range", unsafe.Pointer(first.PtrListHead()), nil)
 	for cur := first.PtrListHead(); !cur.Empty(); cur = cur.DirectNext() {
 		for cur.IsMarked() {

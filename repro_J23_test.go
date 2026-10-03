@@ -225,7 +225,7 @@ func j23Probe(h *Map[StringKey, any],
 		}
 	}
 	seen := map[string]int{}
-	h.RangeItemForTest(func(item MapItem[StringKey, any]) bool {
+	h.RangeItemForTest(func(item *TestEntry[StringKey, any]) bool {
 		seen[string(item.Key())]++
 		return true
 	})

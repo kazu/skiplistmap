@@ -28,7 +28,7 @@ func TestPoolConcurrentInit(t *testing.T) {
 		close(start)
 		wg.Wait()
 		pool := samepleItemPoolFromListHead[StringKey, any](p.itemPool[0].DirectNext())
-		if got := len(pool.items); got != workers {
+		if got := pool.items.Len(); got != workers {
 			t.Fatalf("round %d: allocated %d items, want %d", round, got, workers)
 		}
 	}

@@ -8,13 +8,15 @@ import (
 	"unsafe"
 )
 
-func equalKeys[K Key[K], V any](a, b K) bool                      { return a.Equal(b) }
-func equalItemKey[K Key[K], V any](item *Entry[K, V], key K) bool { return item.Key().Equal(key) }
+func equalKeys[K Key[K], V any](a, b K) bool { return a.Equal(b) }
+func equalItemKey[K Key[K], V any](item *embeddedEntry[K, V], key K) bool {
+	return item.Key().Equal(key)
+}
 
 func (h *Map[K, V]) endValue(last bool) (V, bool) {
 	defer runtime.KeepAlive(h)
 	var zero V
-	var e *Entry[K, V]
+	var e *embeddedEntry[K, V]
 	if last {
 		e = h.last()
 	} else {
@@ -26,7 +28,7 @@ func (h *Map[K, V]) endValue(last bool) (V, bool) {
 	if stepEnabled {
 		stepAt("end.selected", unsafe.Pointer(e.PtrListHead()), nil)
 	}
-	state := atomic.LoadUint64((*uint64)(&e.state)) &^ uint64(mapIsBusy)
+	state := atomic.LoadUint64((*uint64)(&e.state)) &^ uint64(mapTransientState)
 	value, ok := h.readEntryValue(e, atomic.LoadUint64(&e.reverse))
 	if !ok {
 		return zero, false
@@ -34,20 +36,20 @@ func (h *Map[K, V]) endValue(last bool) (V, bool) {
 	if h.isEmbededItemInBucket {
 		// The selected slot may already have a different key. Verify its
 		// position again, with the payload generation spanning that walk.
-		var current *Entry[K, V]
+		var current *embeddedEntry[K, V]
 		if last {
 			current = h.last()
 		} else {
 			current = h.first()
 		}
-		if current != e || atomic.LoadUint64((*uint64)(&e.state))&^uint64(mapIsBusy) != state {
+		if current != e || atomic.LoadUint64((*uint64)(&e.state))&^uint64(mapTransientState) != state {
 			return zero, false
 		}
 	}
 	return value, true
 }
 
-func (h *Map[K, V]) readEntryValue(e *Entry[K, V], reverse uint64) (V, bool) {
+func (h *Map[K, V]) readEntryValue(e *embeddedEntry[K, V], reverse uint64) (V, bool) {
 	conflict := atomic.LoadUint64(&e.conflict)
 	if stepEnabled {
 		stepAt("get.beforeValue", unsafe.Pointer(e.PtrListHead()), nil)
@@ -76,7 +78,7 @@ func (h *Map[K, V]) getValueMatching(hash, conflict uint64, key K, byKey bool) (
 	return zero, false
 }
 
-func readMatchingEntry[K Key[K], V any](e *Entry[K, V], reverse, conflict uint64, key K, byKey, withValue, reusable bool) (V, bool) {
+func readMatchingEntry[K Key[K], V any](e *embeddedEntry[K, V], reverse, conflict uint64, key K, byKey, withValue, reusable bool) (V, bool) {
 	var zero V
 	if e == nil {
 		return zero, false
@@ -88,7 +90,7 @@ func readMatchingEntry[K Key[K], V any](e *Entry[K, V], reverse, conflict uint64
 	if !matchesHash(e.PtrMapHead(), reverse, conflict) {
 		return zero, false
 	}
-	if reusable && mapState(atomic.LoadUint64((*uint64)(&e.state)))&^mapIsBusy != state&^mapIsBusy {
+	if reusable && mapState(atomic.LoadUint64((*uint64)(&e.state)))&^mapTransientState != state&^mapTransientState {
 		return zero, false
 	}
 	return value, true

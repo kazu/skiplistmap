@@ -9,7 +9,7 @@ import (
 )
 
 // replaceEntry publishes an immutable value copy for nonembedded entries.
-func (h *Map[K, V]) replaceEntry(old *entryHMap[K, V], value V) bool {
+func (h *Map[K, V]) replaceEntry(old *Entry[K, V], value V) bool {
 	stepAt("copy.update", unsafe.Pointer(old.PtrListHead()), nil)
 	stepAt("update.found", unsafe.Pointer(&old.ListHead), nil)
 	for {
@@ -23,17 +23,17 @@ func (h *Map[K, V]) replaceEntry(old *entryHMap[K, V], value V) bool {
 			old.releaseBusy()
 		}
 		runtime.Gosched()
-		k, conflict := old.KeyHash()
-		item, _, found := h.getItemWithBucket(k, conflict, old.key, true)
+		hash, conflict := old.KeyHash()
+		item, _, found := h.getItemWithBucket(hash, conflict, old.key, true)
 		if !found {
 			// A concurrent delete won; this update does not resurrect it.
 			return true
 		}
-		old = item
+		old = item.viewEntry()
 	}
 }
 
-func (h *Map[K, V]) tryReplaceEntry(old *entryHMap[K, V], value V) bool {
+func (h *Map[K, V]) tryReplaceEntry(old *Entry[K, V], value V) bool {
 	fresh := NewEntry(old.Key(), value)
 	prepareEntryReplacement(old, fresh)
 	return publishEntryReplacement(old, fresh)
@@ -42,28 +42,21 @@ func (h *Map[K, V]) tryReplaceEntry(old *entryHMap[K, V], value V) bool {
 func prepareEntryReplacement[K Key[K], V any](old, fresh *Entry[K, V]) {
 	*(*[2]uint64)(unsafe.Pointer(&fresh.conflict)) = *(*[2]uint64)(unsafe.Pointer(&old.conflict))
 	fresh.ListHead.Init()
-	fresh.root = old.root
-	fresh.state = mapIsBusy | (mapState(atomic.LoadUint64((*uint64)(&old.state))) & mapIsPoolItem)
-	// Relative links do not retain allocations. The entry's root retains
-	// every copy, including copies briefly published before a failed rollback.
-	for {
-		fresh.previous = fresh.root.retained.Load()
-		if fresh.root.retained.CompareAndSwap(fresh.previous, fresh) {
-			break
-		}
-	}
+	fresh.state = mapIsBusy | mapPayloadReady | (mapState(atomic.LoadUint64((*uint64)(&old.state))) & mapIsPoolItem)
+	fresh.retainedEntry = old.retainedEntry
+	old.retainedEntry = fresh
 }
 
 func publishEntryReplacement[K Key[K], V any](old, fresh *Entry[K, V]) bool {
-	old, fresh, published := replaceEntryListNode(old, fresh, "copy.replacement.inserted")
+	_, publishedEntry, published := replaceEntryListNode(&old.embeddedEntry, &fresh.embeddedEntry, "copy.replacement.inserted")
 	if !published {
 		return false
 	}
-	fresh.releaseBusy()
+	publishedEntry.releaseBusy()
 	return true
 }
 
-func replaceEntryListNode[K Key[K], V any](old, fresh *Entry[K, V], point string) (*Entry[K, V], *Entry[K, V], bool) {
+func replaceEntryListNode[K Key[K], V any](old, fresh *embeddedEntry[K, V], point string) (*embeddedEntry[K, V], *embeddedEntry[K, V], bool) {
 	for {
 		oldHead := movedHead(&old.ListHead)
 		freshHead := movedHead(&fresh.ListHead)
@@ -102,7 +95,7 @@ func replaceEntryListNode[K Key[K], V any](old, fresh *Entry[K, V], point string
 	}
 }
 
-func (h *Map[K, V]) deleteEntry(entry *entryHMap[K, V], bucket *bucket[K, V], dummy *MapHead) (MapItem[K, V], *bucket[K, V], *MapHead, bool) {
+func (h *Map[K, V]) deleteEntry(entry *entryHMap[K, V], bucket *bucket[K, V], dummy *MapHead) (*embeddedEntry[K, V], *bucket[K, V], *MapHead, bool) {
 	stepAt("copy.delete", unsafe.Pointer(entry.PtrListHead()), nil)
 	for {
 		if !entry.ListHead.IsMarked() {
@@ -154,7 +147,7 @@ func (h *Map[K, V]) deleteEntry(entry *entryHMap[K, V], bucket *bucket[K, V], du
 
 // reachableFromDummy runs with the caller-owned entry busy and retries from
 // the saved dummy if traversal reaches a purged neighbor.
-func (entry *Entry[K, V]) reachableFromDummy(dummy *elist_head.ListHead) bool {
+func (entry *embeddedEntry[K, V]) reachableFromDummy(dummy *elist_head.ListHead) bool {
 	reverse := atomic.LoadUint64(&entry.reverse)
 	startReverse := atomic.LoadUint64(&mapheadFromLListHead(dummy).reverse)
 	forward := startReverse < reverse
@@ -197,7 +190,7 @@ func (entry *Entry[K, V]) reachableFromDummy(dummy *elist_head.ListHead) bool {
 // replacePoolEntry runs while Set owns the base bucket's muPool. It publishes
 // another array slot before retiring the old one; only slot reclamation waits
 // for readers of the old payload.
-func (h *Map[K, V]) replacePoolEntry(old *Entry[K, V], value V) bool {
+func (h *Map[K, V]) replacePoolEntry(old *embeddedEntry[K, V], value V) bool {
 	old, fresh, found := h.preparePoolReplacement(old, value)
 	if !found {
 		return false
@@ -205,7 +198,7 @@ func (h *Map[K, V]) replacePoolEntry(old *Entry[K, V], value V) bool {
 	return publishPoolReplacement(old, fresh)
 }
 
-func (h *Map[K, V]) preparePoolReplacement(old *Entry[K, V], value V) (*Entry[K, V], *Entry[K, V], bool) {
+func (h *Map[K, V]) preparePoolReplacement(old *embeddedEntry[K, V], value V) (*embeddedEntry[K, V], *embeddedEntry[K, V], bool) {
 	key := old.Key()
 	hash, conflict := key.KeyHash()
 	owner := h.findBucket(old.reverse).toBase()
@@ -233,7 +226,7 @@ func (h *Map[K, V]) preparePoolReplacement(old *Entry[K, V], value V) (*Entry[K,
 	return old, fresh, true
 }
 
-func publishPoolReplacement[K Key[K], V any](old, fresh *Entry[K, V]) bool {
+func publishPoolReplacement[K Key[K], V any](old, fresh *embeddedEntry[K, V]) bool {
 	for {
 		var published bool
 		old, fresh, published = replaceEntryListNode(old, fresh, "copy.replacement.inserted")

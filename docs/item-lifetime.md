@@ -53,11 +53,16 @@ func main() {
 
 | mode | Entryを生かすもの | 移動・更新 | 削除slotの再利用 | 先に得たポインタ |
 |---|---|---|---|---|
-| 非embedded pool（デフォルト、skiplistmap4など） | Mapのpool配列。更新コピーはrootから保持する | pool拡張で配列内のEntryを移動する。既存キーの更新は新しいEntryを公開する | しない | 古い配列内のコピー、または古い更新版を指す |
+| 非embedded pool（デフォルト、skiplistmap4など） | 新規SetのEntryはMapのpool配列。更新コピーは更新前EntryのGo参照 | pool拡張で配列内のEntryを移動する。更新コピーはpool外に確保する | しない | 古い配列内のコピー、または古い更新版を指す |
 | embedded pool（skiplistmap5） | bucketのpool配列 | 配列拡張・途中挿入で移動する。既存キーの更新は別slotへコピーして公開する | する | Mapの公開検索・列挙APIからはEntryを取得せず値を取得する |
-| 両modeへStoreItemした外部Entry | 呼び出し側。更新コピーはrootから保持する | 登録した外部実体自体は動かない。更新後のMapは公開コピーを参照し得る | 外部実体はpool slotとして再利用しない | 同じ外部実体を指すが、現在値の固定snapshotとは扱わない |
+| 両modeへStoreItemした外部Entry | 呼び出し側が元の実体を保持し、更新前EntryのGo参照が更新コピーを保持する | 元の実体と更新コピーはともにpool外に置き、pool拡張では移動しない | 元の実体も更新コピーもpool slotとして再利用しない | 同じ外部実体を指すが、現在値の固定snapshotとは扱わない |
 
-非embeddedのEntryと両modeの外部Entryはコピー履歴を自動回収しないため、更新回数に応じて保持量が増える。
+外部Entryの更新コピーを保持するためにpoolへ収容してはならない。更新から戻った後も現在登録中のコピーを生かす必要があるが、退役したコピーをすべて保持し続けることは要件にしない。相対offsetのリンクだけではGoのGCに保持参照として認識されない。
+保持参照は外部用の`Entry`だけに置き、内部slotの`embeddedEntry`には置かない。
+非embedded poolの移動先は先頭slotから移動元配列を保持するため、各slotから更新コピーへ続く参照も失われない。
+この方式では元Entryが生きている間、退役コピーや古い非embedded pool配列も残り得る。
+公開の`Entry.Next`と`Entry.Prev`は内部slotを飛ばして外部Entryを返す。
+内部slotのリンクを`SampleItemFromListHead`または`HmapEntryFromListHead`へ渡した場合はnilを返す。
 型付きの値コピーはslice・map・pointerの参照先を深くコピーしない。その参照先を
 利用者が変更するときの同期は利用者が行う。
 
@@ -93,6 +98,6 @@ embedded poolの要素とも混在できる。配列が移動しても外部Entr
 `Entry.Copy`はキーと値を浅くコピーした新しいEntryを返し、リンク・削除履歴・更新履歴を引き継がない。
 外側のstructはコピーしない。外側のstructへ埋め込む場合は、その新しいゼロEntryを`InitEntry`する。
 `StoreItemOrCopy`は削除履歴による拒否の場合だけコピーして格納を試す。成功時に返す元Entryまたは
-コピーは呼出し側が保持し、元mapに必要な古いrootの保持も続ける。失敗時はnilとfalseを返す。
+コピーは呼出し側が保持し、元mapに残る外部Entryの保持も続ける。失敗時はnilとfalseを返す。
 同じキーが既にある場合はそのEntryを更新するため、返すEntryが`LoadItem`の結果と一致するとは限らない。
 実行例は`ExampleEntry_Copy`と`ExampleMap_StoreItemOrCopy`。

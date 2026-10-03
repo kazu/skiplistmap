@@ -27,7 +27,7 @@ func Test_ReproJ33_RangeItemGetsNilBesideItemBeingPurged(t *testing.T) {
 	reached, release := make(chan struct{}), make(chan struct{})
 	var first unsafe.Pointer
 	done1, p1 := m23Go(func() {
-		h.RangeItemForTest(func(item MapItem[StringKey, any]) bool {
+		h.RangeItemForTest(func(item *TestEntry[StringKey, any]) bool {
 			if first == nil {
 				first = unsafe.Pointer(item.PtrListHead())
 				close(reached)

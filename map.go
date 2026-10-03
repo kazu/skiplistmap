@@ -467,33 +467,20 @@ func (h *Map[K, V]) _get(k, conflict uint64) (*embeddedEntry[K, V], bool) {
 }
 
 func (h *Map[K, V]) getItemMatching(k, conflict uint64, key K, byKey bool) (*embeddedEntry[K, V], bool) {
+	if h.isEmbededItemInBucket {
+		item, _, found := h.getItemWithBucket(k, conflict, key, byKey)
+		return item, found
+	}
 	for {
 		e := h.searchItem(k)
 		if e == nil {
 			return nil, false
 		}
-		if entry := e; !h.isEmbededItemInBucket {
-			matched, retry := h.matchCopyEntry(entry, bits.Reverse64(k), conflict, key, byKey)
-			if retry {
-				continue
-			}
-			if matched == nil {
-				return nil, false
-			}
-			return matched, true
-		}
-		if !byKey && matchesLiveHash(e.PtrMapHead(), bits.Reverse64(k), conflict) {
-			return e, true
-		}
-		var retry bool
-		e, retry = h.matchEntry(e, bits.Reverse64(k), conflict, key, byKey, h.isEmbededItemInBucket)
+		matched, retry := h.matchCopyEntry(e, bits.Reverse64(k), conflict, key, byKey)
 		if retry {
 			continue
 		}
-		if e == nil {
-			return nil, false
-		}
-		return e, true
+		return matched, matched != nil
 	}
 }
 
@@ -606,11 +593,13 @@ func (h *Map[K, V]) lookupItem[T dummyTrace](k, conflict uint64, key K, byKey bo
 		var reverse uint64
 		var e *embeddedEntry[K, V]
 		var dummy *MapHead
+		var pool *samepleItemPool[K, V]
+		var version uint64
 
 		if h.isEmbededItemInBucket {
 			reverse = bits.Reverse64(k)
 			bucket = h.findBucket(reverse)
-			e = h.bsearchBybucket(bucket, reverse, true)
+			e, pool, version = h.bsearchPool(bucket, reverse, true)
 
 		} else {
 			bucket, reverse = h.searchBucket4update(k)
@@ -625,6 +614,9 @@ func (h *Map[K, V]) lookupItem[T dummyTrace](k, conflict uint64, key K, byKey bo
 		}
 
 		if e == nil {
+			if pool != nil && pool.arrayState.Load() != version {
+				continue
+			}
 			if atomic.LoadUint64(&Failreverse) == 0 {
 				atomic.CompareAndSwapUint64(&Failreverse, 0, bits.Reverse64(k))
 			}
@@ -634,9 +626,12 @@ func (h *Map[K, V]) lookupItem[T dummyTrace](k, conflict uint64, key K, byKey bo
 		if len(trace) != 0 && !h.isEmbededItemInBucket {
 			e, retry = h.matchCopyEntryWithDummy(e, bits.Reverse64(k), conflict, key, byKey, &dummy)
 		} else {
+			if stepEnabled && h.isEmbededItemInBucket {
+				stepAt("lookup.pool.candidate", unsafe.Pointer(e.PtrListHead()), nil)
+			}
 			e, retry = h.matchEntry(e, bits.Reverse64(k), conflict, key, byKey, h.isEmbededItemInBucket)
 		}
-		if retry {
+		if retry || (pool != nil && pool.arrayState.Load() != version) {
 			continue
 		}
 		if e == nil {

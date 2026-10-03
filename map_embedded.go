@@ -18,6 +18,13 @@ import (
 )
 
 func (h *Map[K, V]) bsearchBybucket(bucket *bucket[K, V], reverseNoMask uint64, ignoreBucketEnry bool) *embeddedEntry[K, V] {
+	entry, _, _ := h.bsearchPool(bucket, reverseNoMask, ignoreBucketEnry)
+	return entry
+}
+
+// bsearchPool returns the array generation with the candidate so callers can
+// validate a collision walk that overlaps retirement of the source array.
+func (h *Map[K, V]) bsearchPool(bucket *bucket[K, V], reverseNoMask uint64, ignoreBucketEnry bool) (*embeddedEntry[K, V], *samepleItemPool[K, V], uint64) {
 
 	stepAt("bsearch.begin", unsafe.Pointer(bucket), nil)
 	pool := bucket.toBase().itemPool()
@@ -28,10 +35,11 @@ func (h *Map[K, V]) bsearchBybucket(bucket *bucket[K, V], reverseNoMask uint64, 
 	// MENTION: should remove 0 slice ?
 	//items := pool.itemSlice(false)
 	items := pool.ptrItems()
+	var version uint64
 	// insertToPool may put a new array into the pool while the search reads
 	// the old one; the search starts again when the array changed under it
 	for {
-		version := pool.arrayState.Load()
+		version = pool.arrayState.Load()
 		data := atomic.LoadPointer(&items.data)
 		l := items.Len()
 		stepAt("bsearch.snapshot", unsafe.Pointer(pool), nil)
@@ -94,7 +102,7 @@ func (h *Map[K, V]) bsearchBybucket(bucket *bucket[K, V], reverseNoMask uint64, 
 			continue
 		}
 		if found != nil {
-			return found
+			return found, pool, version
 		}
 		break
 	}
@@ -102,11 +110,11 @@ func (h *Map[K, V]) bsearchBybucket(bucket *bucket[K, V], reverseNoMask uint64, 
 	a := bucket.toBase().prevAsB()
 	if a.reverse < reverseNoMask {
 		if nb := h.findBucket(reverseNoMask); nb.toBase() != bucket.toBase() {
-			return h.bsearchBybucket(nb, reverseNoMask, ignoreBucketEnry)
+			return h.bsearchPool(nb, reverseNoMask, ignoreBucketEnry)
 		}
 	}
 
-	return nil
+	return nil, pool, version
 }
 
 func (h *Map[K, V]) searchKeyFromEmbeddedPool(k uint64, ignoreBucketEnry bool) *embeddedEntry[K, V] {
@@ -432,18 +440,20 @@ func (sp *samepleItemPool[K, V]) insertToPool(reverse uint64, mu sync.Locker) (n
 		}
 		// copy to new slice
 		newItems := newPoolItems[K, V](olen+1, maxInts(ocap, olen+1), true)
+		// Readers must retry throughout retirement, not only during publication.
+		sp.arrayState.Add(1)
 		if i > 0 {
-			copyPoolItems(newItems.slice(0, i), sp.items.slice(0, i))
+			movePoolItems(newItems.slice(0, i), sp.items.slice(0, i))
 		}
-		copyPoolItems(newItems.slice(i+1, newItems.Len()), sp.items.slice(i, sp.items.Len()))
+		movePoolItems(newItems.slice(i+1, newItems.Len()), sp.items.slice(i, sp.items.Len()))
 
-		replacePoolItems(newItems, sp.items, i)
 		newItems.at(i).PtrMapHead().reverse = reverse
 
 		oldItems := sp.ptrItems().dup()
 		newItemSlice := newItems
 		stepAt("insertToPool.publish", unsafe.Pointer(sp), nil)
-		sp.publishItems(&newItemSlice)
+		sp.ptrItems().CopyFrom(&newItemSlice, 0, newItemSlice.Len())
+		sp.arrayState.Add(1)
 
 		// for debug
 		_ = oldItems
@@ -890,9 +900,45 @@ func (list *itemSlice[K, V]) slice(start, end int) itemSlice[K, V] {
 	}
 }
 
-func copyPoolItems[K Key[K], V any](dst, src itemSlice[K, V]) {
-	for i := 0; i < src.Len(); i++ {
-		dst.at(i).copyFrom(src.at(i))
+// movePoolItems runs under the pool's writer lock. Neighbouring pools can
+// change the links at a run's ends, so only its interior is copied as a slice.
+func movePoolItems[K Key[K], V any](dst, src itemSlice[K, V]) {
+	for first := 0; first < src.Len(); {
+		if src.at(first).IsIgnored() || !src.at(first).waitPayload() {
+			dst.at(first).copyFrom(src.at(first))
+			dst.at(first).Delete()
+			if linkedEntry(&src.at(first).ListHead) {
+				src.at(first).ListHead.MarkForDelete()
+			}
+			first++
+			continue
+		}
+		last := first
+		for last+1 < src.Len() && !src.at(last+1).IsIgnored() && src.at(last).ListHead.DirectNext() == &src.at(last+1).ListHead &&
+			src.at(last+1).ListHead.DirectPrev() == &src.at(last).ListHead {
+			last++
+		}
+		dst.at(first).copyFrom(src.at(first))
+		if last != first {
+			dst.at(last).copyFrom(src.at(last))
+		}
+		for i := first + 1; i < last; i++ {
+			src.at(i).acquireWrite()
+		}
+		if last > first+1 {
+			copy(unsafe.Slice(dst.at(first+1), last-first-1), unsafe.Slice(src.at(first+1), last-first-1))
+		}
+		for i := first + 1; i < last; i++ {
+			dst.at(i).state &= mapIsDummy | mapIsDeleted | mapIsPoolItem | mapPayloadReady | mapIsReusable
+			src.at(i).releaseWrite()
+		}
+		elist_head.ReplaceSliceAfterCopy(unsafe.Pointer(src.at(first)), unsafe.Pointer(src.at(last)),
+			unsafe.Pointer(dst.at(first)), int(src.stride), int(src.at(first).Offset()), func() {
+				for i := first; i <= last; i++ {
+					src.at(i).Delete()
+				}
+			})
+		first = last + 1
 	}
 }
 

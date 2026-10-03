@@ -1,7 +1,7 @@
 #!/usr/bin/env nu
 
 def main [results: path] {
-    let rows = (open --raw $results | lines | parse -r '^(?<case>Benchmark_Map/\S+)\s+(?<iterations>\d+)\s+(?<ns>[0-9.e+\-]+) ns/op\s+(?<failed>[0-9.e+\-]+) failed-writes/op\s+(?<bytes>\d+) B/op\s+(?<allocs>\d+) allocs/op')
+    let rows = (open --raw $results | lines | parse -r '^(?<case>Benchmark_Map(?:PerOperation)?/\S+)\s+(?<iterations>\d+)\s+(?<ns>[0-9.e+\-]+) ns/op\s+(?<failed>[0-9.e+\-]+) failed-writes/op\s+(?<bytes>\d+) B/op\s+(?<allocs>\d+) allocs/op')
     $rows | group-by case --to-table | each {|group|
         let samples = $group.items
         let ns = ($samples | get ns | into float)

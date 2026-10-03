@@ -32,9 +32,9 @@ trap 'rm -rf "$scratch"' EXIT
 	lscpu
 } > "$result_dir/environment.txt"
 go test -c -o "$scratch/bench" .
-/usr/bin/time -v "$scratch/bench" -test.run '^$' -test.bench '^Benchmark_Map$' \
+/usr/bin/time -v "$scratch/bench" -test.run '^$' -test.bench '^Benchmark_MapPerOperation$' \
 	-test.benchtime=1x -test.count=1 -test.timeout=5m > "$result_dir/discovery.log" 2>&1
-awk '$1 ~ /^Benchmark_Map\// {sub(/-[0-9]+$/, "", $1); print $1}' \
+awk '$1 ~ /^Benchmark_MapPerOperation\// {sub(/-[0-9]+$/, "", $1); print $1}' \
 	"$result_dir/discovery.log" > "$result_dir/cases.txt"
 mapfile -t cases < "$result_dir/cases.txt"
 ((${#cases[@]} > 0))
@@ -60,7 +60,7 @@ for ((round=1; round<=repeats; round++)); do
 			cat "$scratch/result"
 			exit 1
 		fi
-		awk '$1 ~ /^Benchmark_Map\// {print; found=1} END {if (!found) exit 1}' \
+		awk '$1 ~ /^Benchmark_MapPerOperation\// {print; found=1} END {if (!found) exit 1}' \
 			"$scratch/result" >> "$result_dir/results.txt"
 		awk -v round="$round" -v name="$case_name" '
 			/Maximum resident set size/ {rss=$NF}

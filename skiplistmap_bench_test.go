@@ -90,7 +90,7 @@ func (p *mapTestParam) Option(opts ...BenchParam) (prevs []BenchParam) {
 	return
 }
 
-func runBnech(b *testing.B, param *mapTestParam, opts ...BenchParam) {
+func runBenchPerOperation(b *testing.B, param *mapTestParam, opts ...BenchParam) {
 	m := param.mapInf
 	size := param.cnt
 	var workers, failedWrites atomic.Uint64
@@ -202,11 +202,11 @@ func Benchmark_HMap_forProfile(b *testing.B) {
 				skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](bm.buckets)(whmap.base)
 				skiplistmap.BucketMode[skiplistmap.StringKey, any](bm.mode)(whmap.base)
 			}
-			runBnech(b, &bm)
+			runBenchPerOperation(b, &bm)
 		})
 	}
 }
-func Benchmark_Map(b *testing.B) {
+func Benchmark_MapPerOperation(b *testing.B) {
 	newShard := func(fn func(int) list_head.MapGetSet) list_head.MapGetSet {
 		s := &list_head.ShardMap{}
 		s.InitByFn(fn)
@@ -227,7 +227,6 @@ func Benchmark_Map(b *testing.B) {
 		{"skiplistmap5    ", 64, 100000, 0, 0x080, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true))), false},
 
 		// use
-		{"hashmap.HashMap", 64, 100000, 0, 0x000, 0, hashMap{m: &hashmap.HashMap{}}, true},
 		{"cmap.Cmap", 64, 100000, 0, 0x000, 0, &cMap{}, true},
 
 		// {"skiplistmap                  ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
@@ -258,9 +257,7 @@ func Benchmark_Map(b *testing.B) {
 		// use
 		// {"skiplistmap4    ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap()), false},
 		// {"skiplistmap4    ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap()), false},
-		{"hashmap.HashMap", 64, 100000, 50, 0x000, 0, hashMap{m: &hashmap.HashMap{}}, true},
 		{"cmap.Cmap", 64, 100000, 50, 0x000, 0, &cMap{}, true},
-		{"hashmap.HashMap", 64, 100000, 50, 0x000, 0, hashMap{m: &hashmap.HashMap{}}, false},
 		{"cmap.Cmap", 64, 100000, 50, 0x000, 0, &cMap{}, false},
 
 		{"RMap                         ", 64, 100000, 50, 0x000, 0, newWRMap(), false},
@@ -281,7 +278,7 @@ func Benchmark_Map(b *testing.B) {
 				skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](bm.buckets)(whmap.base)
 				skiplistmap.BucketMode[skiplistmap.StringKey, any](bm.mode)(whmap.base)
 			}
-			runBnech(b, &bm)
+			runBenchPerOperation(b, &bm)
 		})
 	}
 
@@ -335,7 +332,7 @@ func Benchmark_HMap(b *testing.B) {
 				skiplistmap.MaxPefBucket[skiplistmap.StringKey, any](bm.buckets)(whmap.base)
 				skiplistmap.BucketMode[skiplistmap.StringKey, any](bm.mode)(whmap.base)
 			}
-			runBnech(b, &bm)
+			runBenchPerOperation(b, &bm)
 		})
 	}
 

@@ -2,8 +2,6 @@ package skiplistmap_test
 
 import (
 	"fmt"
-	list_head "github.com/kazu/lista_encabezado"
-	"github.com/kazu/skiplistmap"
 	"math/rand"
 	"runtime"
 	"sync"
@@ -11,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/cornelk/hashmap"
+	list_head "github.com/kazu/lista_encabezado"
+	"github.com/kazu/skiplistmap"
 )
 
 // Legacy benchmark copied from master. Keep its worker assignment, key mask,

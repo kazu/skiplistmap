@@ -23,48 +23,34 @@ make ci
 Nushell でも `make ci` を実行する。
 
 対象はskiplistmapリポジトリ内の全パッケージ。依存リポジトリの単体テストは実行しない。
-Go 1.27.1、Bash、GNU time が必要。
-デフォルトの `GOMAXPROCS` は4、プロセスの仮想メモリ上限は4 GiB。
+Go 1.27.1、Bash、`xargs` が必要。
 
 ゲートは vet、通常、race、checkptr、`stephook` タグ付き race の順に確認する。
 タグ付き検証は RMap の全テスト、バケットの J51/J56、型付きMap・キー照合・
 slot再利用・コピー更新・外部Entry混在・Update callback・分割と更新の並行テストを対象にする。
-通常・race・checkptr・vet は上記の全対象パッケージを検証する。
-各ビルドの Test・Example・Fuzz seed を一つずつ別プロセスで実行し、いずれかが
-失敗するとその出力と終了コードを表示して終了する。race 検出器のメモリが
-全テスト分蓄積しないようにするための分離であり、検出器は無効化しない。
-race付きの `Test_ConcurrentDeleteReinsert` と `Test_ConcurrentUpdateWhileGrowing` は、
-さらに `crashMapParams` の全4構成を別プロセスで実行する。各構成のキー数・
-goroutine数・操作回数は変えない。構成を追加した場合は `tools/ci.sh` の列挙も更新する。
+通常・race・checkptr は全パッケージを一つずつ `go test -v` で検証する。
+vet は全パッケージで copylocks 以外の検査を行い、copylocks は本体ソースで検査する。
+履歴ベンチマークの値レシーバーによる意図的な lock のコピーは変更しない。
 既存の `//go:nocheckptr` は残っているため、その関数内の安全性まで保証する
 検査ではない。checkptr は `-gcflags=all=-d=checkptr` を使用する。
 
-一つのビルドだけ再確認する場合も、同じスクリプトを使える。
+race だけ再確認する場合は、Bash と Nushell のどちらでも次を実行する。
 
 ```bash
-bash tools/ci.sh race
+make race
 ```
-
-Nushell でも `bash tools/ci.sh race` を実行する。
 
 rmap の追加 fuzz 検証は、Bash で次のように実行できる。
 
 ```bash
-(
-    ulimit -v 4194304
-    export GOTOOLCHAIN=go1.27.1 GOMAXPROCS=4
-    go test ./rmap -run '^$' -fuzz '^FuzzOperations$' \
-        -fuzztime=20s -parallel=2 -timeout=60s
-)
+go test ./rmap -run '^$' -fuzz '^FuzzOperations$' \
+    -fuzztime=20s -parallel=2 -timeout=60s
 ```
 
 Nushell では次のように実行する。
 
 ```nu
-ulimit -v 4194304
-with-env {GOTOOLCHAIN: go1.27.1, GOMAXPROCS: '4'} {
-    go test ./rmap -run '^$' -fuzz '^FuzzOperations$' -fuzztime=20s -parallel=2 -timeout=60s
-}
+go test ./rmap -run '^$' -fuzz '^FuzzOperations$' -fuzztime=20s -parallel=2 -timeout=60s
 ```
 
 使用例は README の `basic usage`、`example_test.go` の `ExampleMap_StoreItem`、

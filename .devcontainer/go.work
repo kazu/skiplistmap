@@ -1,0 +1,7 @@
+go 1.27.1
+
+use ..
+
+replace github.com/kazu/elist_head => github.com/kazu/elist_head v0.2.9-0.20261003080129-4df679832828
+
+replace github.com/kazu/lista_encabezado => github.com/kazu/lista_encabezado v0.0.0-20261003072118-611497635248

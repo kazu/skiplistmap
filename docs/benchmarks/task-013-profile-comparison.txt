@@ -1,0 +1,805 @@
+FILE: copy1024-modified-cpu-top.txt
+File: modified.test
+Build ID: a7682e8bea57f8150c7921153597f244ee579d7d
+Type: cpu
+Time: 2026-09-22 19:02:55 JST
+Duration: 2.82s, Total samples = 2810ms (99.81%)
+Showing nodes accounting for 2810ms, 100% of 2810ms total
+      flat  flat%   sum%        cum   cum%
+    2760ms 98.22% 98.22%     2760ms 98.22%  runtime.memmove
+      50ms  1.78%   100%     2810ms   100%  github.com/kazu/elist_head_test.BenchmarkCopyOnly.func1
+         0     0%   100%     2760ms 98.22%  runtime.typedslicecopy
+         0     0%   100%     2810ms   100%  testing.(*B).launch
+         0     0%   100%     2810ms   100%  testing.(*B).runN
+
+FILE: copy1024-modified-mem-top.txt
+File: modified.test
+Build ID: a7682e8bea57f8150c7921153597f244ee579d7d
+Type: alloc_space
+Time: 2026-09-22 19:02:58 JST
+Showing nodes accounting for 4009.69kB, 100% of 4009.69kB total
+Showing top 15 nodes out of 42
+      flat  flat%   sum%        cum   cum%
+ 1184.27kB 29.54% 29.54%  1184.27kB 29.54%  runtime/pprof.StartCPUProfile
+  688.56kB 17.17% 46.71%   688.56kB 17.17%  compress/flate.(*fastGen).addBlock
+  583.01kB 14.54% 61.25%   583.01kB 14.54%  compress/flate.newFastEnc (inline)
+  528.17kB 13.17% 74.42%   528.17kB 13.17%  github.com/kazu/elist_head_test.BenchmarkCopyOnly.func1
+     513kB 12.79% 87.21%      513kB 12.79%  runtime.mallocgc
+  512.69kB 12.79%   100%   512.69kB 12.79%  regexp/syntax.(*compiler).inst (inline)
+         0     0%   100%   688.56kB 17.17%  compress/flate.(*Writer).Close (inline)
+         0     0%   100%   688.56kB 17.17%  compress/flate.(*compressor).close
+         0     0%   100%   688.56kB 17.17%  compress/flate.(*compressor).deflateFast
+         0     0%   100%   583.01kB 14.54%  compress/flate.(*compressor).init
+         0     0%   100%   688.56kB 17.17%  compress/flate.(*fastEncL1).encode
+         0     0%   100%   583.01kB 14.54%  compress/flate.NewWriter (inline)
+         0     0%   100%   688.56kB 17.17%  compress/gzip.(*Writer).Close
+         0     0%   100%   583.01kB 14.54%  compress/gzip.(*Writer).Write
+         0     0%   100%   512.69kB 12.79%  github.com/davecgh/go-spew/spew.init
+
+FILE: copy1024-modified-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkCopyOnly/1024         	 5893572	       407.5 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+FILE: copy1024-original-cpu-top.txt
+File: original.test
+Build ID: f6d0f7a580b5b6b1453385a52acb208e2adf29ad
+Type: cpu
+Time: 2026-09-22 19:02:52 JST
+Duration: 2.73s, Total samples = 2730ms (  100%)
+Showing nodes accounting for 2730ms, 100% of 2730ms total
+      flat  flat%   sum%        cum   cum%
+    2650ms 97.07% 97.07%     2650ms 97.07%  runtime.memmove
+      80ms  2.93%   100%     2730ms   100%  github.com/kazu/elist_head_test.BenchmarkCopyOnly.func1
+         0     0%   100%     2730ms   100%  testing.(*B).launch
+         0     0%   100%     2730ms   100%  testing.(*B).runN
+
+FILE: copy1024-original-mem-top.txt
+File: original.test
+Build ID: f6d0f7a580b5b6b1453385a52acb208e2adf29ad
+Type: alloc_space
+Time: 2026-09-22 19:02:54 JST
+Showing nodes accounting for 3934.62kB, 100% of 3934.62kB total
+Showing top 15 nodes out of 44
+      flat  flat%   sum%        cum   cum%
+ 1184.27kB 30.10% 30.10%  1184.27kB 30.10%  runtime/pprof.StartCPUProfile
+  688.56kB 17.50% 47.60%   688.56kB 17.50%  compress/flate.(*fastGen).addBlock
+  524.09kB 13.32% 60.92%   524.09kB 13.32%  github.com/kazu/elist_head_test.BenchmarkCopyOnly.func1
+     513kB 13.04% 73.96%      513kB 13.04%  runtime.mallocgc
+  512.69kB 13.03% 86.99%   512.69kB 13.03%  regexp/syntax.(*compiler).inst (inline)
+  512.01kB 13.01%   100%   512.01kB 13.01%  regexp.mergeRuneSets.func2 (inline)
+         0     0%   100%   688.56kB 17.50%  compress/flate.(*Writer).Close (inline)
+         0     0%   100%   688.56kB 17.50%  compress/flate.(*compressor).close
+         0     0%   100%   688.56kB 17.50%  compress/flate.(*compressor).deflateFast
+         0     0%   100%   688.56kB 17.50%  compress/flate.(*fastEncL1).encode
+         0     0%   100%   688.56kB 17.50%  compress/gzip.(*Writer).Close
+         0     0%   100%   512.69kB 13.03%  github.com/davecgh/go-spew/spew.init
+         0     0%   100%   512.01kB 13.01%  gopkg.in/yaml%2ev3.init
+         0     0%   100%  1184.27kB 30.10%  main.main
+         0     0%   100%  1024.70kB 26.04%  regexp.Compile (inline)
+
+FILE: copy1024-original-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkCopyOnly/1024         	 7889713	       306.7 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+FILE: modified-build.txt
+
+FILE: next-normal-modified-cpu-top.txt
+File: modified.test
+Build ID: a7682e8bea57f8150c7921153597f244ee579d7d
+Type: cpu
+Time: 2026-09-22 19:02:07 JST
+Duration: 2.56s, Total samples = 2560ms (99.92%)
+Showing nodes accounting for 2560ms, 100% of 2560ms total
+      flat  flat%   sum%        cum   cum%
+    2160ms 84.38% 84.38%     2160ms 84.38%  github.com/kazu/loncha/lista_encabezado.ListNext
+     400ms 15.62%   100%     2560ms   100%  github.com/kazu/elist_head_test.Benchmark_Next.func1
+         0     0%   100%     2160ms 84.38%  github.com/kazu/loncha/lista_encabezado.(*ListHead).Next (inline)
+         0     0%   100%     2560ms   100%  testing.(*B).launch
+         0     0%   100%     2560ms   100%  testing.(*B).runN
+
+FILE: next-normal-modified-mem-top.txt
+File: modified.test
+Build ID: a7682e8bea57f8150c7921153597f244ee579d7d
+Type: alloc_space
+Time: 2026-09-22 19:02:10 JST
+Showing nodes accounting for 5219.19kB, 100% of 5219.19kB total
+Showing top 15 nodes out of 45
+      flat  flat%   sum%        cum   cum%
+ 1184.27kB 22.69% 22.69%  1184.27kB 22.69%  runtime/pprof.StartCPUProfile
+  688.56kB 13.19% 35.88%   688.56kB 13.19%  compress/flate.(*fastGen).addBlock
+  655.29kB 12.56% 48.44%   655.29kB 12.56%  compress/flate.NewWriter (inline)
+  641.34kB 12.29% 60.73%  1665.38kB 31.91%  github.com/kazu/elist_head_test.Benchmark_Next
+     513kB  9.83% 70.56%      513kB  9.83%  runtime.mallocgc
+  512.69kB  9.82% 80.38%   512.69kB  9.82%  regexp/syntax.(*compiler).inst (inline)
+  512.02kB  9.81% 90.19%   512.02kB  9.81%  github.com/kazu/loncha/lista_encabezado.retry
+  512.02kB  9.81%   100%   512.02kB  9.81%  github.com/kazu/loncha/lista_encabezado.NewTraverse (inline)
+         0     0%   100%   688.56kB 13.19%  compress/flate.(*Writer).Close (inline)
+         0     0%   100%   688.56kB 13.19%  compress/flate.(*compressor).close
+         0     0%   100%   688.56kB 13.19%  compress/flate.(*compressor).deflateFast
+         0     0%   100%   688.56kB 13.19%  compress/flate.(*fastEncL1).encode
+         0     0%   100%   688.56kB 13.19%  compress/gzip.(*Writer).Close
+         0     0%   100%   655.29kB 12.56%  compress/gzip.(*Writer).Write
+         0     0%   100%   512.69kB  9.82%  github.com/davecgh/go-spew/spew.init
+
+FILE: next-normal-modified-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+Benchmark_Next/list_head         	  149942	     15981 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+FILE: next-normal-original-cpu-top.txt
+File: original.test
+Build ID: f6d0f7a580b5b6b1453385a52acb208e2adf29ad
+Type: cpu
+Time: 2026-09-22 19:02:04 JST
+Duration: 2.60s, Total samples = 2590ms (99.79%)
+Showing nodes accounting for 2590ms, 100% of 2590ms total
+      flat  flat%   sum%        cum   cum%
+    1820ms 70.27% 70.27%     1820ms 70.27%  github.com/kazu/loncha/lista_encabezado.ListNext
+     770ms 29.73%   100%     2590ms   100%  github.com/kazu/elist_head_test.Benchmark_Next.func1
+         0     0%   100%     1820ms 70.27%  github.com/kazu/loncha/lista_encabezado.(*ListHead).Next (inline)
+         0     0%   100%     2590ms   100%  testing.(*B).launch
+         0     0%   100%     2590ms   100%  testing.(*B).runN
+
+FILE: next-normal-original-mem-top.txt
+File: original.test
+Build ID: f6d0f7a580b5b6b1453385a52acb208e2adf29ad
+Type: alloc_space
+Time: 2026-09-22 19:02:07 JST
+Showing nodes accounting for 3829.56kB, 100% of 3829.56kB total
+Showing top 15 nodes out of 30
+      flat  flat%   sum%        cum   cum%
+ 1184.27kB 30.92% 30.92%  1184.27kB 30.92%  runtime/pprof.StartCPUProfile
+ 1024.05kB 26.74% 57.67%  1024.05kB 26.74%  github.com/kazu/loncha/lista_encabezado.retry
+  596.16kB 15.57% 73.23%  1620.21kB 42.31%  github.com/kazu/elist_head_test.Benchmark_Next
+     513kB 13.40% 86.63%      513kB 13.40%  runtime.mallocgc
+  512.08kB 13.37%   100%   512.08kB 13.37%  regexp.compile
+         0     0%   100%   512.08kB 13.37%  github.com/davecgh/go-spew/spew.init
+         0     0%   100%  1024.05kB 26.74%  github.com/kazu/elist_head.(*ListHead).InsertBefore
+         0     0%   100%  1024.05kB 26.74%  github.com/kazu/elist_head.(*ListHead).insertBefore
+         0     0%   100%  1024.05kB 26.74%  github.com/kazu/loncha/lista_encabezado.Retry (inline)
+         0     0%   100%  1184.27kB 30.92%  main.main
+         0     0%   100%   512.08kB 13.37%  regexp.Compile (inline)
+         0     0%   100%   512.08kB 13.37%  regexp.MustCompile
+         0     0%   100%      513kB 13.40%  runtime.allocm
+         0     0%   100%   512.08kB 13.37%  runtime.doInit
+         0     0%   100%   512.08kB 13.37%  runtime.doInit1
+
+FILE: next-normal-original-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+Benchmark_Next/list_head         	  137145	     17608 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+FILE: next-relative-modified-cpu-top.txt
+File: modified.test
+Build ID: a7682e8bea57f8150c7921153597f244ee579d7d
+Type: cpu
+Time: 2026-09-22 19:02:15 JST
+Duration: 2.76s, Total samples = 2760ms (  100%)
+Showing nodes accounting for 2750ms, 99.64% of 2760ms total
+Dropped 1 node (cum <= 13.80ms)
+      flat  flat%   sum%        cum   cum%
+    1530ms 55.43% 55.43%     2290ms 82.97%  github.com/kazu/elist_head.(*ListHead[go.shape.struct {}]).Next
+     470ms 17.03% 72.46%     2760ms   100%  github.com/kazu/elist_head_test.Benchmark_Next.func2
+     430ms 15.58% 88.04%      750ms 27.17%  github.com/kazu/elist_head.(*ListHead[go.shape.struct {}]).directNext (inline)
+     320ms 11.59% 99.64%      320ms 11.59%  github.com/kazu/elist_head.(*ListHead[go.shape.struct {}]).resolve
+         0     0% 99.64%     2760ms   100%  testing.(*B).launch
+         0     0% 99.64%     2760ms   100%  testing.(*B).runN
+
+FILE: next-relative-modified-mem-top.txt
+File: modified.test
+Build ID: a7682e8bea57f8150c7921153597f244ee579d7d
+Type: alloc_space
+Time: 2026-09-22 19:02:18 JST
+Showing nodes accounting for 2933.91kB, 100% of 2933.91kB total
+Showing top 15 nodes out of 38
+      flat  flat%   sum%        cum   cum%
+  688.56kB 23.47% 23.47%   688.56kB 23.47%  compress/flate.(*fastGen).addBlock
+  641.34kB 21.86% 45.33%   641.34kB 21.86%  github.com/kazu/elist_head_test.Benchmark_Next
+  578.66kB 19.72% 65.05%   578.66kB 19.72%  runtime/pprof.StartCPUProfile
+     513kB 17.49% 82.54%      513kB 17.49%  runtime.mallocgc
+  512.34kB 17.46%   100%   512.34kB 17.46%  regexp/syntax.(*compiler).inst (inline)
+         0     0%   100%   688.56kB 23.47%  compress/flate.(*Writer).Close (inline)
+         0     0%   100%   688.56kB 23.47%  compress/flate.(*compressor).close
+         0     0%   100%   688.56kB 23.47%  compress/flate.(*compressor).deflateFast
+         0     0%   100%   688.56kB 23.47%  compress/flate.(*fastEncL1).encode
+         0     0%   100%   688.56kB 23.47%  compress/gzip.(*Writer).Close
+         0     0%   100%   512.34kB 17.46%  github.com/davecgh/go-spew/spew.init
+         0     0%   100%   578.66kB 19.72%  main.main
+         0     0%   100%   512.34kB 17.46%  regexp.Compile (inline)
+         0     0%   100%   512.34kB 17.46%  regexp.MustCompile
+         0     0%   100%   512.34kB 17.46%  regexp.compile
+
+FILE: next-relative-modified-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+Benchmark_Next/elist_head         	  104355	     24199 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+FILE: next-relative-original-cpu-top.txt
+File: original.test
+Build ID: f6d0f7a580b5b6b1453385a52acb208e2adf29ad
+Type: cpu
+Time: 2026-09-22 19:02:12 JST
+Duration: 2.56s, Total samples = 2550ms (99.62%)
+Showing nodes accounting for 2550ms, 100% of 2550ms total
+      flat  flat%   sum%        cum   cum%
+    2100ms 82.35% 82.35%     2150ms 84.31%  github.com/kazu/elist_head.(*ListHead).Next
+     400ms 15.69% 98.04%     2550ms   100%  github.com/kazu/elist_head_test.Benchmark_Next.func2
+      50ms  1.96%   100%       50ms  1.96%  github.com/kazu/elist_head.(*ListHead).directNext (inline)
+         0     0%   100%     2550ms   100%  testing.(*B).launch
+         0     0%   100%     2550ms   100%  testing.(*B).runN
+
+FILE: next-relative-original-mem-top.txt
+File: original.test
+Build ID: f6d0f7a580b5b6b1453385a52acb208e2adf29ad
+Type: alloc_space
+Time: 2026-09-22 19:02:14 JST
+Showing nodes accounting for 3318.14kB, 100% of 3318.14kB total
+Showing top 15 nodes out of 33
+      flat  flat%   sum%        cum   cum%
+ 1184.27kB 35.69% 35.69%  1184.27kB 35.69%  runtime/pprof.StartCPUProfile
+  596.16kB 17.97% 53.66%  1108.17kB 33.40%  github.com/kazu/elist_head_test.Benchmark_Next
+     513kB 15.46% 69.12%      513kB 15.46%  runtime.mallocgc
+  512.69kB 15.45% 84.57%   512.69kB 15.45%  regexp/syntax.(*compiler).inst (inline)
+  512.02kB 15.43%   100%   512.02kB 15.43%  github.com/kazu/loncha/lista_encabezado.NewTraverse (inline)
+         0     0%   100%   512.69kB 15.45%  github.com/davecgh/go-spew/spew.init
+         0     0%   100%   512.02kB 15.43%  github.com/kazu/elist_head.(*ListHead).InsertBefore
+         0     0%   100%   512.02kB 15.43%  github.com/kazu/elist_head.(*ListHead).insertBefore
+         0     0%   100%  1184.27kB 35.69%  main.main
+         0     0%   100%   512.69kB 15.45%  regexp.Compile (inline)
+         0     0%   100%   512.69kB 15.45%  regexp.MustCompile
+         0     0%   100%   512.69kB 15.45%  regexp.compile
+         0     0%   100%   512.69kB 15.45%  regexp/syntax.(*compiler).compile
+         0     0%   100%   512.69kB 15.45%  regexp/syntax.(*compiler).rune
+         0     0%   100%   512.69kB 15.45%  regexp/syntax.Compile
+
+FILE: next-relative-original-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+Benchmark_Next/elist_head         	  170685	     14147 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+FILE: original-build.txt
+
+FILE: payload1024-modified-cpu-top.txt
+File: modified.test
+Build ID: a7682e8bea57f8150c7921153597f244ee579d7d
+Type: cpu
+Time: 2026-09-22 19:02:39 JST
+Duration: 2.49s, Total samples = 2.49s (  100%)
+Showing nodes accounting for 2.48s, 99.60% of 2.49s total
+Dropped 7 nodes (cum <= 0.01s)
+      flat  flat%   sum%        cum   cum%
+     0.92s 36.95% 36.95%      2.48s 99.60%  github.com/kazu/elist_head_test.BenchmarkMigration.func1.2
+     0.71s 28.51% 65.46%      0.71s 28.51%  github.com/kazu/elist_head.ElementOf[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }] (inline)
+     0.61s 24.50% 89.96%      0.61s 24.50%  github.com/kazu/elist_head.(*ListHead[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }]).resolve
+     0.23s  9.24% 99.20%      0.85s 34.14%  github.com/kazu/elist_head.(*ListHead[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }]).DirectNext
+     0.01s   0.4% 99.60%      0.62s 24.90%  github.com/kazu/elist_head.(*ListHead[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }]).directNext (inline)
+         0     0% 99.60%      2.48s 99.60%  testing.(*B).launch
+         0     0% 99.60%      2.48s 99.60%  testing.(*B).runN
+
+FILE: payload1024-modified-mem-top.txt
+File: modified.test
+Build ID: a7682e8bea57f8150c7921153597f244ee579d7d
+Type: alloc_space
+Time: 2026-09-22 19:02:42 JST
+Showing nodes accounting for 3996.25kB, 100% of 3996.25kB total
+Showing top 15 nodes out of 48
+      flat  flat%   sum%        cum   cum%
+ 1184.27kB 29.63% 29.63%  1184.27kB 29.63%  runtime/pprof.StartCPUProfile
+  688.56kB 17.23% 46.86%   688.56kB 17.23%  compress/flate.(*fastGen).addBlock
+  583.01kB 14.59% 61.45%   583.01kB 14.59%  compress/flate.newFastEnc (inline)
+  515.38kB 12.90% 74.35%   515.38kB 12.90%  slices.Grow[go.shape.[]uint8,go.shape.uint8]
+     513kB 12.84% 87.19%      513kB 12.84%  runtime.mallocgc
+  512.03kB 12.81%   100%   512.03kB 12.81%  regexp/syntax.(*parser).maybeConcat
+         0     0%   100%   688.56kB 17.23%  compress/flate.(*Writer).Close (inline)
+         0     0%   100%   688.56kB 17.23%  compress/flate.(*compressor).close
+         0     0%   100%   688.56kB 17.23%  compress/flate.(*compressor).deflateFast
+         0     0%   100%   583.01kB 14.59%  compress/flate.(*compressor).init
+         0     0%   100%   688.56kB 17.23%  compress/flate.(*fastEncL1).encode
+         0     0%   100%   583.01kB 14.59%  compress/flate.NewWriter (inline)
+         0     0%   100%   688.56kB 17.23%  compress/gzip.(*Writer).Close
+         0     0%   100%   583.01kB 14.59%  compress/gzip.(*Writer).Write
+         0     0%   100%   512.03kB 12.81%  github.com/kazu/elist_head_test.BenchmarkMigration.func1
+
+FILE: payload1024-modified-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkMigration/1024/PayloadWalk         	  722415	      3398 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+FILE: payload1024-original-cpu-top.txt
+File: original.test
+Build ID: f6d0f7a580b5b6b1453385a52acb208e2adf29ad
+Type: cpu
+Time: 2026-09-22 19:02:35 JST
+Duration: 3.43s, Total samples = 3430ms (99.92%)
+Showing nodes accounting for 3430ms, 100% of 3430ms total
+      flat  flat%   sum%        cum   cum%
+    2810ms 81.92% 81.92%     3430ms   100%  github.com/kazu/elist_head_test.BenchmarkMigration.func1.2
+     620ms 18.08%   100%      620ms 18.08%  github.com/kazu/elist_head.(*ListHead).DirectNext (inline)
+         0     0%   100%     3430ms   100%  testing.(*B).launch
+         0     0%   100%     3430ms   100%  testing.(*B).runN
+
+FILE: payload1024-original-mem-top.txt
+File: original.test
+Build ID: f6d0f7a580b5b6b1453385a52acb208e2adf29ad
+Type: alloc_space
+Time: 2026-09-22 19:02:38 JST
+Showing nodes accounting for 4681.49kB, 100% of 4681.49kB total
+Showing top 15 nodes out of 39
+      flat  flat%   sum%        cum   cum%
+ 1184.27kB 25.30% 25.30%  1184.27kB 25.30%  runtime/pprof.StartCPUProfile
+  688.56kB 14.71% 40.01%   688.56kB 14.71%  compress/flate.(*fastGen).addBlock
+  655.29kB 14.00% 54.00%  1782.97kB 38.09%  compress/flate.NewWriter (inline)
+  583.01kB 12.45% 66.46%   583.01kB 12.45%  compress/flate.newFastEnc (inline)
+  544.67kB 11.63% 78.09%  1127.67kB 24.09%  compress/flate.(*compressor).init
+     513kB 10.96% 89.05%      513kB 10.96%  runtime.mallocgc
+  512.69kB 10.95%   100%   512.69kB 10.95%  regexp/syntax.(*compiler).inst (inline)
+         0     0%   100%   688.56kB 14.71%  compress/flate.(*Writer).Close (inline)
+         0     0%   100%   688.56kB 14.71%  compress/flate.(*compressor).close
+         0     0%   100%   688.56kB 14.71%  compress/flate.(*compressor).deflateFast
+         0     0%   100%   688.56kB 14.71%  compress/flate.(*fastEncL1).encode
+         0     0%   100%   688.56kB 14.71%  compress/gzip.(*Writer).Close
+         0     0%   100%  1782.97kB 38.09%  compress/gzip.(*Writer).Write
+         0     0%   100%   512.69kB 10.95%  github.com/davecgh/go-spew/spew.init
+         0     0%   100%  1184.27kB 25.30%  main.main
+
+FILE: payload1024-original-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkMigration/1024/PayloadWalk         	 2354277	      1020 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+FILE: repair1024-modified-cpu-top.txt
+File: modified.test
+Build ID: a7682e8bea57f8150c7921153597f244ee579d7d
+Type: cpu
+Time: 2026-09-22 19:02:48 JST
+Duration: 2.53s, Total samples = 2.53s (  100%)
+Showing nodes accounting for 2.53s, 100% of 2.53s total
+      flat  flat%   sum%        cum   cum%
+     1.42s 56.13% 56.13%      2.24s 88.54%  github.com/kazu/elist_head.repairSlices[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] },go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }]
+     0.51s 20.16% 76.28%      0.51s 20.16%  github.com/kazu/elist_head.repairSlices[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] },go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }].func1 (inline)
+     0.17s  6.72% 83.00%      2.41s 95.26%  github.com/kazu/elist_head.(*Owner[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }]).RepaireSliceAfterCopy
+     0.16s  6.32% 89.33%      0.30s 11.86%  github.com/kazu/elist_head.repairSlices[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] },go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }].func2 (inline)
+     0.12s  4.74% 94.07%      0.12s  4.74%  runtime.memmove
+     0.10s  3.95% 98.02%      0.10s  3.95%  github.com/kazu/elist_head.(*Owner[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }]).head
+     0.03s  1.19% 99.21%      0.03s  1.19%  github.com/kazu/elist_head.(*ListHead[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }]).diffPtrTo (inline)
+     0.02s  0.79%   100%      0.02s  0.79%  github.com/kazu/elist_head.(*ListHead[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }]).IsMarked (inline)
+         0     0%   100%      0.03s  1.19%  github.com/kazu/elist_head.(*ListHead[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }]).diffPtrToHead (inline)
+         0     0%   100%      2.53s   100%  github.com/kazu/elist_head_test.BenchmarkCopyRepair.func1
+         0     0%   100%      0.12s  4.74%  runtime.typedslicecopy
+         0     0%   100%      2.53s   100%  testing.(*B).launch
+         0     0%   100%      2.53s   100%  testing.(*B).runN
+
+FILE: repair1024-modified-mem-top.txt
+File: modified.test
+Build ID: a7682e8bea57f8150c7921153597f244ee579d7d
+Type: alloc_space
+Time: 2026-09-22 19:02:51 JST
+Showing nodes accounting for 4275.59kB, 100% of 4275.59kB total
+Showing top 15 nodes out of 40
+      flat  flat%   sum%        cum   cum%
+ 1184.27kB 27.70% 27.70%  1184.27kB 27.70%  runtime/pprof.StartCPUProfile
+    1026kB 24.00% 51.70%     1026kB 24.00%  runtime.mallocgc
+  528.17kB 12.35% 64.05%  1040.19kB 24.33%  github.com/kazu/elist_head_test.BenchmarkCopyRepair.func1
+  512.88kB 12.00% 76.04%   512.88kB 12.00%  net/http/internal/testcert.init
+  512.25kB 11.98% 88.02%   512.25kB 11.98%  runtime/pprof.(*profileBuilder).addMappingEntry
+  512.02kB 11.98%   100%   512.02kB 11.98%  github.com/kazu/loncha/lista_encabezado.retry
+         0     0%   100%   512.02kB 11.98%  github.com/kazu/elist_head.(*ListHead[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }]).InsertBefore
+         0     0%   100%   512.02kB 11.98%  github.com/kazu/elist_head.(*ListHead[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }]).insertBefore
+         0     0%   100%   512.02kB 11.98%  github.com/kazu/loncha/lista_encabezado.Retry (inline)
+         0     0%   100%  1184.27kB 27.70%  main.main
+         0     0%   100%     1026kB 24.00%  runtime.allocm
+         0     0%   100%   512.88kB 12.00%  runtime.doInit
+         0     0%   100%   512.88kB 12.00%  runtime.doInit1
+         0     0%   100%      513kB 12.00%  runtime.gopreempt_m
+         0     0%   100%      513kB 12.00%  runtime.goschedImpl
+
+FILE: repair1024-modified-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkCopyRepair/1024         	  214653	     11255 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+FILE: repair1024-original-cpu-top.txt
+File: original.test
+Build ID: f6d0f7a580b5b6b1453385a52acb208e2adf29ad
+Type: cpu
+Time: 2026-09-22 19:02:44 JST
+Duration: 3.39s, Total samples = 3.39s (  100%)
+Showing nodes accounting for 3.35s, 98.82% of 3.39s total
+Dropped 4 nodes (cum <= 0.02s)
+      flat  flat%   sum%        cum   cum%
+     2.39s 70.50% 70.50%      2.49s 73.45%  github.com/kazu/elist_head.(*ListHead).noInners (inline)
+     0.68s 20.06% 90.56%      0.68s 20.06%  runtime.memmove
+     0.20s  5.90% 96.46%      2.70s 79.65%  github.com/kazu/elist_head.RepaireSliceAfterCopy
+     0.04s  1.18% 97.64%      0.06s  1.77%  runtime.mallocgcTinySC2
+     0.03s  0.88% 98.53%      0.10s  2.95%  runtime.growslice
+     0.01s  0.29% 98.82%      3.39s   100%  github.com/kazu/elist_head_test.BenchmarkCopyRepair.func1
+         0     0% 98.82%      0.06s  1.77%  runtime.mallocgc
+         0     0% 98.82%      3.39s   100%  testing.(*B).launch
+         0     0% 98.82%      3.39s   100%  testing.(*B).runN
+
+FILE: repair1024-original-mem-top.txt
+File: original.test
+Build ID: f6d0f7a580b5b6b1453385a52acb208e2adf29ad
+Type: alloc_space
+Time: 2026-09-22 19:02:47 JST
+Showing nodes accounting for 25806.79kB, 100% of 25806.79kB total
+Showing top 15 nodes out of 45
+      flat  flat%   sum%        cum   cum%
+22528.34kB 87.30% 87.30% 22528.34kB 87.30%  github.com/kazu/elist_head.(*ListHead).noInners (inline)
+ 1048.19kB  4.06% 91.36% 23576.53kB 91.36%  github.com/kazu/elist_head_test.BenchmarkCopyRepair.func1
+  688.56kB  2.67% 94.03%   688.56kB  2.67%  compress/flate.(*fastGen).addBlock
+  516.01kB  2.00% 96.03%   516.01kB  2.00%  hash/crc32.slicingMakeTable
+     513kB  1.99% 98.01%      513kB  1.99%  runtime.mallocgc
+  512.69kB  1.99%   100%   512.69kB  1.99%  regexp/syntax.(*compiler).inst (inline)
+         0     0%   100%   688.56kB  2.67%  compress/flate.(*Writer).Close (inline)
+         0     0%   100%   688.56kB  2.67%  compress/flate.(*compressor).close
+         0     0%   100%   688.56kB  2.67%  compress/flate.(*compressor).deflateFast
+         0     0%   100%   688.56kB  2.67%  compress/flate.(*fastEncL1).encode
+         0     0%   100%   688.56kB  2.67%  compress/gzip.(*Writer).Close
+         0     0%   100%   516.01kB  2.00%  compress/gzip.(*Writer).Write
+         0     0%   100%   512.69kB  1.99%  github.com/davecgh/go-spew/spew.init
+         0     0%   100% 22528.34kB 87.30%  github.com/kazu/elist_head.RepaireSliceAfterCopy
+         0     0%   100%   516.01kB  2.00%  hash/crc32.Update (inline)
+
+FILE: repair1024-original-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkCopyRepair/1024         	 2101568	      1062 ns/op	       8 B/op	       1 allocs/op
+PASS
+
+FILE: timing-0-original.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkCopyOnly/16         	52153346	         4.360 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyOnly/1024       	  781291	       305.0 ns/op	       0 B/op	       0 allocs/op
+Benchmark_Next/list_head     	   13724	     17584 ns/op	       0 B/op	       0 allocs/op
+Benchmark_Next/elist_head    	   16969	     14113 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/Walk   	36781072	         6.494 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/PayloadWalk         	27521480	         8.665 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/EarlyStop           	608589802	         0.4071 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/Recover             	176674705	         1.356 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/DeleteInsert        	  966499	       248.3 ns/op	     352 B/op	      11 allocs/op
+BenchmarkMigration/1024/Walk              	  240602	      1002 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/PayloadWalk       	  239293	      1012 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/EarlyStop         	617571260	         0.3910 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/Recover           	177075414	         1.357 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/DeleteInsert      	  958558	       247.8 ns/op	     352 B/op	      11 allocs/op
+BenchmarkCopyRepair/16                    	 6538696	        36.34 ns/op	       8 B/op	       1 allocs/op
+BenchmarkCopyRepair/1024                  	  218223	      1161 ns/op	       8 B/op	       1 allocs/op
+PASS
+
+FILE: timing-1-modified.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkCopyOnly/16         	45385846	         5.331 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyOnly/1024       	  570170	       406.3 ns/op	       0 B/op	       0 allocs/op
+Benchmark_Next/list_head     	   15330	     15666 ns/op	       0 B/op	       0 allocs/op
+Benchmark_Next/elist_head    	   10000	     23728 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/Walk   	 5359226	        44.70 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/PayloadWalk         	 4599002	        52.23 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/EarlyStop           	87061215	         2.815 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/Recover             	172980471	         1.386 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/DeleteInsert        	  617289	       325.1 ns/op	     352 B/op	      11 allocs/op
+BenchmarkMigration/1024/Walk              	   81579	      2956 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/PayloadWalk       	   71677	      3378 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/EarlyStop         	81781974	         2.974 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/Recover           	175413626	         1.367 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/DeleteInsert      	  754695	       318.0 ns/op	     352 B/op	      11 allocs/op
+BenchmarkCopyRepair/16                    	 1302740	       184.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyRepair/1024                  	   21399	     11246 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+FILE: timing-2-modified.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkCopyOnly/16         	42361923	         5.306 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyOnly/1024       	  583624	       408.7 ns/op	       0 B/op	       0 allocs/op
+Benchmark_Next/list_head     	   15260	     15717 ns/op	       0 B/op	       0 allocs/op
+Benchmark_Next/elist_head    	   10000	     23520 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/Walk   	 5354416	        44.74 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/PayloadWalk         	 4596175	        52.43 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/EarlyStop           	87766484	         2.787 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/Recover             	172924840	         1.389 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/DeleteInsert        	  769200	       313.2 ns/op	     352 B/op	      11 allocs/op
+BenchmarkMigration/1024/Walk              	   80299	      3000 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/PayloadWalk       	   71265	      3366 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/EarlyStop         	86308705	         2.830 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/Recover           	173825552	         1.368 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/DeleteInsert      	  765174	       312.7 ns/op	     352 B/op	      11 allocs/op
+BenchmarkCopyRepair/16                    	 1309238	       184.7 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyRepair/1024                  	   21546	     11299 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+FILE: timing-3-original.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkCopyOnly/16         	55503546	         4.418 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyOnly/1024       	  769796	       303.8 ns/op	       0 B/op	       0 allocs/op
+Benchmark_Next/list_head     	   13845	     17494 ns/op	       0 B/op	       0 allocs/op
+Benchmark_Next/elist_head    	   16899	     14178 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/Walk   	36994938	         6.474 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/PayloadWalk         	28282995	         8.465 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/EarlyStop           	612864062	         0.3913 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/Recover             	176985940	         1.355 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/DeleteInsert        	  967528	       251.1 ns/op	     352 B/op	      11 allocs/op
+BenchmarkMigration/1024/Walk              	  238602	       996.5 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/PayloadWalk       	  237279	      1013 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/EarlyStop         	613013055	         0.3893 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/Recover           	176732107	         1.358 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/DeleteInsert      	  971614	       249.7 ns/op	     352 B/op	      11 allocs/op
+BenchmarkCopyRepair/16                    	 6601952	        35.63 ns/op	       8 B/op	       1 allocs/op
+BenchmarkCopyRepair/1024                  	  205106	      1172 ns/op	       8 B/op	       1 allocs/op
+PASS
+
+FILE: timing-4-original.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkCopyOnly/16         	55600692	         4.361 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyOnly/1024       	  781826	       304.6 ns/op	       0 B/op	       0 allocs/op
+Benchmark_Next/list_head     	   13833	     17657 ns/op	       0 B/op	       0 allocs/op
+Benchmark_Next/elist_head    	   17232	     13853 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/Walk   	36985564	         6.468 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/PayloadWalk         	28246911	         8.472 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/EarlyStop           	613547668	         0.3925 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/Recover             	176955595	         1.357 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/DeleteInsert        	  973832	       247.5 ns/op	     352 B/op	      11 allocs/op
+BenchmarkMigration/1024/Walk              	  241021	       992.2 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/PayloadWalk       	  237481	      1013 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/EarlyStop         	616498785	         0.3893 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/Recover           	177250051	         1.357 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/DeleteInsert      	  956404	       250.3 ns/op	     352 B/op	      11 allocs/op
+BenchmarkCopyRepair/16                    	 6646359	        35.99 ns/op	       8 B/op	       1 allocs/op
+BenchmarkCopyRepair/1024                  	  199330	      1117 ns/op	       8 B/op	       1 allocs/op
+PASS
+
+FILE: timing-5-modified.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkCopyOnly/16         	45441721	         5.280 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyOnly/1024       	  584626	       406.4 ns/op	       0 B/op	       0 allocs/op
+Benchmark_Next/list_head     	   15194	     15696 ns/op	       0 B/op	       0 allocs/op
+Benchmark_Next/elist_head    	   10000	     23400 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/Walk   	 5334759	        44.84 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/PayloadWalk         	 4707165	        51.66 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/EarlyStop           	86243170	         2.819 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/Recover             	173157309	         1.390 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/16/DeleteInsert        	  783697	       307.2 ns/op	     352 B/op	      11 allocs/op
+BenchmarkMigration/1024/Walk              	   81248	      2982 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/PayloadWalk       	   70446	      3418 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/EarlyStop         	86275476	         2.830 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/Recover           	174456284	         1.371 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMigration/1024/DeleteInsert      	  769143	       311.9 ns/op	     352 B/op	      11 allocs/op
+BenchmarkCopyRepair/16                    	 1309864	       182.9 ns/op	       0 B/op	       0 allocs/op
+BenchmarkCopyRepair/1024                  	   21514	     11128 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+FILE: walk1024-modified-cpu-top.txt
+File: modified.test
+Build ID: a7682e8bea57f8150c7921153597f244ee579d7d
+Type: cpu
+Time: 2026-09-22 19:02:31 JST
+Duration: 2.51s, Total samples = 2500ms (99.74%)
+Showing nodes accounting for 2500ms, 100% of 2500ms total
+      flat  flat%   sum%        cum   cum%
+    1830ms 73.20% 73.20%     1910ms 76.40%  github.com/kazu/elist_head.(*ListHead[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }]).resolve
+     410ms 16.40% 89.60%     2360ms 94.40%  github.com/kazu/elist_head.(*ListHead[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }]).DirectNext
+     140ms  5.60% 95.20%     2500ms   100%  github.com/kazu/elist_head_test.BenchmarkMigration.func1.1
+      80ms  3.20% 98.40%       80ms  3.20%  github.com/kazu/elist_head.(*Owner[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }]).Head (inline)
+      40ms  1.60%   100%     1950ms 78.00%  github.com/kazu/elist_head.(*ListHead[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }]).directNext (inline)
+         0     0%   100%     2500ms   100%  testing.(*B).launch
+         0     0%   100%     2500ms   100%  testing.(*B).runN
+
+FILE: walk1024-modified-mem-top.txt
+File: modified.test
+Build ID: a7682e8bea57f8150c7921153597f244ee579d7d
+Type: alloc_space
+Time: 2026-09-22 19:02:33 JST
+Showing nodes accounting for 3553.81kB, 100% of 3553.81kB total
+Showing top 15 nodes out of 37
+      flat  flat%   sum%        cum   cum%
+ 1184.27kB 33.32% 33.32%  1184.27kB 33.32%  runtime/pprof.StartCPUProfile
+  688.56kB 19.38% 52.70%   688.56kB 19.38%  compress/flate.(*fastGen).addBlock
+  655.29kB 18.44% 71.14%   655.29kB 18.44%  compress/flate.NewWriter (inline)
+     513kB 14.44% 85.57%      513kB 14.44%  runtime.mallocgc
+  512.69kB 14.43%   100%   512.69kB 14.43%  regexp/syntax.(*compiler).inst (inline)
+         0     0%   100%   688.56kB 19.38%  compress/flate.(*Writer).Close (inline)
+         0     0%   100%   688.56kB 19.38%  compress/flate.(*compressor).close
+         0     0%   100%   688.56kB 19.38%  compress/flate.(*compressor).deflateFast
+         0     0%   100%   688.56kB 19.38%  compress/flate.(*fastEncL1).encode
+         0     0%   100%   688.56kB 19.38%  compress/gzip.(*Writer).Close
+         0     0%   100%   655.29kB 18.44%  compress/gzip.(*Writer).Write
+         0     0%   100%   512.69kB 14.43%  github.com/davecgh/go-spew/spew.init
+         0     0%   100%  1184.27kB 33.32%  main.main
+         0     0%   100%   512.69kB 14.43%  regexp.Compile (inline)
+         0     0%   100%   512.69kB 14.43%  regexp.MustCompile
+
+FILE: walk1024-modified-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkMigration/1024/Walk    	  822586	      3008 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+FILE: walk1024-original-cpu-top.txt
+File: original.test
+Build ID: f6d0f7a580b5b6b1453385a52acb208e2adf29ad
+Type: cpu
+Time: 2026-09-22 19:02:26 JST
+Duration: 3.41s, Total samples = 3.41s (  100%)
+Showing nodes accounting for 3.41s, 100% of 3.41s total
+      flat  flat%   sum%        cum   cum%
+     2.04s 59.82% 59.82%      2.04s 59.82%  github.com/kazu/elist_head.(*ListHead).directNext (inline)
+     1.37s 40.18%   100%      3.41s   100%  github.com/kazu/elist_head_test.BenchmarkMigration.func1.1
+         0     0%   100%      2.04s 59.82%  github.com/kazu/elist_head.(*ListHead).DirectNext (inline)
+         0     0%   100%      3.41s   100%  testing.(*B).launch
+         0     0%   100%      3.41s   100%  testing.(*B).runN
+
+FILE: walk1024-original-mem-top.txt
+File: original.test
+Build ID: f6d0f7a580b5b6b1453385a52acb208e2adf29ad
+Type: alloc_space
+Time: 2026-09-22 19:02:30 JST
+Showing nodes accounting for 4805.63kB, 100% of 4805.63kB total
+Showing top 15 nodes out of 46
+      flat  flat%   sum%        cum   cum%
+ 1538.06kB 32.01% 32.01%  1538.06kB 32.01%  regexp/syntax.(*compiler).inst (inline)
+ 1184.27kB 24.64% 56.65%  1184.27kB 24.64%  runtime/pprof.StartCPUProfile
+  544.67kB 11.33% 67.98%   544.67kB 11.33%  compress/flate.(*compressor).init
+     513kB 10.67% 78.66%      513kB 10.67%  runtime.mallocgc
+  512.88kB 10.67% 89.33%   512.88kB 10.67%  vendor/golang.org/x/net/http2/hpack.init
+  512.75kB 10.67%   100%   512.75kB 10.67%  regexp.onePassCopy
+         0     0%   100%   544.67kB 11.33%  compress/flate.NewWriter (inline)
+         0     0%   100%   544.67kB 11.33%  compress/gzip.(*Writer).Write
+         0     0%   100%   512.69kB 10.67%  github.com/davecgh/go-spew/spew.init
+         0     0%   100%   512.69kB 10.67%  github.com/kazu/elist_head_test.BenchmarkMigration
+         0     0%   100%   512.75kB 10.67%  github.com/kazu/elist_head_test.BenchmarkMigration.func1
+         0     0%   100%  1696.96kB 35.31%  main.main
+         0     0%   100%  2050.81kB 42.68%  regexp.Compile (inline)
+         0     0%   100%   512.69kB 10.67%  regexp.MustCompile
+         0     0%   100%  2050.81kB 42.68%  regexp.compile
+
+FILE: walk1024-original-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkMigration/1024/Walk    	 2412776	       995.4 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+FILE: walk16-modified-cpu-top.txt
+File: modified.test
+Build ID: a7682e8bea57f8150c7921153597f244ee579d7d
+Type: cpu
+Time: 2026-09-22 19:02:23 JST
+Duration: 2.44s, Total samples = 2.44s (  100%)
+Showing nodes accounting for 2.44s, 100% of 2.44s total
+      flat  flat%   sum%        cum   cum%
+     1.77s 72.54% 72.54%      1.87s 76.64%  github.com/kazu/elist_head.(*ListHead[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }]).resolve
+     0.35s 14.34% 86.89%      2.23s 91.39%  github.com/kazu/elist_head.(*ListHead[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }]).DirectNext
+     0.21s  8.61% 95.49%      2.44s   100%  github.com/kazu/elist_head_test.BenchmarkMigration.func1.1
+     0.10s  4.10% 99.59%      0.10s  4.10%  github.com/kazu/elist_head.(*Owner[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }]).Head (inline)
+     0.01s  0.41%   100%      1.88s 77.05%  github.com/kazu/elist_head.(*ListHead[go.shape.struct { github.com/kazu/elist_head_test.key uint64; ListHead = github.com/kazu/elist_head.ListHead[github.com/kazu/elist_head_test.benchEntry] }]).directNext (inline)
+         0     0%   100%      2.44s   100%  testing.(*B).launch
+         0     0%   100%      2.44s   100%  testing.(*B).runN
+
+FILE: walk16-modified-mem-top.txt
+File: modified.test
+Build ID: a7682e8bea57f8150c7921153597f244ee579d7d
+Type: alloc_space
+Time: 2026-09-22 19:02:26 JST
+Showing nodes accounting for 2898.52kB, 100% of 2898.52kB total
+Showing top 15 nodes out of 35
+      flat  flat%   sum%        cum   cum%
+ 1184.27kB 40.86% 40.86%  1184.27kB 40.86%  runtime/pprof.StartCPUProfile
+  688.56kB 23.76% 64.61%   688.56kB 23.76%  compress/flate.(*fastGen).addBlock
+     513kB 17.70% 82.31%      513kB 17.70%  runtime.mallocgc
+  512.69kB 17.69%   100%   512.69kB 17.69%  regexp/syntax.(*compiler).inst (inline)
+         0     0%   100%   688.56kB 23.76%  compress/flate.(*Writer).Close (inline)
+         0     0%   100%   688.56kB 23.76%  compress/flate.(*compressor).close
+         0     0%   100%   688.56kB 23.76%  compress/flate.(*compressor).deflateFast
+         0     0%   100%   688.56kB 23.76%  compress/flate.(*fastEncL1).encode
+         0     0%   100%   688.56kB 23.76%  compress/gzip.(*Writer).Close
+         0     0%   100%   512.69kB 17.69%  github.com/davecgh/go-spew/spew.init
+         0     0%   100%  1184.27kB 40.86%  main.main
+         0     0%   100%   512.69kB 17.69%  regexp.Compile (inline)
+         0     0%   100%   512.69kB 17.69%  regexp.MustCompile
+         0     0%   100%   512.69kB 17.69%  regexp.compile
+         0     0%   100%   512.69kB 17.69%  regexp/syntax.(*compiler).compile
+
+FILE: walk16-modified-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkMigration/16/Walk    	52948650	        45.18 ns/op	       0 B/op	       0 allocs/op
+PASS
+
+FILE: walk16-original-cpu-top.txt
+File: original.test
+Build ID: f6d0f7a580b5b6b1453385a52acb208e2adf29ad
+Type: cpu
+Time: 2026-09-22 19:02:19 JST
+Duration: 3.06s, Total samples = 3.05s (99.81%)
+Showing nodes accounting for 3.05s, 100% of 3.05s total
+      flat  flat%   sum%        cum   cum%
+     1.64s 53.77% 53.77%      1.64s 53.77%  github.com/kazu/elist_head.(*ListHead).directNext (inline)
+     1.41s 46.23%   100%      3.05s   100%  github.com/kazu/elist_head_test.BenchmarkMigration.func1.1
+         0     0%   100%      1.64s 53.77%  github.com/kazu/elist_head.(*ListHead).DirectNext (inline)
+         0     0%   100%      3.05s   100%  testing.(*B).launch
+         0     0%   100%      3.05s   100%  testing.(*B).runN
+
+FILE: walk16-original-mem-top.txt
+File: original.test
+Build ID: f6d0f7a580b5b6b1453385a52acb208e2adf29ad
+Type: alloc_space
+Time: 2026-09-22 19:02:22 JST
+Showing nodes accounting for 3553.81kB, 100% of 3553.81kB total
+Showing top 15 nodes out of 37
+      flat  flat%   sum%        cum   cum%
+ 1184.27kB 33.32% 33.32%  1184.27kB 33.32%  runtime/pprof.StartCPUProfile
+  688.56kB 19.38% 52.70%   688.56kB 19.38%  compress/flate.(*fastGen).addBlock
+  655.29kB 18.44% 71.14%   655.29kB 18.44%  compress/flate.NewWriter (inline)
+     513kB 14.44% 85.57%      513kB 14.44%  runtime.mallocgc
+  512.69kB 14.43%   100%   512.69kB 14.43%  regexp/syntax.(*compiler).inst (inline)
+         0     0%   100%   688.56kB 19.38%  compress/flate.(*Writer).Close (inline)
+         0     0%   100%   688.56kB 19.38%  compress/flate.(*compressor).close
+         0     0%   100%   688.56kB 19.38%  compress/flate.(*compressor).deflateFast
+         0     0%   100%   688.56kB 19.38%  compress/flate.(*fastEncL1).encode
+         0     0%   100%   688.56kB 19.38%  compress/gzip.(*Writer).Close
+         0     0%   100%   655.29kB 18.44%  compress/gzip.(*Writer).Write
+         0     0%   100%   512.69kB 14.43%  github.com/davecgh/go-spew/spew.init
+         0     0%   100%  1184.27kB 33.32%  main.main
+         0     0%   100%   512.69kB 14.43%  regexp.Compile (inline)
+         0     0%   100%   512.69kB 14.43%  regexp.MustCompile
+
+FILE: walk16-original-profile.txt
+goos: linux
+goarch: amd64
+pkg: github.com/kazu/elist_head
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkMigration/16/Walk    	369033420	         6.493 ns/op	       0 B/op	       0 allocs/op
+PASS

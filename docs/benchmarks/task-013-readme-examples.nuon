@@ -1,0 +1,120 @@
+{dependency: "c4a33fad399b4d535b742e54814206f5c137d40e", go: "go version go1.27.1 linux/amd64", examples: [[example, source, command, result]; [0, "package main
+
+import (
+    \"fmt\"
+    \"runtime\"
+    \"unsafe\"
+
+    elist_head \"github.com/kazu/elist_head\"
+)
+
+type SampleEntry struct {
+    Name string
+    Age int
+    elist_head.ListHead
+}
+
+var EmptySampleEntry *SampleEntry = nil
+
+const sampleEntryOffset = unsafe.Offsetof(SampleEntry{}.ListHead)
+
+func SampleEntryFromListHead(head *elist_head.ListHead) *SampleEntry {
+    return (*SampleEntry)(elist_head.ElementOf(unsafe.Pointer(head), sampleEntryOffset))
+}
+
+func (s *SampleEntry) Offset() uintptr {
+    return sampleEntryOffset
+}
+
+func (s *SampleEntry) PtrListHead() *elist_head.ListHead {
+    return &s.ListHead
+}
+
+func (s *SampleEntry) fromListHead(l *elist_head.ListHead) *SampleEntry {
+    return SampleEntryFromListHead(l)
+}
+
+func (s *SampleEntry) FromListHead(l *elist_head.ListHead) *SampleEntry {
+    return s.fromListHead(l)
+}
+
+func (s *SampleEntry) Prev() *SampleEntry {
+    return s.fromListHead(s.ListHead.Prev())
+}
+
+func (s *SampleEntry) Next() *SampleEntry {
+    return s.fromListHead(s.ListHead.Next())
+}
+
+func (s *SampleEntry) InsertBefore(n *SampleEntry) error {
+    _, err := s.ListHead.InsertBefore(&n.ListHead)
+    return err
+}
+
+func main() {
+    storage := make([]SampleEntry, 12)
+    head, tail := &storage[0].ListHead, &storage[11].ListHead
+    elist_head.InitAsEmpty(head, tail)
+    elems := storage[1:11]
+
+    elem := &elems[0]
+    elem.Name = \"namae dayo\"
+    elem.Age = 10
+    elems[1].Name = \"namae dayo\"
+    elems[1].Age = 15
+
+    // Add elem last, then add elems[1] before elem.
+    if _, err := tail.InsertBefore(&elem.ListHead); err != nil {
+        panic(err)
+    }
+    if err := elem.InsertBefore(&elems[1]); err != nil {
+        panic(err)
+    }
+
+    entry := EmptySampleEntry.FromListHead(head.Next())
+    fmt.Println(entry.Name, entry.Age)
+    nEntry := elem.Prev()
+    fmt.Println(nEntry.Name, nEntry.Age)
+
+    // Stop at the typed tail; Next does not return nil at the end.
+    for p := storage[0].Next(); p != &storage[11]; p = p.Next() {
+        fmt.Println(p.Name, p.Age)
+    }
+    runtime.KeepAlive(storage)
+}", "go run -gcflags=all=-d=checkptr=2 /tmp/elist-013-readme-english-0.go", {stdout: "namae dayo 15
+namae dayo 15
+namae dayo 15
+namae dayo 10
+", stderr: "", exit_code: 0}], [1, "package main
+
+import (
+    \"fmt\"
+    \"runtime\"
+    \"unsafe\"
+
+    elist \"github.com/kazu/elist_head\"
+)
+
+type Entry struct {
+    Name string
+    elist.ListHead
+}
+
+func main() {
+    entries := make([]Entry, 4)
+    entries[1].Name, entries[2].Name = \"alpha\", \"beta\"
+    head, tail := &entries[0].ListHead, &entries[3].ListHead
+    elist.InitAsEmpty(head, tail)
+    links := elist.NewList[Entry](unsafe.Offsetof(Entry{}.ListHead))
+    for i := 1; i <= 2; i++ {
+        if err := links.InsertBefore(&entries[3], &entries[i]); err != nil {
+            panic(err)
+        }
+    }
+    for p := links.Next(&entries[0]); p != &entries[3]; p = links.Next(p) {
+        fmt.Println(p.Name)
+    }
+    runtime.KeepAlive(entries)
+}", "go run -gcflags=all=-d=checkptr=2 /tmp/elist-013-readme-english-1.go", {stdout: "alpha
+beta
+", stderr: "", exit_code: 0}]]}

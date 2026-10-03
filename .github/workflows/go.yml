@@ -8,14 +8,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v2
+      with:
+        path: skiplistmap
+
+    - uses: actions/checkout@v2
+      with:
+        repository: kazu/elist_head
+        ref: 4df679832828840506950c41bcfd2583228178b5
+        path: elist_head
+
+    - uses: actions/checkout@v2
+      with:
+        repository: kazu/lista_encabezado
+        ref: 611497635248e41c2685729b1b6619919a978179
+        path: lista_encabezado
 
     - name: Set up Go
-      uses: actions/setup-go@v2
+      uses: actions/setup-go@v7
       with:
-        go-version: 1.17
+        go-version: '1.27.1'
+        cache: true
+        cache-dependency-path: |
+          skiplistmap/go.mod
+          skiplistmap/go.sum
 
     - name: Build
+      working-directory: skiplistmap
       run: go build -v ./...
 
     - name: Test
-      run: go test -v ./
+      working-directory: skiplistmap
+      run: make ci

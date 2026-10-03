@@ -1,0 +1,6 @@
+[[revision, command, go, result]; ["159504182307055412d109ea84b8b70c47dd993b", [go, test, "./...", "-count=1", "-timeout=30s"], "go version go1.27.1 linux/amd64", {stdout: "ok  	github.com/kazu/elist_head	0.003s
+", stderr: "", exit_code: 0}], ["159504182307055412d109ea84b8b70c47dd993b", [go, test, -race, -run, "TestList|TestSampleEntry|TestLegacy|ExampleList", "-count=1", "-timeout=30s"], "go version go1.27.1 linux/amd64", {stdout: "PASS
+ok  	github.com/kazu/elist_head	1.015s
+", stderr: "", exit_code: 0}], ["159504182307055412d109ea84b8b70c47dd993b", [go, test, "-gcflags=all=-d=checkptr=2", -run, "TestList|TestSampleEntry|TestLegacy|ExampleList", "-count=1", "-timeout=30s"], "go version go1.27.1 linux/amd64", {stdout: "PASS
+ok  	github.com/kazu/elist_head	0.004s
+", stderr: "", exit_code: 0}], ["159504182307055412d109ea84b8b70c47dd993b", [go, vet, "./..."], "go version go1.27.1 linux/amd64", {stdout: "", stderr: "", exit_code: 0}]]

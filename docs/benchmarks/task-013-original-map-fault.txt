@@ -1,0 +1,55 @@
+=== RUN   Test_HMap
+=== RUN   Test_HMap/embedded_pool
+=== RUN   Test_HMap/combine4
+--- PASS: Test_HMap (0.70s)
+    --- PASS: Test_HMap/embedded_pool (0.33s)
+    --- PASS: Test_HMap/combine4 (0.37s)
+=== RUN   Test_HMap
+=== RUN   Test_HMap/embedded_pool
+=== RUN   Test_HMap/combine4
+--- PASS: Test_HMap (0.69s)
+    --- PASS: Test_HMap/embedded_pool (0.32s)
+    --- PASS: Test_HMap/combine4 (0.37s)
+=== RUN   Test_HMap
+=== RUN   Test_HMap/embedded_pool
+unexpected fault address 0x0
+fatal error: fault
+[signal SIGSEGV: segmentation violation code=0x80 addr=0x0 pc=0x5659c0]
+
+goroutine 83 gp=0x3cbc229acb40 m=13 mp=0x3cbc22e00008 [running]:
+runtime.throw({0x63859f?, 0x87a020?})
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/runtime/panic.go:1243 +0x48 fp=0x3cbc229efbe8 sp=0x3cbc229efbb8 pc=0x48a868
+runtime.sigpanic()
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/runtime/signal_unix.go:945 +0x285 fp=0x3cbc229efc48 sp=0x3cbc229efbe8 pc=0x48c2e5
+github.com/kazu/skiplistmap.(*entryHMap).PtrMapHead(0x3cbc249b6008?)
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap/item.go:71 fp=0x3cbc229efc50 sp=0x3cbc229efc48 pc=0x5659c0
+github.com/kazu/skiplistmap.(*Map)._set(0x3cbc249b6008, 0xbf4b993da953fa3c, 0x3cbc249b3e60?, 0x3cbc22b603a8, {0x8aee10, 0x3cbc2324e518})
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap/map.go:400 +0x3d6 fp=0x3cbc229efd30 sp=0x3cbc229efc50 pc=0x5673d6
+github.com/kazu/skiplistmap.(*Map).Set(0x3cbc249b6008, {0x879c20, 0x3cbc229eff50}, {0x841238, 0x3cbc249b3e60})
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap/map.go:699 +0x9f1 fp=0x3cbc229efeb8 sp=0x3cbc229efd30 pc=0x568a51
+github.com/kazu/skiplistmap_test.(*WrapHMap).Set(...)
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap/skiplistmap_bench_test.go:61
+github.com/kazu/skiplistmap_test.Test_HMap.func1(0x3cbc22a82fc8)
+	/mnt/bcachefs/xtakei/host/all/git/github.com/kazu/skiplistmap/skiplistmap_test.go:151 +0x2aa fp=0x3cbc229eff70 sp=0x3cbc229efeb8 pc=0x5e2f8a
+testing.tRunner(0x3cbc22a82fc8, 0x3cbc249b0a60)
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/testing/testing.go:2193 +0xea fp=0x3cbc229effc0 sp=0x3cbc229eff70 pc=0x5043aa
+testing.(*T).Run.gowrap1()
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/testing/testing.go:2258 +0x1b fp=0x3cbc229effe0 sp=0x3cbc229effc0 pc=0x509edb
+runtime.goexit({})
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/runtime/asm_amd64.s:1264 +0x1 fp=0x3cbc229effe8 sp=0x3cbc229effe0 pc=0x4912c1
+created by testing.(*T).Run in goroutine 82
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/testing/testing.go:2258 +0x4d4
+
+goroutine 1 gp=0x3cbc229003c0 m=nil [chan receive]:
+runtime.gopark(0x8ad148?, 0x775800780380?, 0x66?, 0xac?, 0x879c20?)
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/runtime/proc.go:474 +0xca fp=0x3cbc229eb908 sp=0x3cbc229eb8e8 pc=0x48a98a
+runtime.chanrecv(0x3cbc2299a280, 0x3cbc229eb9ef, 0x1)
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/runtime/chan.go:667 +0x4ae fp=0x3cbc229eb980 sp=0x3cbc229eb908 pc=0x4182ae
+runtime.chanrecv1(0x18?, 0x8909d0?)
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/runtime/chan.go:509 +0x12 fp=0x3cbc229eb9a8 sp=0x3cbc229eb980 pc=0x417dd2
+testing.(*T).Run(0x3cbc22a826c8, {0x6393c3?, 0x3cbc229ebaa0?}, 0x8af118)
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/testing/testing.go:2266 +0x4f2 fp=0x3cbc229eba80 sp=0x3cbc229eb9a8 pc=0x504912
+testing.runTests.func1(0x3cbc22a826c8)
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/testing/testing.go:2742 +0x37 fp=0x3cbc229ebac0 sp=0x3cbc229eba80 pc=0x50a157
+testing.tRunner(0x3cbc22a826c8, 0x3cbc229ebbc8)
+	/home/xtakei/go/pkg/mod/golang.org/toolchain@v0.0.1-go1.27.1.linux-amd64/src/testing/testing.go:2193 +0xea fp=0x3cbc229ebb10 sp=0x3cbc229ebac0 pc=0x5043aa

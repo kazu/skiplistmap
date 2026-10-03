@@ -1,8 +1,13 @@
 # See here for image contents: https://github.com/microsoft/vscode-dev-containers/tree/v0.183.0/containers/go/.devcontainer/base.Dockerfile
 
-# [Choice] Go version: 1, 1.16, 1.15
+# The base image provides the vscode user and optional Node tooling.
 ARG VARIANT="1.17"
+ARG GO_VERSION="1.27.1"
+FROM golang:${GO_VERSION}-bookworm AS go-toolchain
 FROM mcr.microsoft.com/vscode/devcontainers/go:0-${VARIANT}
+
+RUN rm -rf /usr/local/go
+COPY --from=go-toolchain /usr/local/go /usr/local/go
 
 # [Option] Install Node.js
 ARG INSTALL_NODE="true"

@@ -1,6 +1,6 @@
 # Skip List Map in Golang
 
-Skip List Map is a concurrent map.  this Map is goroutine safety for reading/updating/deleting, no-require locking and coordination.
+Skip List Map はキーと値を型で指定する並行Mapです。登録・取得・更新・削除を複数のgoroutineから実行できます。値が参照するsliceやpointerの参照先の同期は利用者が行います。
 
 
 ## status
@@ -9,92 +9,100 @@ Skip List Map is a concurrent map.  this Map is goroutine safety for reading/upd
 
 ## features
 
-- buckets, elemenet(key/value item) structure is concurrent embeded-linked list. (using [list_encabezado])
-- keep key order by hash function.
-- ability to store value ( value of key/vale) and elemet of ket/value item(detail is later)
-- improve performance for sync.Map/ internal map in write heavy environment.
+- `Map[K,V]`でキーと値の型を指定でき、独自のキー型も使えます。
+- 値をMap内へ格納する方法と、利用者が保持する`Entry[K,V]`を登録する方法があります。
+- `Update`で現在の値から新しい値を作り、コピーを公開できます。
+- `RMap[K,V]`はreadとdirtyの世代を分けるMapです。
 
 ## requirement
 
-` golang >= 1.17`
+Go 1.27.1を使用します。依存の`elist_head`と`lista_encabezado`は公開済みcommitに固定しています。
+開発時のcheckoutと検証方法は[stability checks](docs/stability-checks.md)を参照してください。
 
 ## install 
 
-Install this package through go get.
-
-```
-go get "github.com/kazu/skiplistmap"
-
-```
+この型付きAPIは開発版です。公開版を取得する `go get` では、このブランチのAPIは
+入りません。[開発環境と検証手順](docs/stability-checks.md)に従って
+依存checkoutを用意してください。次のバージョンは `VERSION` の0.8.0です。
+[配布前の確認事項](docs/releasing.md)も参照してください。
 
 
 ## basic usage
 
+`StringKey`などの標準キー、または`KeyHash`と`Equal`を実装した独自キーを使えます。
+格納方法、Entryの寿命、並行更新時の戻り値は[型付きAPI](docs/typed-api.md)を参照してください。
 
 ```go
-package main 
+package main
 
 import (
     "fmt"
+    "runtime"
+
+    "github.com/kazu/skiplistmap"
 )
 
-//create skip list map
-sMap := skiplistmap.New()
-// create make with configure MaxPerBucket
-// sMap := skiplistmap.New(skiplistmap.MaxPefBucket(12))
-// sMap := skiplistmap.New(skiplistmap.MaxPefBucket(12))
+func main() {
+    sMap := skiplistmap.New[skiplistmap.StringKey, int](skiplistmap.MaxPefBucket[skiplistmap.StringKey, int](12))
+    sMap.Set("test1", 1)
+    sMap.Set("test2", 2)
+    sMap.Update("test1", func(value *int) { *value += 1 })
+    if value, ok := sMap.Get("test1"); ok {
+        fmt.Println(value)
+    }
 
-// Set/Add values
-sMap.Set("test1", 1)
-sMap.Set("test2", 2)
+    // 外部Entryは利用者が保持する。ItemFnは不要。
+    sMap2 := skiplistmap.New[skiplistmap.StringKey, int]()
+    item := skiplistmap.NewEntry[skiplistmap.StringKey, int]("test1", 1234)
+    sMap2.StoreItem(item)
+    if loaded, ok := sMap2.LoadItem("test1"); ok {
+        fmt.Println(loaded.Key(), loaded.Value())
+    }
 
-// get the value for a key, return nil if not found, the ok is found.
-inf, ok := sMap.Get("test1")
-var value1 int
-if ok {
-    value1 = inf.(int)
+    sMap2.RangeItem(func(item *skiplistmap.Entry[skiplistmap.StringKey, int]) bool {
+        fmt.Printf("key=%v\n", item.Key())
+        return true
+    })
+    sMap2.Range(func(key skiplistmap.StringKey, value int) bool {
+        fmt.Printf("key=%v value=%v\n", key, value)
+        return true
+    })
+
+    sMap.Delete("test2")
+    _, found := sMap.Get("test2")
+    fmt.Println(found)
+    sMap2.Purge("test1")
+    runtime.KeepAlive(item)
 }
+```
 
-ok = sMap.GetByFn(func(v interface{}) {
-    value = v.(int)
-})
+## rmap
 
+readとdirtyの世代を分けるrmapも、キーと値を型で指定できます。
+キーの条件はMapと同じで、不在時は値の型のゼロ値とfalseを返します。
 
-// if directry using key/value item. use SampleItem struct
-sMap2 := skiplistmap.New(skiplistmap.MaxPefBucket(12))
-item := &skiplistmap.SampleItem{
-    K: "test1", 
-    V: 1234
+```go
+package main
+
+import (
+    "fmt"
+    "github.com/kazu/skiplistmap"
+    "github.com/kazu/skiplistmap/rmap"
+)
+
+func main() {
+    m := rmap.New[skiplistmap.StringKey, int]()
+    m.Set("apple", 1)
+    fmt.Println(m.Get("apple"))
+    m.Delete("apple")
+    fmt.Println(m.Get("apple"))
 }
-
-// store item
-ok = sMap2.StoreItem(item)
-
-// get key/value item
-item, ok = sMap.LoadItem("test1")
-// get next key/value
-nItem := sMap.Next()
-
-// traverse all item or key/value 
-sMap.RangeItem(func(item MapItem) bool {
-  fmt.Printf("key=%+v\n", item.Key())  
-})
-sMap.Range(func(key, value interface{}) bool {
-  fmt.Printf("key=%+v\n", key)  
-})
-
-
-
-// delete marking. set nil as value.
-sMap.Delete("test2")
-
-// delete key/value entry from map. traverse locked for deleting item to acceess concurrent
-sMap.Purge("test2")
-
-
 ```
 
 ## performance
+
+以下のグラフは従来実装の測定記録です。型付き本体の性能を示すものではありません。
+型付きAPI、コピー公開、Entryの保持と再利用については[型付きAPI](docs/typed-api.md)を参照してください。
 
 ### condition
 - 100000 record. set key/value before benchmark
@@ -133,15 +141,13 @@ Benchmark_Map/hashmap______w/50_bucket=__0-16         	37279302	        66.94 ns
 Benchmark_Map/cmap_________w/50_bucket=__0-16            1592382	       733.2  ns/op	    1069 B/op	       7 allocs/op
 ```
 
-## why faster ?
+## structure
 
+- bucketとEntryを双方向リストでつなぎ、ハッシュ値を使って検索範囲を絞ります。
+- embedded poolでは同じbucketの要素を配列に配置し、bucket単位で同期します。
+- Entryのリンクには[elist_head]の相対ポインタを使います。bucket側は[list_encabezado]を使います。
 
-- lock free , thread safe concurrent without lock. embedded pool mode is using lock per bucket
-- buckets, items(key/value items) is doubly linked-list. this linked list is embedded type. so faster
-- items is shards per hash key single bytes. items in the same shard is high-locality because in same slice.
-- next/prev pointer of items's linked list is relative pointer. low-cost copy for expand shad slice. ([elist_head])
-
-[list_encabezado]: https://pkg.go.dev/github.com/kazu/loncha@v0.4.5/lista_encabezado
+[list_encabezado]: https://pkg.go.dev/github.com/kazu/lista_encabezado
 [elist_head]: https://github.com/kazu/elist_head
 [github.com/cornelk/hashmap]: https://github.com/cornelk/hashmap
 [github.com/lrita/cmap]: https://github.com/lrita/cmap

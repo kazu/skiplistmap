@@ -1,95 +1,86 @@
-// Copyright 2019-2201 Kazuhisa TAKEI<xtakei@rytr.jp>. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-
-// Package loncha/list_head is like a kernel's LIST_HEAD
-// list_head is used by loncha/gen/containers_list
 package skiplistmap
 
 import (
+	"github.com/kazu/elist_head"
 	"sync/atomic"
 	"unsafe"
-
-	"github.com/cespare/xxhash"
-	"github.com/kazu/elist_head"
 )
 
-type SampleItem struct {
-	K string
-	V atomic.Value
-	MapHead
+func NewSampleItem[K Key[K], V any](key K, value V) *Entry[K, V] {
+	return NewEntry(key, value)
+}
+func EmptySampleHMapEntry[K Key[K], V any]() *Entry[K, V] { return nil }
+func SampleItemOffsetOf[K Key[K], V any]() uintptr        { return entryHMapOffset[K, V]() }
+func SampleItemSize[K Key[K], V any]() uintptr            { var e Entry[K, V]; return unsafe.Sizeof(e) }
+
+// SampleItemFromListHead returns the external Entry, or nil for an internal embedded slot.
+func SampleItemFromListHead[K Key[K], V any](head *elist_head.ListHead) *Entry[K, V] {
+	return entryHMapFromListHead[K, V](head).viewEntry()
 }
 
-var sampleItem MapItem = &SampleItem{}
-
-//var EmptySampleHMapEntry SampleItem = SampleItem{}
-var EmptySampleHMapEntry *SampleItem = (*SampleItem)(unsafe.Pointer(uintptr(0)))
-
-const SampleItemOffsetOf = unsafe.Offsetof(EmptySampleHMapEntry.ListHead)
-const SampleItemSize = unsafe.Sizeof(*EmptySampleHMapEntry)
-
-func SampleItemFromListHead(head *elist_head.ListHead) *SampleItem {
-	return (*SampleItem)(ElementOf(unsafe.Pointer(head), SampleItemOffsetOf))
+// HmapEntryFromListHead returns the external Entry, or nil for an internal embedded slot.
+func (e *Entry[K, V]) HmapEntryFromListHead(head *elist_head.ListHead) *Entry[K, V] {
+	return entryHMapFromListHead[K, V](head).viewEntry()
+}
+func (e *embeddedEntry[K, V]) Next() *embeddedEntry[K, V] {
+	for head := e.PtrListHead().DirectNext(); !head.Empty(); head = head.DirectNext() {
+		if !mapheadFromLListHead(head).IsDummy() {
+			return entryHMapFromListHead[K, V](head)
+		}
+	}
+	return nil
+}
+func (e *embeddedEntry[K, V]) Prev() *embeddedEntry[K, V] {
+	for head := e.PtrListHead().DirectPrev(); !head.Empty(); head = head.DirectPrev() {
+		if !mapheadFromLListHead(head).IsDummy() {
+			return entryHMapFromListHead[K, V](head)
+		}
+	}
+	return nil
 }
 
-func (s *SampleItem) Offset() uintptr {
-	return SampleItemOffsetOf
-}
-
-func (s *SampleItem) PtrMapeHead() *MapHead {
-	return &(s.MapHead)
-}
-
-func (s *SampleItem) hmapEntryFromListHead(lhead *elist_head.ListHead) *SampleItem {
-	return SampleItemFromListHead(lhead)
-}
-
-func (s *SampleItem) HmapEntryFromListHead(lhead *elist_head.ListHead) HMapEntry {
-	return s.hmapEntryFromListHead(lhead)
-}
-
-func (s *SampleItem) Key() interface{} {
-	return s.K
-}
-
-func (s *SampleItem) Value() interface{} {
-	return s.V.Load()
-}
-
-func (s *SampleItem) SetValue(v interface{}) bool {
-	if v == nil {
+// SetValue initializes an unlinked Entry. Change linked entries through Map.Set.
+func (e *embeddedEntry[K, V]) SetValue(value V) bool {
+	if !e.PtrListHead().IsSingle() {
 		return false
 	}
-	s.V.Store(v)
+	e.storeTypedKeyValue(e.Key(), value)
 	return true
 }
+func (e *embeddedEntry[K, V]) Delete() {
+	atomic.OrUint64((*uint64)(&e.state), uint64(mapIsDeleted|mapIsRetired))
+}
+func (e *embeddedEntry[K, V]) Setup() { e.reverse, e.conflict = e.KeyHash() }
 
-func (s *SampleItem) Setup() {
-	s.reverse, s.conflict = KeyToHash(s.Key())
-
+func (e *embeddedEntry[K, V]) copyFrom(src *embeddedEntry[K, V]) {
+	key, value, state := src.loadTypedKeyValue()
+	if stepEnabled {
+		stepAt("item.copy.read", unsafe.Pointer(e.PtrListHead()), unsafe.Pointer(src.PtrListHead()))
+	}
+	if src.waitPayload() {
+		e.initializePayload(key, value)
+	}
+	atomic.OrUint64((*uint64)(&e.state), uint64(state&(mapIsDummy|mapIsDeleted|mapIsPoolItem)))
+	e.conflict = atomic.LoadUint64(&src.conflict)
+	e.reverse = atomic.LoadUint64(&src.reverse)
 }
 
-func (s *SampleItem) Next() HMapEntry {
-	return s.hmapEntryFromListHead(s.PtrListHead().DirectNext())
-}
-func (s *SampleItem) Prev() HMapEntry {
-	return s.hmapEntryFromListHead(s.PtrListHead().DirectPrev())
-}
-
-func (s *SampleItem) PtrMapHead() *MapHead {
-	return &s.MapHead
-}
-
-func (s *SampleItem) Delete() {
-	s.state |= mapIsDeleted
+// Next returns the next external Entry, skipping internal embedded slots.
+func (e *Entry[K, V]) Next() *Entry[K, V] {
+	for next := e.embeddedEntry.Next(); next != nil; next = next.Next() {
+		if entry := next.viewEntry(); entry != nil {
+			return entry
+		}
+	}
+	return nil
 }
 
-func (s *SampleItem) KeyHash() (uint64, uint64) {
-	return MemHashString(s.K), xxhash.Sum64String(s.K)
-}
-
-func NewSampleItem(key string, value interface{}) (item *SampleItem) {
-	item = &SampleItem{K: key}
-	item.SetValue(value)
-	return
+// Prev returns the previous external Entry, skipping internal embedded slots.
+func (e *Entry[K, V]) Prev() *Entry[K, V] {
+	for prev := e.embeddedEntry.Prev(); prev != nil; prev = prev.Prev() {
+		if entry := prev.viewEntry(); entry != nil {
+			return entry
+		}
+	}
+	return nil
 }

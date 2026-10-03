@@ -10,15 +10,16 @@ import (
 	"math/bits"
 	"os"
 	"os/signal"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"unsafe"
 
 	"github.com/kazu/elist_head"
-	"github.com/kazu/loncha"
-	list_head "github.com/kazu/loncha/lista_encabezado"
+	list_head "github.com/kazu/lista_encabezado"
 	"github.com/kazu/skiplistmap/atomic_util"
 	"github.com/lk4d4/trylock"
 )
@@ -41,8 +42,8 @@ const (
 
 // Map ... Skip List Map is an ordered and concurrent map.
 // this Map is gourtine safety for reading/updating/deleting, require locking and coordination. This
-type Map struct {
-	buckets    [16]bucket
+type Map[K Key[K], V any] struct {
+	buckets    [16]bucket[K, V]
 	headBucket *list_head.ListHead
 	tailBucket *list_head.ListHead
 
@@ -53,11 +54,9 @@ type Map struct {
 
 	modeForBucket SearchMode
 	mu            sync.Mutex
-	levels        [16]atomic.Value
+	levels        [16]atomic.Pointer[bucket[K, V]]
 
-	ItemFn func() MapItem
-
-	pooler *Pool
+	pooler *Pool[K, V]
 
 	isEmbededItemInBucket bool
 }
@@ -88,62 +87,54 @@ type LevelHead list_head.ListHead
 
 //type LevelHead list_head.ListHead
 
-type OptHMap func(*Map) OptHMap
+type OptHMap[K Key[K], V any] func(*Map[K, V]) OptHMap[K, V]
 
-func MaxPefBucket(max int) OptHMap {
+func MaxPefBucket[K Key[K], V any](max int) OptHMap[K, V] {
 
-	return func(h *Map) OptHMap {
+	return func(h *Map[K, V]) OptHMap[K, V] {
 		prev := h.maxPerBucket
 		h.maxPerBucket = max
-		return MaxPefBucket(prev)
+		return MaxPefBucket[K, V](prev)
 	}
 }
 
-func BucketMode(mode SearchMode) OptHMap {
-	return func(h *Map) OptHMap {
+func BucketMode[K Key[K], V any](mode SearchMode) OptHMap[K, V] {
+	return func(h *Map[K, V]) OptHMap[K, V] {
 		prev := h.modeForBucket
 		h.modeForBucket = mode
-		return BucketMode(prev)
+		return BucketMode[K, V](prev)
 	}
 }
 
-func ItemFn(fn func() MapItem) OptHMap {
-	return func(h *Map) OptHMap {
-		prev := h.ItemFn
-		h.ItemFn = fn
-		if prev == nil {
-			return nil
-		}
-		return ItemFn(prev)
-	}
-}
-
-func UsePool(enable bool) OptHMap {
-	return func(h *Map) OptHMap {
+func UsePool[K Key[K], V any](enable bool) OptHMap[K, V] {
+	return func(h *Map[K, V]) OptHMap[K, V] {
+		ptr := (*unsafe.Pointer)(unsafe.Pointer(&h.pooler))
 		if !enable {
 			h.pooler = nil
-		} else if h.pooler == nil {
-			h.pooler = newPool()
-			h.pooler.startMgr()
+		} else if atomic.LoadPointer(ptr) == nil {
+			p := newPool[K, V]()
+			if atomic.CompareAndSwapPointer(ptr, nil, unsafe.Pointer(p)) {
+				p.startMgr()
+			}
 		}
 
-		return UsePool(!enable)
+		return UsePool[K, V](!enable)
 	}
 }
 
-func UseEmbeddedPool(enable bool) OptHMap {
-	return func(h *Map) OptHMap {
+func UseEmbeddedPool[K Key[K], V any](enable bool) OptHMap[K, V] {
+	return func(h *Map[K, V]) OptHMap[K, V] {
 		old := h.isEmbededItemInBucket
 		h.isEmbededItemInBucket = enable
 		if enable {
-			UsePool(false)(h)
+			UsePool[K, V](false)(h)
 		}
 
-		return UsePool(old)
+		return UsePool[K, V](old)
 	}
 }
 
-func (h *Map) Options(opts ...OptHMap) (previouses []OptHMap) {
+func (h *Map[K, V]) Options(opts ...OptHMap[K, V]) (previouses []OptHMap[K, V]) {
 
 	for _, fn := range opts {
 		previouses = append(previouses, fn(h))
@@ -151,20 +142,19 @@ func (h *Map) Options(opts ...OptHMap) (previouses []OptHMap) {
 	return
 
 }
-func New(opts ...OptHMap) *Map {
+func New[K Key[K], V any](opts ...OptHMap[K, V]) *Map[K, V] {
 
-	return NewHMap(opts...)
+	return NewHMap[K, V](opts...)
 
 }
 
-func NewHMap(opts ...OptHMap) *Map {
-	list_head.MODE_CONCURRENT = true
-	hmap := &Map{
+func NewHMap[K Key[K], V any](opts ...OptHMap[K, V]) *Map[K, V] {
+	hmap := &Map[K, V]{
 		len:          0,
 		maxPerBucket: 32,
 	}
 
-	topBucket := newBucket()
+	topBucket := newBucket[K, V]()
 	topBucket.InitAsEmpty()
 	hmap.tailBucket = topBucket.Next()
 	hmap.headBucket = topBucket.Prev()
@@ -174,13 +164,9 @@ func NewHMap(opts ...OptHMap) *Map {
 	elist_head.InitAsEmpty(hmap.head, hmap.tail)
 
 	hmap.modeForBucket = NestedSearchForBucket
-	hmap.ItemFn = func() MapItem { return emptyEntryHMap }
 	hmap.isEmbededItemInBucket = false
 
 	hmap.Options(opts...)
-
-	// other traverse option is not required if not marking delete.
-	list_head.DefaultModeTraverse.Option(list_head.Direct())
 
 	hmap.initLevels()
 
@@ -192,7 +178,7 @@ func NewHMap(opts ...OptHMap) *Map {
 	return hmap
 }
 
-func (h *Map) cactchSigBua() {
+func (h *Map[K, V]) cactchSigBua() {
 
 	go func() {
 		sig := make(chan os.Signal, 1)
@@ -211,26 +197,27 @@ func (h *Map) cactchSigBua() {
 	}()
 }
 
-func (h *Map) Len() int {
-	return int(h.len)
+// Len returns the number of entries. During concurrent updates it may report
+// an intermediate count; after updates finish it returns the exact count.
+func (h *Map[K, V]) Len() int {
+	return int(atomic.LoadInt64(&h.len))
 }
 
-func (h *Map) AddLen(inc int64) int64 {
+func (h *Map[K, V]) AddLen(inc int64) int64 {
 	return atomic.AddInt64(&h.len, inc)
 }
 
-func (h *Map) initBeforeSet() {
+func (h *Map[K, V]) initBeforeSet() {
 	if !h.notHaveBuckets() {
 		return
 	}
-	btable := newBucket()
+	btable := newBucket[K, V]()
 	btable._level, btable._len = 16, 0
 	btable.reverse = ^uint64(0)
 	btable.Init()
 	btable.LevelHead.Init()
 
 	empty := &btable.dummy
-	empty.key, empty.value = nil, nil
 	empty.reverse, empty.conflict = btable.reverse, 0
 	empty.PtrMapHead().state |= mapIsDummy
 
@@ -263,15 +250,15 @@ func (h *Map) initBeforeSet() {
 		if h.isEmbededItemInBucket {
 			btable.initItemPool()
 			if btable._itemPool == nil {
-				btable._itemPool = &samepleItemPool{}
+				btable._itemPool = &samepleItemPool[K, V]{}
 				btable._itemPool.Init()
 			}
 			btable.setupPool()
+			btable._itemPool.reusable = true
 			btable._itemPool._init(h.maxPerBucket * 3 / 2)
 		}
 
 		empty = &btable.dummy
-		empty.key, empty.value = nil, nil
 		empty.reverse, empty.conflict = btable.reverse, 0
 		empty.PtrMapHead().state |= mapIsDummy
 
@@ -303,13 +290,16 @@ func (h *Map) initBeforeSet() {
 	}
 }
 
-func (h *Map) _update(item MapItem, v interface{}) bool {
-	return item.SetValue(v)
+func (h *Map[K, V]) _update(item *embeddedEntry[K, V], value V) bool {
+	if !h.isEmbededItemInBucket || !item.isPoolItem() {
+		return h.replaceEntry(item.viewEntry(), value)
+	}
+	return h.replacePoolEntry(item, value)
 }
 
-func (h *Map) _validateallbucket() {
+func (h *Map[K, V]) _validateallbucket() {
 
-	for bucket := bucketFromListHead(h.headBucket.Next()); bucket != bucket.nextAsB(); bucket = bucket.nextAsB() {
+	for bucket := bucketFromListHead[K, V](h.headBucket.Next()); bucket != bucket.nextAsB(); bucket = bucket.nextAsB() {
 		if bucket.itemPool().validateItems() != nil {
 			bucket.itemPool().validateItems()
 			// lget := lastgets
@@ -322,13 +312,19 @@ func (h *Map) _validateallbucket() {
 }
 
 // TestSet ... _set() for Test
-func (h *Map) TestSet(k, conflict uint64, btable *bucket, item MapItem) bool {
-	return h._set(k, conflict, btable.toBase(), item)
+func (h *Map[K, V]) TestSet(k, conflict uint64, btable *bucket[K, V], item *Entry[K, V]) bool {
+	return h._set(k, conflict, btable.toBase(), &item.embeddedEntry)
 }
 
-func (h *Map) _set(k, conflict uint64, btable *bucket, item MapItem) bool {
+func (h *Map[K, V]) _set(k, conflict uint64, btable *bucket[K, V], item *embeddedEntry[K, V]) bool {
+	return h.setItem(k, conflict, btable, item, false)
+}
 
-	if !h.isEmbededItemInBucket {
+// setItem links item as _set does. fromUser tells an item that StoreItem got
+// from its caller, which the map refuses while it is linked.
+func (h *Map[K, V]) setItem(k, conflict uint64, btable *bucket[K, V], item *embeddedEntry[K, V], fromUser bool) bool {
+
+	if !h.isEmbededItemInBucket || fromUser {
 		if !atomic.CompareAndSwapUint64(&item.PtrMapHead().reverse, 0, bits.Reverse64(k)) {
 			Log(LogDebug, "already set reverse")
 		}
@@ -339,7 +335,7 @@ func (h *Map) _set(k, conflict uint64, btable *bucket, item MapItem) bool {
 
 	h.initBeforeSet()
 
-	var addOpt HMethodOpt
+	var addOpt HMethodOpt[K, V]
 	_ = addOpt
 	//defer btable._validateItemsNear()
 
@@ -371,10 +367,10 @@ SKIP_FETCH_BUCKET:
 		Log(LogWarn, "bucket.head not set")
 	}
 	if btable == nil || btable.head() == nil {
-		btable = newBucket()
+		btable = newBucket[K, V]()
 		//btable.head = h.head.Prev().Next()
 	} else {
-		addOpt = WithBucket(btable)
+		addOpt = WithBucket[K, V](btable)
 	}
 	if !h.isEmbededItemInBucket && btable.head().Empty() {
 		if IsInfo() {
@@ -386,65 +382,122 @@ SKIP_FETCH_BUCKET:
 		btable.head()
 	}
 
-	entry, cnt := h.find(btable.head(), func(item HMapEntry) bool {
+	entry, cnt := h.find(btable.head(), func(item *MapHead) bool {
 		mHead := item.PtrMapHead()
-		return bits.Reverse64(k) <= mHead.reverse
-	}, ignoreBucketEntry(false))
+		return bits.Reverse64(k) <= atomic.LoadUint64(&mHead.reverse)
+	})
 	_ = cnt
 
-	var pEntry HMapEntry
 	var tStart *elist_head.ListHead
 	if entry != nil {
-		pEntry = entry.Prev()
-		erk := entry.PtrMapHead().reverse
-		prk := pEntry.PtrMapHead().reverse
-		rk := bits.Reverse64(k)
-		_, _, _ = erk, prk, rk
-
-		if entry.PtrMapHead().reverse < bits.Reverse64(k) {
+		if atomic.LoadUint64(&entry.PtrMapHead().reverse) < bits.Reverse64(k) {
 			tStart = entry.PtrListHead()
-		} else if pEntry.PtrMapHead().reverse < bits.Reverse64(k) {
-			tStart = pEntry.PtrListHead()
 		} else {
-			Log(LogDebug, "hash key == reverse hash key")
+			prev := entry.PtrListHead().DirectPrev()
+			// The front sentinel has no enclosing map entry.
+			if !prev.Empty() && atomic.LoadUint64(&mapheadFromLListHead(prev).reverse) < bits.Reverse64(k) {
+				tStart = prev
+			}
 		}
 	}
 	if tStart == nil {
 		tStart = btable.head()
 	}
 
-	item.PtrListHead().Init()
-	if addOpt == nil {
+	stepAt("set.beforeInit", unsafe.Pointer(item.PtrListHead()), unsafe.Pointer(tStart))
+	atomic.AndUint64((*uint64)(&item.PtrMapHead().state), ^uint64(mapIsDeleted))
+	// the marks of an item that the item pool moves stay; add2 links its
+	// copy. An item of StoreItem is not cleared: StoreItem found it not
+	// linked after it took its mapIsBusy
+	if !fromUser && !item.PtrListHead().InitUnmarked() && elist_head.MovedTo(item.PtrListHead()) == nil {
+		item.PtrListHead().Init()
+	}
+	var linked bool
+	if fromUser {
+		var u userStore
+		if addOpt == nil {
+			linked = h.add2(tStart, item, forUser[K, V](&u))
+		} else {
+			linked = h.add2(tStart, item, addOpt, forUser[K, V](&u))
+		}
+		item.PtrMapHead().releaseBusy()
+		if u.linked {
+			return false
+		}
+	} else if addOpt == nil {
 		//btable._validateItemsNear()
-		h.add2(tStart, item)
+		linked = h.add2(tStart, item)
 		//btable._validateItemsNear()
 	} else {
 		//btable._validateItemsNear()
-		h.add2(tStart, item, addOpt)
+		linked = h.add2(tStart, item, addOpt)
 		//btable._validateItemsNear()
+	}
+	if !fromUser && !h.isEmbededItemInBucket {
+		item.PtrMapHead().releaseBusy()
+	}
+	if !linked {
+		// the value went into an entry of the key linked meanwhile
+		return true
 	}
 	atomic.AddInt64(&h.len, 1)
 	if btable.level() > 0 {
 		atomic.AddInt32(&btable._len, 1)
 	}
 	if !h.isEmbededItemInBucket && btable != nil && int(btable.len()) > h.maxPerBucket {
-		h.makeBucket(item.PtrListHead(), int(btable.len())/2)
+		h.makeBucket(movedHead(item.PtrListHead()), int(btable.len())/2)
 	}
 
 	return true
 }
 
-func (h *Map) get(key interface{}) (interface{}, bool) {
-	e, success := h._get(KeyToHash(key))
+func (h *Map[K, V]) get(key K) (V, bool) {
+	e, success := h._get(key.KeyHash())
 	if e == nil {
-		return e, success
+		var zero V
+		return zero, success
 	}
 	return e.Value(), success
 }
 
 var Failreverse uint64 = 0
 
-func (h *Map) _get(k, conflict uint64) (MapItem, bool) {
+func (h *Map[K, V]) _get(k, conflict uint64) (*embeddedEntry[K, V], bool) {
+	return h.getItemMatching(k, conflict, *new(K), false)
+}
+
+func (h *Map[K, V]) getItemMatching(k, conflict uint64, key K, byKey bool) (*embeddedEntry[K, V], bool) {
+	for {
+		e := h.searchItem(k)
+		if e == nil {
+			return nil, false
+		}
+		if entry := e; !h.isEmbededItemInBucket {
+			matched, retry := h.matchCopyEntry(entry, bits.Reverse64(k), conflict, key, byKey)
+			if retry {
+				continue
+			}
+			if matched == nil {
+				return nil, false
+			}
+			return matched, true
+		}
+		if !byKey && matchesLiveHash(e.PtrMapHead(), bits.Reverse64(k), conflict) {
+			return e, true
+		}
+		var retry bool
+		e, retry = h.matchEntry(e, bits.Reverse64(k), conflict, key, byKey, h.isEmbededItemInBucket)
+		if retry {
+			continue
+		}
+		if e == nil {
+			return nil, false
+		}
+		return e, true
+	}
+}
+
+func (h *Map[K, V]) searchItem(k uint64) *embeddedEntry[K, V] {
 	if EnableStats {
 		h.mu.Lock()
 		DebugStats[CntOfGet]++
@@ -452,60 +505,150 @@ func (h *Map) _get(k, conflict uint64) (MapItem, bool) {
 	}
 	e := h.searchKey(k, true)
 	if e == nil {
-		if Failreverse == 0 {
-			Failreverse = bits.Reverse64(k)
+		if atomic.LoadUint64(&Failreverse) == 0 {
+			atomic.CompareAndSwapUint64(&Failreverse, 0, bits.Reverse64(k))
 		}
-		return nil, false
+		return nil
 	}
-	if e.PtrMapHead().reverse != bits.Reverse64(k) || e.PtrMapHead().conflict != conflict {
-		return nil, false
+	if stepEnabled {
+		stepAt("get.found", unsafe.Pointer(e.PtrListHead()), nil)
 	}
-	return e.(MapItem), true
-
+	return e
 }
 
-func (h *Map) getWithBucket(k, conflict uint64) (MapItem, *bucket, bool) {
+// matchEntry searches neighboring entries with the same reversed hash,
+// checking the actual key as well when the caller supplies one.
+// Its second result requests a new search when removal or reuse invalidated
+// the collision walk; a detached cursor cannot establish that a key is absent.
+func (h *Map[K, V]) matchEntry(e *embeddedEntry[K, V], reverse, conflict uint64, key K, byKey, reusable bool) (*embeddedEntry[K, V], bool) {
+	if entry := e; !h.isEmbededItemInBucket {
+		return h.matchCopyEntry(entry, reverse, conflict, key, byKey)
+	}
+	mh := e.PtrMapHead()
+	if !byKey {
+		if matchesLiveHash(mh, reverse, conflict) {
+			return e, false
+		}
+	} else if _, ok := readMatchingEntry[K, V](e, reverse, conflict, key, true, false, reusable); ok {
+		return e, false
+	}
+	return h.matchNeighbors(e, mh, reverse, conflict, key, byKey, reusable)
+}
 
+func (h *Map[K, V]) matchNeighbors(e *embeddedEntry[K, V], mh *MapHead, reverse, conflict uint64, key K, byKey, reusable bool) (*embeddedEntry[K, V], bool) {
+	state := mapState(atomic.LoadUint64((*uint64)(&mh.state))) &^ mapTransientState
+	if atomic.LoadUint64(&mh.reverse) != reverse {
+		return nil, true
+	}
+	retry := state&mapKeyWriting != 0
+	matches := func(cur *elist_head.ListHead) (*embeddedEntry[K, V], bool) {
+		// The boundary nodes are standalone ListHeads, not embedded MapHeads.
+		if cur == h.head || cur == h.tail {
+			return nil, false
+		}
+		mh := mapheadFromLListHead(cur)
+		if !linkedEntry(cur) {
+			if atomic.LoadUint64(&mh.reverse) == reverse && !mh.IsDummy() {
+				retry = true
+			}
+			return nil, false
+		}
+		if atomic.LoadUint64(&mh.reverse) != reverse {
+			return nil, false
+		}
+		if !mh.IsIgnored() && atomic.LoadUint64(&mh.conflict) == conflict {
+			c := entryHMapFromListHead[K, V](cur)
+			if _, ok := readMatchingEntry[K, V](c, reverse, conflict, key, byKey, false, reusable); ok {
+				return c, true
+			}
+		}
+		return nil, true
+	}
+	for cur := e.PtrListHead().DirectNext(); ; cur = cur.DirectNext() {
+		c, same := matches(cur)
+		if c != nil {
+			return c, false
+		}
+		if !same {
+			break
+		}
+	}
+	for cur := e.PtrListHead().DirectPrev(); ; cur = cur.DirectPrev() {
+		c, same := matches(cur)
+		if c != nil {
+			return c, false
+		}
+		if !same {
+			break
+		}
+	}
+	return nil, retry || mapState(atomic.LoadUint64((*uint64)(&mh.state)))&^mapTransientState != state
+}
+
+func (h *Map[K, V]) getWithBucket(k, conflict uint64) (*embeddedEntry[K, V], *bucket[K, V], bool) {
+	return h.getItemWithBucket(k, conflict, *new(K), false)
+}
+
+func (h *Map[K, V]) getItemWithBucket(k, conflict uint64, key K, byKey bool) (*embeddedEntry[K, V], *bucket[K, V], bool) {
+	item, bucket, _, found := h.lookupItem[noDummyTrace](k, conflict, key, byKey)
+	return item, bucket, found
+}
+
+func (h *Map[K, V]) lookupItem[T dummyTrace](k, conflict uint64, key K, byKey bool) (*embeddedEntry[K, V], *bucket[K, V], *MapHead, bool) {
+	var trace T
 	if EnableStats {
 		h.mu.Lock()
 		DebugStats[CntOfGet]++
 		h.mu.Unlock()
 	}
-	var bucket *bucket
-	var reverse uint64
-	var e HMapEntry
+	for {
+		var bucket *bucket[K, V]
+		var reverse uint64
+		var e *embeddedEntry[K, V]
+		var dummy *MapHead
 
-	if h.isEmbededItemInBucket {
-		reverse = bits.Reverse64(k)
-		bucket = h.findBucket(reverse)
-		e = h.bsearchBybucket(bucket, reverse, true)
+		if h.isEmbededItemInBucket {
+			reverse = bits.Reverse64(k)
+			bucket = h.findBucket(reverse)
+			e = h.bsearchBybucket(bucket, reverse, true)
 
-	} else {
-		bucket, reverse = h.searchBucket4update(k)
-		if !h.isEmbededItemInBucket && bucket.head() == nil {
+		} else {
 			bucket, reverse = h.searchBucket4update(k)
+			if !h.isEmbededItemInBucket && bucket.head() == nil {
+				bucket, reverse = h.searchBucket4update(k)
+			}
+			if len(trace) != 0 {
+				e = h.searchCopyBucket[saveDummyTrace](bucket, reverse, true, &dummy)
+			} else {
+				e = h.searchBybucket(bucket, reverse, true)
+			}
 		}
-		e = h.searchBybucket(bucket, reverse, true)
-	}
 
-	if e == nil {
-		if Failreverse == 0 {
-			Failreverse = bits.Reverse64(k)
+		if e == nil {
+			if atomic.LoadUint64(&Failreverse) == 0 {
+				atomic.CompareAndSwapUint64(&Failreverse, 0, bits.Reverse64(k))
+			}
+			return nil, bucket, dummy, false
 		}
-		return nil, bucket, false
-	}
-	if ereverse := atomic.LoadUint64(&e.PtrMapHead().reverse); ereverse != bits.Reverse64(k) {
-		return nil, bucket, false
-	}
-	if econflict := atomic.LoadUint64(&e.PtrMapHead().conflict); econflict != conflict {
-		return nil, bucket, false
-	}
+		var retry bool
+		if len(trace) != 0 && !h.isEmbededItemInBucket {
+			e, retry = h.matchCopyEntryWithDummy(e, bits.Reverse64(k), conflict, key, byKey, &dummy)
+		} else {
+			e, retry = h.matchEntry(e, bits.Reverse64(k), conflict, key, byKey, h.isEmbededItemInBucket)
+		}
+		if retry {
+			continue
+		}
+		if e == nil {
+			return nil, bucket, dummy, false
+		}
 
-	return e.(MapItem), bucket, true
+		return e, bucket, dummy, true
+	}
 
 }
 
-func (h *Map) notHaveBuckets() bool {
+func (h *Map[K, V]) notHaveBuckets() bool {
 	return h.tailBucket.Next().Prev().Empty()
 }
 
@@ -517,12 +660,12 @@ func levelMask(level int) (mask uint64) {
 	return
 }
 
-func (h *Map) searchBucket(k uint64) (result *bucket) {
+func (h *Map[K, V]) searchBucket(k uint64) (result *bucket[K, V]) {
 	cnt := 0
 
 	idx := bits.Reverse64(k) >> (4 * 15)
 	for cur := &h.buckets[idx].ListHead; !cur.Empty(); cur = cur.DirectNext() {
-		bcur := bucketFromListHead(cur)
+		bcur := bucketFromListHead[K, V](cur)
 		if bits.Reverse64(k) > bcur.reverse {
 			return bcur
 		}
@@ -531,89 +674,135 @@ func (h *Map) searchBucket(k uint64) (result *bucket) {
 	return
 }
 
-// Get ... return the value for a key, if not found, ok is false
-func (h *Map) Get(key interface{}) (value interface{}, ok bool) {
-	item, ok := h._get(KeyToHash(key))
-	if !ok {
-		return nil, false
+// Get returns the value for key, or false if none is found. Concurrent removal
+// of a traversal node may also make the lookup fail while key remains present.
+func (h *Map[K, V]) Get(key K) (value V, ok bool) {
+	hash, conflict := key.KeyHash()
+	return h.getValueMatching(hash, conflict, key, true)
+}
+
+// GetByHash returns the value of one entry matching the hash pair.
+// As with Get, concurrent removal may make the lookup fail.
+func (h *Map[K, V]) GetByHash(hash, conflict uint64) (value V, ok bool) {
+	return h.getValueMatching(hash, conflict, *new(K), false)
+}
+
+// LoadItem returns the entry for key, or false if not found.
+// It panics with UseEmbeddedPool; use Get to read a value instead.
+// Updates may replace the entry. Change entries through the map's methods.
+func (h *Map[K, V]) LoadItem(key K) (item *Entry[K, V], success bool) {
+	h.checkEntryAccess()
+	hash, conflict := key.KeyHash()
+	entry, _, success := h.getItemWithBucket(hash, conflict, key, true)
+	return entry.viewEntry(), success
+}
+
+// LoadItemByHash returns one entry matching the hash pair of KeyToHash.
+// It panics with UseEmbeddedPool; use GetByHash to read a value instead.
+// Updates may replace the entry, as described in LoadItem.
+func (h *Map[K, V]) LoadItemByHash(k uint64, conflict uint64) (item *Entry[K, V], success bool) {
+	h.checkEntryAccess()
+	entry, success := h._get(k, conflict)
+	return entry.viewEntry(), success
+}
+
+func (h *Map[K, V]) checkEntryAccess() {
+	if h.isEmbededItemInBucket {
+		panic("skiplistmap: entry access is unavailable with UseEmbeddedPool; use Get or Range")
 	}
-	return item.Value(), ok
 }
 
-func (h *Map) GetByHash(hash, conflict uint64) (value interface{}, ok bool) {
-	item, ok := h._get(hash, conflict)
-	if !ok {
-		return nil, false
-	}
-	return item.Value(), ok
-}
-
-// LoadItem ... return key/value item with embedded-linked-list. if not found, ok is false
-func (h *Map) LoadItem(key interface{}) (item MapItem, success bool) {
-	item, _, success = h._loadItem(0, 0, key)
-	return
-}
-
-func (h *Map) LoadItemByHash(k uint64, conflict uint64) (item MapItem, success bool) {
-
-	item, success = h._get(k, conflict)
-	return
-}
-
-func (h *Map) loadItem(k uint64, conflict uint64, key interface{}) (item MapItem, bucket *bucket, lock *trylock.Mutex, found bool) {
+func (h *Map[K, V]) loadItem(k uint64, conflict uint64, key K) (item *embeddedEntry[K, V], bucket *bucket[K, V], lock *trylock.Mutex, found bool) {
 
 	for {
-		item, bucket, found = h._loadItem(0, 0, key)
-		if !found {
+		hash, conflict := key.KeyHash()
+		item, bucket, found = h.getItemWithBucket(hash, conflict, key, true)
+		if stepEnabled && found {
+			stepAt("loadItem.found", unsafe.Pointer(item.PtrListHead()), unsafe.Pointer(bucket))
+		}
+		if mu, ok := h.lockFoundItem(key, item, bucket); ok {
+			lock = mu
 			break
 		}
-		if bucket.muPool.TryLock() {
-			//defer bucket.muPool.Unlock()
-			lock = &bucket.muPool
-			break
-		}
+		runtime.Gosched()
 	}
 	return
 }
 
-func (h *Map) _loadItem(k uint64, conflict uint64, key interface{}) (MapItem, *bucket, bool) {
-	//return h._get(k, conflict)
-	if key == nil {
-		return h.getWithBucket(k, conflict)
+// lockFoundItem locks the muPool that guards the pool of bucket, the one of
+// the base bucket, which a Set of a new key locks too. It keeps the lock only
+// when item is still live with the requested key; pool slots must belong to
+// the current array. A nil item validates that the key is still absent.
+func (h *Map[K, V]) lockFoundItem(key K, item *embeddedEntry[K, V], bucket *bucket[K, V]) (*trylock.Mutex, bool) {
+	owner := bucket.toBase()
+	mu := &owner.muPool
+	if !mu.TryLock() {
+		return nil, false
 	}
+	hash, conflict := key.KeyHash()
+	reverse := bits.Reverse64(hash)
+	if h.findBucket(reverse).toBase() == owner {
+		if item == nil {
+			if _, _, found := h.getItemWithBucket(hash, conflict, key, true); !found {
+				return mu, true
+			}
+		} else if !item.isPoolItem() {
+			if _, valid := readMatchingEntry[K, V](item, reverse, conflict, key, true, false, false); valid && !item.ListHead.IsMarked() {
+				return mu, true
+			}
+		}
+		// The lock keeps this array and its slots stable. Validate the original
+		// slot directly, including its current key, instead of searching again.
+		if sample := item; sample != nil && sample.isPoolItem() {
+			items := owner.itemPool().ptrItems()
+			offset := uintptr(unsafe.Pointer(sample)) - uintptr(atomic.LoadPointer(&items.data))
+			if offset < uintptr(items.Len())*items.stride && offset%items.stride == 0 {
+				if _, valid := readMatchingEntry[K, V](item, reverse, conflict, key, true, false, true); valid {
+					return mu, true
+				}
+			}
+		}
+	}
+	mu.Unlock()
+	return nil, false
+}
 
-	return h.getWithBucket(KeyToHash(key))
+func (h *Map[K, V]) _loadItem(k uint64, conflict uint64, key K) (*embeddedEntry[K, V], *bucket[K, V], bool) {
+	hash, keyConflict := key.KeyHash()
+	return h.getItemWithBucket(hash, keyConflict, key, true)
 }
 
 var madeBucket int32 = 0
 
 // Set ... set the value for a key
-func (h *Map) Set(key, value interface{}) bool {
+//
+// When Set adds a new key, the item that holds it lives in the map's item
+// pool, whose array keeps it reachable for the GC. A map without
+// UseEmbeddedPool creates the pool on the first such Set if it has none. For
+// a key already present, Set publishes a replacement entry with the new value.
+func (h *Map[K, V]) Set(key K, value V) bool {
 	atomic.StoreInt32(&madeBucket, 0)
 
-	var item MapItem
-	var bucket *bucket
+	var item *embeddedEntry[K, V]
+	var bucket *bucket[K, V]
 	var found bool
+	k, conflict := key.KeyHash()
 
-	for {
-		item, bucket, found = h._loadItem(0, 0, key)
-		if !found {
-			break
-		}
-		if !h.isEmbededItemInBucket {
+	if !h.isEmbededItemInBucket {
+		item, bucket, found = h.getItemWithBucket(k, conflict, key, true)
+		if found {
 			return h._update(item, value)
 		}
-		if bucket.muPool.TryLock() {
-			defer bucket.muPool.Unlock()
-			return h._update(item, value)
-		}
+	} else {
+		// the lookup runs below, once, under the lock of the pool
+		bucket = h.findBucket(bits.Reverse64(k))
 	}
 
-	var s *SampleItem
+	var s *embeddedEntry[K, V]
 	useDump := false
 
-	if h.pooler == nil && h.modeForBucket == CombineSearch4 && !h.isEmbededItemInBucket {
-		UsePool(true)(h)
+	if atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&h.pooler))) == nil && !h.isEmbededItemInBucket {
+		UsePool[K, V](true)(h)
 	}
 	if !h.isEmbededItemInBucket && bucket.head().Empty() {
 		bucket.head()
@@ -622,52 +811,74 @@ func (h *Map) Set(key, value interface{}) bool {
 	}
 
 	if h.isEmbededItemInBucket {
-		k, conflict := KeyToHash(key)
-		var nPool *samepleItemPool
+		var nPool *samepleItemPool[K, V]
+
+		// Hold the lock of the pool from the lookup to the store of the
+		// value or to the link, so that the item found is not purged and
+		// its slot reused before the store, and two goroutines inserting
+		// the same key cannot both miss and both insert.
+		var mu *trylock.Mutex
+		for {
+			mu = &bucket.toBase().muPool
+			stepAt("set.newKeyLock", unsafe.Pointer(bucket), unsafe.Pointer(mu))
+			mu.Lock()
+			nb := bucket
+			item, nb, found = h.getItemWithBucket(k, conflict, key, true)
+			if nb.toBase() == bucket.toBase() {
+				break
+			}
+			mu.Unlock()
+			bucket = nb
+		}
+		defer mu.Unlock()
+		if found {
+			if stepEnabled {
+				stepAt("set.updateLocked", unsafe.Pointer(item.PtrListHead()), unsafe.Pointer(bucket))
+			}
+			return h._update(item, value)
+		}
 
 		//lastgets = nil
 		oPool := bucket.itemPool()
-		item, nPool, fn := oPool.getWithFn(bits.Reverse64(k), &bucket.muPool)
-		if fn != nil {
-			defer fn(&bucket.muPool)
-		}
+		item, nPool, _ := oPool.getWithFn(bits.Reverse64(k), nil)
 
-		s = item.(*SampleItem)
+		s = item
 		if nPool != nil {
 			bucket.setItemPool(nPool)
+		}
+		if stepEnabled {
+			stepAt("set.slotTaken", unsafe.Pointer(s.PtrListHead()), unsafe.Pointer(bucket))
 		}
 
 		// s.PtrMapHead().reverse = bits.Reverse64(k)
 		// s.PtrMapHead().conflict = conflict
-		if !atomic.CompareAndSwapUint64(&s.PtrMapHead().reverse, 0, bits.Reverse64(k)) {
+		// the pool wrote the reverse when it handed out the slot
+		if r := bits.Reverse64(k); atomic.LoadUint64(&s.PtrMapHead().reverse) != r &&
+			!atomic.CompareAndSwapUint64(&s.PtrMapHead().reverse, 0, r) {
 			Log(LogDebug, "already set reverse")
 		}
 		if !atomic.CompareAndSwapUint64(&item.PtrMapHead().conflict, 0, conflict) {
 			Log(LogDebug, "already set conflict")
 		}
-	} else if h.pooler != nil {
-		k, _ := KeyToHash(key)
-		var wg sync.WaitGroup
-		var fn func()
-		fn = nil
-		wg.Add(1)
-		h.pooler.Get(bits.Reverse64(k), func(item MapItem, mu sync.Locker) {
-			s = item.(*SampleItem)
-			if mu != nil {
-				fn = func() {
-					mu.Unlock()
-				}
-			}
-			wg.Done()
+		stepAt("set.identity", unsafe.Pointer(s.PtrListHead()), nil)
+	} else {
+		var pooled *embeddedEntry[K, V]
+		var held sync.Locker
+		var ready sync.WaitGroup
+		ready.Add(1)
+		pooler := (*Pool[K, V])(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&h.pooler))))
+		pooler.Get(bits.Reverse64(k), func(item MapItem[K, V], lock sync.Locker) {
+			pooled, held = &item.embeddedEntry, lock
+			ready.Done()
 		})
-		if fn != nil {
-			defer fn()
+		ready.Wait()
+		s = pooled
+		if held != nil {
+			defer held.Unlock()
 		}
-
 		if s != nil && !s.IsSingle() {
 			Log(LogWarn, "get not single entry?")
 		}
-		wg.Wait()
 		if IsExtended {
 			useDump = true
 			IsExtended = false
@@ -681,20 +892,15 @@ func (h *Map) Set(key, value interface{}) bool {
 			fmt.Println(b.String())
 			useDump = false
 		}
-	} else {
-		s = &SampleItem{}
 	}
 
-	s.K = key.(string)
-	s.SetValue(value)
-
-	if _, ok := h.ItemFn().(*SampleItem); !ok {
-		ItemFn(func() MapItem {
-			return EmptySampleHMapEntry
-		})(h)
+	s.storeTypedKeyValue(key, value)
+	st := mapIsPoolItem
+	if !h.isEmbededItemInBucket {
+		st |= mapIsBusy
 	}
+	atomic.OrUint64((*uint64)(&s.PtrMapHead().state), uint64(st))
 
-	k, conflict := KeyToHash(s.K)
 	if h.isEmbededItemInBucket {
 		return h._set(k, conflict, bucket.toBase(), s)
 	}
@@ -705,21 +911,104 @@ func (h *Map) Set(key, value interface{}) bool {
 }
 
 // StoreItem ... set key/value item with embedded-linked-list
-func (h *Map) StoreItem(item MapItem) bool {
-	k, conflict := item.KeyHash()
-
-	oitem, bucket, found := h._loadItem(k, conflict, nil)
-	if found {
-		return h._update(oitem, item.Value())
-	}
-
-	return h._set(k, conflict, bucket, item)
+//
+// StoreItem links item itself into the map and does not copy it. The map
+// holds only offsets to item, which the GC does not follow, so the caller
+// must keep item reachable while it is linked: until Purge of its key
+// returns true, or until the caller stops using the map. Delete leaves item
+// linked, and a Purge after Delete does not find it: keep an item that
+// Delete removed reachable as long as the map is used. A Delete that finds
+// item while a StoreItem of item is still linking it returns false without
+// UseEmbeddedPool; embedded writers serialize through the bucket lock.
+// Otherwise the map links freed memory (a dangling reference). The map never
+// moves item. If the key is already present, its value is updated in the map,
+// and item is not linked. StoreItem returns false for an
+// item still linked, in this map or in another. An entry deleted or retired
+// by replacement cannot be stored again, even after Purge or link initialization;
+// use Entry.Copy or StoreItemOrCopy to store its data in a new entry.
+// It returns false also while
+// another StoreItem, a Delete or a Purge of item is running, and for an
+// item owned by the map's item pool, such as an item stored by Set.
+// Entry retrieval APIs are unavailable with UseEmbeddedPool (see LoadItem).
+// With UseEmbeddedPool, external entries coexist with pool entries and do
+// not move when the pool grows. Updates publish copies retained by the
+// original external entry, as they do without UseEmbeddedPool.
+func (h *Map[K, V]) StoreItem(item *Entry[K, V]) bool {
+	ok, _ := h.storeItem(&item.embeddedEntry)
+	return ok
 }
 
-func (h *Map) eachEntry(start *elist_head.ListHead, fn func(*entryHMap)) {
+// StoreItemOrCopy stores item as StoreItem does. Only a refusal due to deletion
+// or retirement causes it to copy item and try StoreItem with the copy. Pool
+// entries and busy entries are refused without copying.
+// It returns the entry passed to the successful StoreItem, or nil on failure.
+// Keep the returned entry reachable as required by StoreItem, and keep any
+// previously stored root alive for its existing map too. If the key already
+// exists, StoreItem updates that entry instead of linking the returned entry.
+func (h *Map[K, V]) StoreItemOrCopy(item *Entry[K, V]) (*Entry[K, V], bool) {
+	return h.storeItemOrCopy(&item.embeddedEntry)
+}
+
+func (h *Map[K, V]) storeItemOrCopy(item *embeddedEntry[K, V]) (*Entry[K, V], bool) {
+	ok, retired := h.storeItem(item)
+	if retired {
+		item = &item.Copy().embeddedEntry
+		ok, _ = h.storeItem(item)
+	}
+	if !ok {
+		return nil, false
+	}
+	return item.viewEntry(), true
+}
+
+func (h *Map[K, V]) storeItem(item *embeddedEntry[K, V]) (ok, retired bool) {
+	if item.PtrMapHead().isPoolItem() {
+		return false, false
+	}
+	if state := mapState(atomic.LoadUint64((*uint64)(&item.state))); state&mapIsRetired != 0 {
+		return false, state&mapIsBusy == 0
+	}
+	// an item still linked is refused also when its key is present, where
+	// the value would go into the item found
+	if !item.PtrListHead().IsSingle() {
+		return false, false
+	}
+	stepAt("storeItem.checked", unsafe.Pointer(item.PtrListHead()), nil)
+	if !item.PtrMapHead().claimBusy() {
+		return false, false
+	}
+	if mapState(atomic.LoadUint64((*uint64)(&item.state)))&mapIsRetired != 0 {
+		item.PtrMapHead().releaseBusy()
+		return false, true
+	}
+	if !item.PtrListHead().IsSingle() {
+		item.PtrMapHead().releaseBusy()
+		return false, false
+	}
+	k, conflict := item.KeyHash()
+
+	var oitem *embeddedEntry[K, V]
+	var bucket *bucket[K, V]
+	var found bool
+	if h.isEmbededItemInBucket {
+		var lock *trylock.Mutex
+		oitem, bucket, lock, found = h.loadItem(k, conflict, item.Key())
+		defer lock.Unlock()
+	} else {
+		oitem, bucket, found = h.getItemWithBucket(k, conflict, item.Key(), true)
+	}
+	if found {
+		ok := h._update(oitem, item.Value())
+		item.PtrMapHead().releaseBusy()
+		return ok, false
+	}
+	return h.setItem(k, conflict, bucket, item, true), false
+}
+
+func (h *Map[K, V]) eachEntry(start *elist_head.ListHead, fn func(*entryHMap[K, V])) {
 	for cur := start; !cur.Empty(); cur = cur.Next() {
-		e := entryHMapFromListHead(cur)
-		if e.key == nil {
+		e := entryHMapFromListHead[K, V](cur)
+		if e == nil || e.IsIgnored() {
 			continue
 		}
 		fn(e)
@@ -727,61 +1016,49 @@ func (h *Map) eachEntry(start *elist_head.ListHead, fn func(*entryHMap)) {
 	return
 }
 
-func (h *Map) each(start *elist_head.ListHead, fn func(key, value interface{})) {
+func (h *Map[K, V]) each(start *elist_head.ListHead, fn func(key K, value V)) {
 
 	for cur := start; !cur.Empty(); cur = cur.Next() {
-		e := entryHMapFromListHead(cur)
-		fn(e.key, e.value)
+		e := entryHMapFromListHead[K, V](cur)
+		if e != nil {
+			fn(e.Key(), e.Value())
+		}
 	}
 	return
 }
 
 // must renename to find
-func (h *Map) find(start *elist_head.ListHead, cond func(HMapEntry) bool, opts ...searchArg) (result HMapEntry, cnt int) {
-
-	conf := sharedSearchOpt(nil)
-	previous := conf.Options(opts...)
-	defer func() {
-		if previous != nil {
-			conf.Options(previous)
-			sharedSearchOpt(conf)
-		}
-	}()
-	cnt = 0
-	var e MapItem
+func (h *Map[K, V]) find(start *elist_head.ListHead, cond func(*MapHead) bool) (result *MapHead, cnt int) {
+	stepAt("find.begin", unsafe.Pointer(start), nil)
 	if start.Empty() {
 		return
 	}
 	for cur := start; cur != cur.Next(); cur = cur.Next() {
-		e = entryHMapFromListHead(cur)
-
-		if conf.ignoreBucketEntry() && e.PtrMapHead().IsIgnored() {
-			continue
-		}
-		if cond(e) {
-			result = e
-			return
+		head := mapheadFromLListHead(cur)
+		if cond(head) {
+			return head, cnt
 		}
 		cnt++
 	}
 	return nil, cnt
-
 }
 
-func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
+func (h *Map[K, V]) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 
+	stepAt("makeBucket.begin", unsafe.Pointer(ocur), nil)
 	enableDumpBucket := false
 
 	cur := ocur
 	cur = cur.Prev()
 
-	e := entryHMapFromListHead(cur)
+	e := mapheadFromLListHead(cur)
 	cBucket := h.searchBucket(bits.Reverse64(e.reverse))
 	if cBucket == nil || cBucket.reverse > e.reverse {
 		return ErrBucketNotFound
 	}
 	nextBucket := cBucket
 	for ; nextBucket.prevAsB() != nextBucket; nextBucket = nextBucket.prevAsB() {
+		stepAt("makeBucket.pairWalk", unsafe.Pointer(nextBucket), unsafe.Pointer(cBucket))
 
 		if nextBucket.reverse > e.reverse {
 			break
@@ -806,7 +1083,12 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 		newReverse = halfUint64(cBucket.reverse, nextBucket.reverse)
 	}
 
+	stepAt("makeBucket.pairFound", unsafe.Pointer(cBucket), unsafe.Pointer(nextBucket))
 	b, onOk := h.bucketFromPool(newReverse, useOnOk(true))
+	stepAt("makeBucket.claimed", unsafe.Pointer(b), unsafe.Pointer(ocur))
+	if b == nil {
+		return ErrBucketAlreadyExit
+	}
 	if onOk == nil {
 		Log(LogWarn, "no okFn")
 	}
@@ -816,7 +1098,7 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 		} else {
 			Log(LogWarn, "no okFn")
 		}
-		if b.state != bucketStateActive {
+		if atomic.LoadUint32(&b.state) != bucketStateActive {
 			Log(LogWarn, "not active?")
 		}
 	}()
@@ -841,16 +1123,17 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 
 	if b.reverse == 0 && b.level() > 1 {
 		err = NewError(EBucketInvalid, "bucket.reverse = 0. but level 1= 1", nil)
-		Log(LogWarn, err.Error())
+		Log(LogWarn, "%s", err.Error())
 		return
 	}
 
+	stepAt("makeBucket.beforeInit", unsafe.Pointer(b), nil)
 	b.Init()
 	b.LevelHead.Init()
 
 	for cur := cBucket.head().Prev().Next(); !cur.Empty(); cur = cur.Next() {
 		b._len++
-		e := entryHMapFromListHead(cur)
+		e := mapheadFromLListHead(cur)
 		if e.reverse > b.reverse {
 			break
 		}
@@ -861,40 +1144,19 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 	if err != nil {
 		Log(LogWarn, "fail addBucket() e=%+v\n", err)
 	}
+	stepAt("makeBucket.added", unsafe.Pointer(b), nil)
 	if !h.isEmbededItemInBucket && b.head().Empty() {
 		panic("bucket head empty")
 	}
-
-	nextLevel := h.findNextLevelBucket(b.reverse, b.level())
+	if l := b.level(); l < 0 {
+		b.setLevel(-l)
+	}
 
 	if b.LevelHead.DirectNext() == &b.LevelHead {
 		Log(LogWarn, "bucket.LevelHead is pointed to self")
 	}
 
-	if nextLevel != nil {
-
-		nextLevelBucket := bucketFromLevelHead(nextLevel)
-		if nextLevelBucket.reverse < b.reverse {
-			nextLevel.InsertBefore(&b.LevelHead)
-		} else if nextLevelBucket.reverse != b.reverse {
-
-			nextnextBucket := bucketFromLevelHead(nextLevel.Next())
-			_ = nextnextBucket
-			nextLevel.DirectNext().InsertBefore(&b.LevelHead)
-		}
-
-		var nNext, nPrev *bucket
-		if !b.LevelHead.DirectPrev().Empty() {
-			nPrev = bucketFromLevelHead(b.LevelHead.Prev())
-		}
-		if !b.LevelHead.DirectNext().Empty() {
-			nNext = bucketFromLevelHead(b.LevelHead.Next())
-		}
-		_, _ = nNext, nPrev
-
-	} else {
-		Log(LogWarn, "not found level bucket.")
-	}
+	h.insertOnLevel(b, b.level(), "makeBucket.levelFound", unsafe.Pointer(b))
 	if b.LevelHead.Next() == &b.LevelHead {
 		Log(LogWarn, "bucket.LevelHead is pointed to self")
 	}
@@ -912,90 +1174,137 @@ func (h *Map) makeBucket(ocur *elist_head.ListHead, back int) (err error) {
 
 }
 
-type hmapMethod struct {
-	bucket *bucket
+type hmapMethod[K Key[K], V any] struct {
+	bucket *bucket[K, V]
+
+	// user is set for an item of StoreItem: add2 does not take it out of
+	// the list that it is found linked into, and reports that in user instead.
+	user *userStore
 }
 
-type HMethodOpt func(*hmapMethod)
+// userStore is what add2 reports for an item of StoreItem, besides whether it
+// stored the item.
+type userStore struct {
+	// linked: add2 found the item linked, and left it
+	linked bool
+}
 
-func WithBucket(b *bucket) func(*hmapMethod) {
+type HMethodOpt[K Key[K], V any] func(*hmapMethod[K, V])
 
-	return func(conf *hmapMethod) {
+func WithBucket[K Key[K], V any](b *bucket[K, V]) func(*hmapMethod[K, V]) {
+
+	return func(conf *hmapMethod[K, V]) {
 		conf.bucket = b
 	}
 }
 
-func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) bool {
-	var opt *hmapMethod
+// forUser makes add2 store an item of StoreItem, and report in u what it did
+// when it did not link the item.
+func forUser[K Key[K], V any](u *userStore) HMethodOpt[K, V] {
+	return func(conf *hmapMethod[K, V]) {
+		conf.user = u
+	}
+}
+
+func (h *Map[K, V]) add2(start *elist_head.ListHead, e *embeddedEntry[K, V], opts ...HMethodOpt[K, V]) bool {
+	return h.linkEntry(start, e.PtrMapHead(), e, opts...)
+}
+
+func (h *Map[K, V]) linkEntry(start *elist_head.ListHead, node *MapHead, item *embeddedEntry[K, V], opts ...HMethodOpt[K, V]) bool {
+	var opt *hmapMethod[K, V]
 	if len(opts) > 0 {
-		opt = &hmapMethod{}
+		opt = &hmapMethod[K, V]{}
 		for _, fn := range opts {
 			fn(opt)
 		}
 	}
 
 	cnt := 0
-	pos, _ := h.find(start, func(ehead HMapEntry) bool {
+
+RETRY:
+	// the item pool moves item to a larger array before item is linked: the copy
+	// is linked instead
+	if item != nil {
+		item = movedEntry[K, V](item)
+		node = item.PtrMapHead()
+	}
+	if opt != nil && opt.user != nil && !node.PtrListHead().IsSingle() {
+		opt.user.linked = true
+		return false
+	}
+	if start.IsMarked() || start.Empty() {
+		// start was deleted, taken out by Purge, or replaced by its copy
+		// by an expand of its pool; find the position from the dummy of
+		// the bucket, or from the live node before start
+		if opt != nil && opt.bucket != nil {
+			start = opt.bucket.head()
+		} else {
+			start = elist_head.PrevNoM(start)
+		}
+	}
+	pos, _ := h.find(start, func(ehead *MapHead) bool {
 		cnt++
-		if !e.PtrListHead().IsSingle() {
+		if !node.PtrListHead().IsSingle() {
 			Log(LogWarn, "add2: element for insertion  is not single ")
 		}
-		return e.PtrMapHead().reverse < ehead.PtrMapHead().reverse
-	}, ignoreBucketEntry(false))
-	if !e.PtrListHead().IsSingle() {
+		nodeReverse := atomic.LoadUint64(&node.reverse)
+		headReverse := atomic.LoadUint64(&ehead.PtrMapHead().reverse)
+		return nodeReverse < headReverse || (node.IsDummy() && nodeReverse == headReverse)
+	})
+	if stepEnabled && pos != nil {
+		stepAt("add2.found", unsafe.Pointer(node.PtrListHead()), unsafe.Pointer(pos.PtrListHead()))
+	}
+	if !node.PtrListHead().IsSingle() {
 
-		// rev := e.PtrMapHead().reverse
+		// rev := node.reverse
 		// idx := (rev >> (4 * 15) % cntOfPoolMgr)
 		// p := samepleItemPoolFromListHead(h.pooler.itemPool[idx].Next())
 		// _ = p
 		if IsInfo() {
 			pools := h.allpools()
 			_ = pools
-			e.PtrListHead().IsSingle()
+			node.PtrListHead().IsSingle()
 		}
 		Log(LogWarn, "add2: element for insertion  is not single ")
 	}
 
-	defer func() {
-		if !EnableStats || e.PtrMapHead().IsIgnored() {
-			return
-		}
-
-		if h.SearchKey(bits.Reverse64(e.PtrMapHead().reverse), ignoreBucketEntry(false)) == nil {
-			o := sharedSearchOpt(nil)
-			o.Lock()
-			o.e = ErrItemInvalidAdd
-			o.Unlock()
-			sharedSearchOpt(o)
-		}
-
-	}()
-
 	if pos != nil {
-		if !e.PtrListHead().IsSingle() {
+		if !node.PtrListHead().IsSingle() {
+			if opt != nil && opt.user != nil {
+				goto RETRY
+			}
 			Log(LogWarn, "add2: element for insertion  is not single ")
-			err := e.PtrListHead().MarkForDelete()
+			err := node.PtrListHead().MarkForDelete()
+			if err == elist_head.ErrMoved {
+				goto RETRY
+			}
 			if err != nil {
 				Log(LogError, "fail delete")
 			}
-			e.PtrListHead().Init()
+			node.PtrListHead().Init()
+			if elist_head.MovedTo(node.PtrListHead()) != nil {
+				goto RETRY
+			}
 		}
 
-		_, err := inserBeforeWithCheck(pos.PtrListHead(), e.PtrListHead())
-		if err != nil {
-			Log(LogError, "fail insert")
+		if item != nil && h.storeIntoSameKey(pos.PtrListHead(), item) {
+			return false
+		}
+		if err := insertInOrder[K, V](pos.PtrListHead(), node.PtrListHead(), item); err != nil {
+			runtime.Gosched()
+			goto RETRY
 		}
 		if opt == nil || opt.bucket == nil {
 			return true
 		}
 		btable := opt.bucket
-		if btable == nil || e.PtrMapHead().IsIgnored() || int(btable.len()) <= h.maxPerBucket {
+		if btable == nil || node.IsIgnored() || int(btable.len()) <= h.maxPerBucket {
 			return true
 		}
 
 		// FIXME: not run on !h.isEmbededItemInBucket
 		if !h.isEmbededItemInBucket {
-			//h.makeBucket(e.PtrListHead(), int(btable.len())/2)
+			//h.makeBucket(node.PtrListHead(), int(btable.len())/2)
 		} else {
 			h.makeBucket2(btable)
 		}
@@ -1004,9 +1313,9 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 	}
 	if opt != nil && opt.bucket != nil && opt.bucket.entry(h) != nil {
 		// pos, _ = h.find(start, func(ehead HMapEntry) bool {
-		// 	return e.PtrMapHead().reverse < ehead.PtrMapHead().reverse
-		// }, ignoreBucketEntry(false))
-		nextE := nextAsE(opt.bucket.entry(h))
+		// 	return node.reverse < ehead.PtrMapHead().reverse || (node.IsDummy() && node.reverse == ehead.PtrMapHead().reverse)
+		// })
+		nextE := nextMapHead(opt.bucket.entry(h))
 		if nextE.PtrMapHead().reverse <= EmptyMapHead.fromListHead(opt.bucket.head()).reverse {
 			Log(LogWarn, "map.add2() re-try get target")
 			mHead := EmptyMapHead.fromListHead(opt.bucket.head().Next())
@@ -1014,56 +1323,118 @@ func (h *Map) add2(start *elist_head.ListHead, e HMapEntry, opts ...HMethodOpt) 
 			nextE = opt.bucket.prevAsB().entry(h)
 		}
 
-		_, err := inserBeforeWithCheck(nextE.PtrListHead(), e.PtrListHead())
-		if err != nil {
-			pos, _ = h.find(start, func(ehead HMapEntry) bool {
-				return e.PtrMapHead().reverse < ehead.PtrMapHead().reverse
-			}, ignoreBucketEntry(false))
-			nextE := nextAsE(opt.bucket.entry(h))
-			_ = nextE
+		stepAt("add2.bucketInsert", unsafe.Pointer(node.PtrListHead()), unsafe.Pointer(nextE.PtrListHead()))
+		if item != nil && h.storeIntoSameKey(nextE.PtrListHead(), item) {
+			return false
 		}
-		return true
+		if err := insertInOrder[K, V](nextE.PtrListHead(), node.PtrListHead(), item); err == nil {
+			return true
+		}
+		// the entry after the dummy of the bucket is not a place for item;
+		// no entry comes after item, so item goes just before the last one
 	}
-	pos, _ = h.find(start, func(ehead HMapEntry) bool {
+	pos, _ = h.find(start, func(ehead *MapHead) bool {
 		cnt++
-		return e.PtrMapHead().reverse < ehead.PtrMapHead().reverse
-	}, ignoreBucketEntry(false))
+		return node.reverse < ehead.PtrMapHead().reverse || (node.IsDummy() && node.reverse == ehead.PtrMapHead().reverse)
+	})
+	if pos != nil {
+		goto RETRY
+	}
 
-	inserBeforeWithCheck(h.tail.Prev(), e.PtrListHead())
+	if stepEnabled {
+		stepAt("add2.tailInsert", unsafe.Pointer(node.PtrListHead()), unsafe.Pointer(h.tail.Prev()))
+	}
+	if item != nil && h.storeIntoSameKey(h.tail.Prev(), item) {
+		return false
+	}
+	if err := insertInOrder[K, V](h.tail.Prev(), node.PtrListHead(), item); err != nil {
+		runtime.Gosched()
+		goto RETRY
+	}
 	return true
 }
 
-func (h *Map) BackBucket() (bCur *bucket) {
+// movedEntry returns the copy of e with the data of e, when the item pool
+// moves or moved the array of e to a larger one, and e otherwise. The caller
+// owns e, which is not linked; the copy is not linked, and nobody else links
+// it.
+func movedEntry[K Key[K], V any](e *embeddedEntry[K, V]) *embeddedEntry[K, V] {
+	for {
+		// a move marks the links of e before it takes e as linked or not
+		if !e.PtrListHead().IsMarked() {
+			return e
+		}
+		head := elist_head.MovedTo(e.PtrListHead())
+		if head == nil {
+			return e
+		}
+		s := e
+		c := entryHMapFromListHead[K, V](head)
+		c.copyFrom(s)
+		e = c
+	}
+}
+
+// movedHead returns the node that the list holds for head: head, or its
+// copy when the item pool moves or moved the array of head to a larger one.
+func movedHead(head *elist_head.ListHead) *elist_head.ListHead {
+	for {
+		c := elist_head.MovedTo(head)
+		if c == nil {
+			return head
+		}
+		head = c
+	}
+}
+
+// storeIntoSameKey stores the value of e into a live entry of the key of e
+// among the entries of the reverse of e just before right, which another
+// store linked after the lookup of e missed the key. It reports whether it
+// did.
+func (h *Map[K, V]) storeIntoSameKey(right *elist_head.ListHead, e *embeddedEntry[K, V]) bool {
+	left := right.DirectPrev()
+	if left == right {
+		return false
+	}
+	same := linkedSameKey[K, V](mapheadFromLListHead(left), e.PtrMapHead(), e)
+	if same == nil {
+		return false
+	}
+	h._update(entryHMapFromListHead[K, V](same.PtrListHead()), e.Value())
+	return true
+}
+
+func (h *Map[K, V]) BackBucket() (bCur *bucket[K, V]) {
 
 	for cur := h.headBucket.Prev().Next(); !cur.Empty(); cur = cur.Next() {
-		bCur = bucketFromListHead(cur)
+		bCur = bucketFromListHead[K, V](cur)
 	}
 	return
 }
 
-func (h *Map) toFrontBucket(bucket *bucket) (result *bucket) {
+func (h *Map[K, V]) toFrontBucket(bucket *bucket[K, V]) (result *bucket[K, V]) {
 
 	for cur := bucket.PtrListHead(); !cur.Empty(); cur = cur.DirectPrev() {
-		result = bucketFromListHead(cur)
+		result = bucketFromListHead[K, V](cur)
 	}
 	return
 }
 
-func (h *Map) toBackBucket(bucket *bucket) (result *bucket) {
+func (h *Map[K, V]) toBackBucket(bucket *bucket[K, V]) (result *bucket[K, V]) {
 
 	for cur := bucket.PtrListHead(); !cur.Empty(); cur = cur.DirectNext() {
-		result = bucketFromListHead(cur)
+		result = bucketFromListHead[K, V](cur)
 	}
 	return
 }
 
-func (h *Map) DumpBucket(w io.Writer) {
+func (h *Map[K, V]) DumpBucket(w io.Writer) {
 	var b strings.Builder
 
 	for cur := h.headBucket.Prev().Next(); !cur.Empty(); cur = cur.Next() {
-		btable := bucketFromListHead(cur)
+		btable := bucketFromListHead[K, V](cur)
 		fmt.Fprintf(&b, "  bucket{reverse: 0x%16x, len: %d, start: %p, level{%d, cur: %p, prev: %p next: %p} down: %d}\n",
-			btable.reverse, btable.len(), btable.head, btable.level(), &btable.LevelHead, btable.LevelHead.DirectPrev(), btable.LevelHead.DirectNext(), len(btable.downLevels))
+			btable.reverse, btable.len(), btable.head, btable.level(), &btable.LevelHead, btable.LevelHead.DirectPrev(), btable.LevelHead.DirectNext(), btable.ptrDownLevels().Len())
 	}
 	if w == nil {
 		os.Stdout.WriteString(b.String())
@@ -1073,7 +1444,7 @@ func (h *Map) DumpBucket(w io.Writer) {
 
 }
 
-func (h *Map) DumpBucketPerLevel(w io.Writer) {
+func (h *Map[K, V]) DumpBucketPerLevel(w io.Writer) {
 	var b strings.Builder
 
 	for i := range h.levels {
@@ -1086,10 +1457,10 @@ func (h *Map) DumpBucketPerLevel(w io.Writer) {
 		}
 		fmt.Fprintf(&b, "bucket level=%d\n", i+1)
 		for cur := cBucket.LevelHead.DirectPrev().DirectNext(); !cur.Empty(); {
-			cBucket = bucketFromLevelHead(cur)
+			cBucket = bucketFromLevelHead[K, V](cur)
 			cur = cBucket.LevelHead.DirectNext()
 			fmt.Fprintf(&b, "  bucket{reverse: 0x%16x, len: %d, start: %p, level{%d, cur: %p, prev: %p next: %p} down: %d}\n",
-				cBucket.reverse, cBucket.len(), cBucket.head, cBucket.level(), &cBucket.LevelHead, cBucket.LevelHead.DirectPrev(), cBucket.LevelHead.DirectNext(), len(cBucket.downLevels))
+				cBucket.reverse, cBucket.len(), cBucket.head, cBucket.level(), &cBucket.LevelHead, cBucket.LevelHead.DirectPrev(), cBucket.LevelHead.DirectNext(), cBucket.ptrDownLevels().Len())
 
 		}
 	}
@@ -1101,17 +1472,20 @@ func (h *Map) DumpBucketPerLevel(w io.Writer) {
 
 }
 
-func (h *Map) DumpEntry(w io.Writer) {
+func (h *Map[K, V]) DumpEntry(w io.Writer) {
+	defer runtime.KeepAlive(h)
 	var b strings.Builder
 
 	for cur := h.head.Prev().Next(); !cur.Empty(); cur = cur.Next() {
 		//var e HMapEntry
 		//e = e.HmapEntryFromListHead(cur)
-		mhead := EmptyMapHead.FromListHead(cur).(*MapHead)
-		e := fromMapHead(mhead)
+		mhead := EmptyMapHead.FromListHead(cur)
+		e := fromMapHead[K, V](mhead)
 
-		var ekey interface{}
-		ekey = e.Key()
+		var ekey K
+		if e != nil {
+			ekey = e.Key()
+		}
 		fmt.Fprintf(&b, "  entryHMap{key: %+10v, k: 0x%16x, reverse: 0x%16x), conflict: 0x%x, cur: %p, prev: %p, next: %p}\n",
 			ekey, bits.Reverse64(mhead.reverse), mhead.reverse, mhead.conflict, mhead.PtrListHead(), mhead.PtrListHead().DirectPrev(), mhead.PtrListHead().DirectNext())
 	}
@@ -1154,10 +1528,10 @@ func reverse2Index(level int, r uint64) (idx int) {
 
 }
 
-func (h *Map) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket) {
+func (h *Map[K, V]) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket[K, V]) {
 
+	stepAt("insertBucket.begin", unsafe.Pointer(nBtable), nil)
 	empty := &nBtable.dummy
-	empty.key, empty.value = nil, nil
 	empty.reverse, empty.conflict = nBtable.reverse, 0
 	empty.PtrMapHead().state |= mapIsDummy
 	empty.Init()
@@ -1165,107 +1539,171 @@ func (h *Map) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket) {
 	if tBtable.Empty() {
 		thead = h.head.Prev().Next()
 	} else {
-		tBucket := bucketFromListHead(tBtable)
+		tBucket := bucketFromListHead[K, V](tBtable)
 		thead = tBucket.head().Prev().Next()
 	}
-	h.add2(thead, empty)
-	emptyElist := elist_head.ListHead{}
-	if empty.ListHead == emptyElist {
+	h.linkEntry(thead, empty, nil)
+	stepAt("insertBucket.dummyLinked", unsafe.Pointer(nBtable), nil)
+	if empty.ListHead.DirectPrev() == &empty.ListHead && empty.ListHead.DirectNext() == &empty.ListHead {
 		Log(LogWarn, "fail register dummy of bucket")
 	}
 
-	tBucket := bucketFromListHead(tBtable)
-	if IsDebug() {
-		h.validateBucket(tBucket)
-	}
-
 	// add bucket
-	tBtable.InsertBefore(&nBtable.ListHead)
+	h.linkBucket(tBtable, nBtable)
 
 	if IsDebug() {
-		h.validateBucket((tBucket))
 		h.validateBucket((nBtable))
 	}
 
 }
 
-func (h *Map) addBucket(nBtable *bucket) error {
+func (h *Map[K, V]) addBucket(nBtable *bucket[K, V]) error {
 
-	for bcur := h.headBucket.Prev().Next(); !bcur.Empty(); bcur = bcur.Next() {
-		cBtable := bucketFromListHead(bcur)
-		if cBtable.reverse == nBtable.reverse {
-			return ErrBucketAlreadyExit
+	pos := h.bucketInsertPos(nBtable.reverse)
+	if !pos.Empty() && bucketFromListHead[K, V](pos).reverse == nBtable.reverse {
+		return ErrBucketAlreadyExit
+	}
+	h._InsertBefore(pos, nBtable)
+	return nil
+}
+
+// bucketInsertPos returns the node of the list of buckets, which is in
+// descending order of reverse, that a bucket of reverse goes before: the
+// first bucket whose reverse is not larger, or the end of the list.
+func (h *Map[K, V]) bucketInsertPos(reverse uint64) *list_head.ListHead {
+	pos := h.headBucket.Prev().Next()
+	for !pos.Empty() && bucketFromListHead[K, V](pos).reverse > reverse {
+		pos = pos.Next()
+	}
+	return pos
+}
+
+// linkBucket links nBtable into the list of buckets before pos. It links it
+// only while the bucket before pos is larger, and finds the place again when
+// another bucket was linked there meanwhile; it leaves the list as it is when
+// a bucket of the same reverse is linked by then.
+func (h *Map[K, V]) linkBucket(pos *list_head.ListHead, nBtable *bucket[K, V]) {
+	for retry := 0; ; retry++ {
+		if retry > 0 {
+			runtime.Gosched()
+			pos = h.bucketInsertPos(nBtable.reverse)
 		}
+		if !pos.Empty() && bucketFromListHead[K, V](pos).reverse == nBtable.reverse {
+			return
+		}
+		err := pos.TryInsertBefore(&nBtable.ListHead, func(prev *list_head.ListHead) bool {
+			return prev.Empty() || bucketFromListHead[K, V](prev).reverse > nBtable.reverse
+		})
+		if err == nil {
+			return
+		}
+	}
+}
 
-		if cBtable.reverse < nBtable.reverse {
-			h._InsertBefore(&cBtable.ListHead, nBtable)
-			if nBtable.reverse <= cBtable.reverse {
-				Log(LogError, "brokne relation bucket")
+// insertOnLevel links b into the list of level, which is in descending order
+// of reverse: just before the first bucket with a smaller reverse, or at the
+// end. It links b only while the bucket before that place is larger, and
+// finds the place again when another bucket was linked there meanwhile.
+// point names the step point just before the link, and at is its first
+// argument.
+func (h *Map[K, V]) insertOnLevel(b *bucket[K, V], level int32, point string, at unsafe.Pointer) {
+	for retry := 0; ; retry++ {
+		if retry > 0 {
+			runtime.Gosched()
+		}
+		var pos *list_head.ListHead
+		if retry == 0 {
+			pos = h.nextOnLevelOf(b, level)
+		}
+		if pos == nil {
+			pos = h.levelBucket(level).LevelHead.Next()
+			for !pos.Empty() && bucketFromLevelHead[K, V](pos).reverse > b.reverse {
+				pos = pos.Next()
 			}
-			return ErrBucketInvalidOrder
 		}
+		if !pos.Empty() && bucketFromLevelHead[K, V](pos).reverse == b.reverse {
+			// a bucket of the same reverse is on the level already
+			return
+		}
+		if stepEnabled {
+			var found *list_head.ListHead
+			if !pos.Empty() {
+				found = pos
+			}
+			stepAt(point, at, unsafe.Pointer(found))
+		}
+		err := pos.TryInsertBefore(&b.LevelHead, func(prev *list_head.ListHead) bool {
+			return prev.Empty() || bucketFromLevelHead[K, V](prev).reverse > b.reverse
+		})
+		if err == nil {
+			return
+		}
+	}
+}
+
+// nextOnLevelOf returns the node of the list of level of the first bucket of
+// level among the buckets that follow b in the list of buckets, which is in
+// the same order as the list of level, so that the walk of the list of level
+// from its start is not needed. The first bucket of the down levels of a
+// bucket has the reverse of that bucket and is not in the list of buckets: it
+// is looked for below the buckets that follow b, and the walk of such a b
+// starts from its parent. It returns nil when no bucket of level is among the
+// ones that follow b closely.
+func (h *Map[K, V]) nextOnLevelOf(b *bucket[K, V], level int32) *list_head.ListHead {
+	const near = 64
+	cur := b
+	if cur.nextAsB() == cur && b._parent != nil {
+		cur = b._parent
+	}
+	for i := 0; i < near; i++ {
+		next := cur.nextAsB()
+		if next == cur || next.reverse > b.reverse {
+			return nil
+		}
+		for down := next; down != nil && down != b; down = down.ptrDownLevels().at(0) {
+			if l := down.level(); l == level {
+				// a split puts its bucket on the list of buckets before it
+				// links the LevelHead, which lies between sentinels of its
+				// own until then; the start of the list of level is the
+				// only sentinel before a LevelHead on that list
+				if p := down.LevelHead.DirectPrev(); p.Empty() && p != &h.levelBucket(level).LevelHead {
+					return nil
+				}
+				return &down.LevelHead
+			} else if l <= 0 || l > level {
+				break
+			}
+		}
+		cur = next
 	}
 	return nil
 }
 
-func (h *Map) findNextLevelBucket(reverse uint64, level int32) (cur *list_head.ListHead) {
-
-	bcur := h.levelBucket(level)
-	if bcur == nil {
-		return nil
-	}
-	prevs := list_head.DefaultModeTraverse.Option(list_head.WaitNoM())
-	front := bcur.LevelHead.Front()
-	list_head.DefaultModeTraverse.Option(prevs...)
-	bcur = bucketFromLevelHead(front.DirectPrev().DirectNext())
-
-	cnt := 0
-	for cur := bcur; cur != cur.NextOnLevel(); cur = cur.NextOnLevel() {
-		cnt++
-		if cnt > 1000 {
-			return &cur.LevelHead
-		}
-		if reverse > cur.reverse {
-			return &cur.LevelHead
-		}
-
-	}
-	if bcur.Empty() {
-		return &bcur.LevelHead
-	}
-	if bcur.NextOnLevel() == bcur {
-		return &bcur.LevelHead
-	}
-	nCur := bcur.NextOnLevel()
-	return &nCur.LevelHead
-}
-
-func (h *Map) initLevels() {
+func (h *Map[K, V]) initLevels() {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	for i := range h.levels {
-		b := newBucket()
+		b := newBucket[K, V]()
 		b.setLevel(int32(i) + 1)
 		b.LevelHead.InitAsEmpty()
 		h.levels[i].Store(b)
 	}
 }
 
-func (h *Map) setLevel(level int32, b *bucket) bool {
+func (h *Map[K, V]) setLevel(level int32, b *bucket[K, V]) bool {
 
 	return false
 }
 
-func (h *Map) levelBucket(level int32) (b *bucket) {
-	ov := h.levels[level-1]
-	b = ov.Load().(*bucket)
+func (h *Map[K, V]) levelBucket(level int32) (b *bucket[K, V]) {
+	b = h.levels[level-1].Load()
 
 	return b
 }
 
-func (h *Map) isEmptyBylevel(level int32) bool {
+func (h *Map[K, V]) isEmptyBylevel(level int32) bool {
 	if int32(len(h.levels)) < level {
 		return true
 	}
@@ -1292,113 +1730,69 @@ const (
 	CntOfGet         statKey = 5
 )
 
-func nextNoCheck(e HMapEntry) HMapEntry {
+func nextNoCheck[K Key[K], V any](e *embeddedEntry[K, V]) *embeddedEntry[K, V] {
 	return e.Next()
 }
 
-func prevNoCheck(e HMapEntry) HMapEntry {
+func prevNoCheck[K Key[K], V any](e *embeddedEntry[K, V]) *embeddedEntry[K, V] {
 	return e.Prev()
 }
 
-func nextAsE(e HMapEntry) HMapEntry {
+func nextMapHead(e *MapHead) *MapHead {
 	start := e.PtrListHead()
 	if !start.DirectNext().Empty() {
 		start = start.DirectNext()
 	}
 	if !start.Empty() {
-		return e.HmapEntryFromListHead(start)
+		return mapheadFromLListHead(start)
 	}
 	return nil
 }
 
-func prevAsE(e HMapEntry) HMapEntry {
+func prevAsE[K Key[K], V any](e *embeddedEntry[K, V]) *embeddedEntry[K, V] {
 	start := e.PtrListHead()
 	if !start.DirectPrev().Empty() {
 		start = start.DirectPrev()
 	}
 	if !start.Empty() {
-		return e.HmapEntryFromListHead(start)
+		return entryHMapFromListHead[K, V](start)
 	}
 	return nil
 }
 
-var _sharedSearchOpt atomic.Value
-
 func init() {
-	o := &searchOpt{}
-	o._ignoreBucketEntry.Store(true)
-
-	_sharedSearchOpt.Store(o)
+	// lista reads this for every list, so it is set once, before any
+	// goroutine uses a map
+	list_head.MODE_CONCURRENT = true
 }
 
-type searchOpt struct {
-	h                  *Map
-	e                  error
-	_ignoreBucketEntry atomic.Value
-	sync.Mutex
-}
-
-func sharedSearchOpt(setter *searchOpt) *searchOpt {
-
-	if setter != nil {
-		_sharedSearchOpt.Store(setter)
-		return setter
+// SearchKey returns one live value matching the primary hash k, or false if
+// none is found or concurrent removal invalidates the candidate.
+// Use Get or GetByHash when the key or conflict hash is known.
+func (h *Map[K, V]) SearchKey(k uint64) (V, bool) {
+	defer runtime.KeepAlive(h)
+	e := h.searchKey(k, true)
+	if e == nil {
+		var zero V
+		return zero, false
 	}
-	return _sharedSearchOpt.Load().(*searchOpt)
+	return h.readEntryValue(e, bits.Reverse64(k))
 }
 
-func (o *searchOpt) ignoreBucketEntry() bool {
-	return o._ignoreBucketEntry.Load().(bool)
-}
-
-type searchArg func(*searchOpt) searchArg
-
-func ignoreBucketEntry(t bool) searchArg {
-
-	return func(opt *searchOpt) searchArg {
-		prev := opt._ignoreBucketEntry.Load().(bool)
-		opt._ignoreBucketEntry.Store(t)
-		return ignoreBucketEntry(prev)
-	}
-}
-
-func (o *searchOpt) Options(opts ...searchArg) (previous searchArg) {
-
-	o.Lock()
-	defer o.Unlock()
-	for _, fn := range opts {
-		previous = fn(o)
-	}
-	return previous
-}
-func (h *Map) SearchKey(k uint64, opts ...searchArg) HMapEntry {
-
-	conf := sharedSearchOpt(nil)
-	previous := conf.Options(opts...)
-	defer func() {
-		if previous != nil {
-			conf.Options(previous)
-			sharedSearchOpt(conf)
-		}
-	}()
-	return h.searchKey(k, conf.ignoreBucketEntry())
-
-}
-
-func (h *Map) searchKey(k uint64, ignoreBucketEnry bool) HMapEntry {
+func (h *Map[K, V]) searchKey(k uint64, ignoreBucketEnry bool) *embeddedEntry[K, V] {
 	if h.isEmbededItemInBucket {
 		return h.searchKeyFromEmbeddedPool(k, ignoreBucketEnry)
 	}
 	return h.searchBybucket(h.searchBucket4Key4(k, ignoreBucketEnry))
 }
 
-func (h *Map) topLevelBucket(reverse uint64) *bucket {
+func (h *Map[K, V]) topLevelBucket(reverse uint64) *bucket[K, V] {
 	idx := (reverse >> (4 * 15))
 
 	return &h.buckets[idx]
 }
 
-func (h *Map) searchBucket4update(k uint64) (b *bucket, r uint64) {
+func (h *Map[K, V]) searchBucket4update(k uint64) (b *bucket[K, V], r uint64) {
 
 	reverseNoMask := bits.Reverse64(k)
 
@@ -1423,7 +1817,7 @@ func (h *Map) searchBucket4update(k uint64) (b *bucket, r uint64) {
 
 }
 
-func (h *Map) searchBucket4Key4(k uint64, ignoreBucketEnry bool) (b *bucket, reverse uint64, ignore bool) {
+func (h *Map[K, V]) searchBucket4Key4(k uint64, ignoreBucketEnry bool) (b *bucket[K, V], reverse uint64, ignore bool) {
 	b, reverse = h.searchBucket4update(k)
 	if h.modeForBucket != CombineSearch {
 		if p := b.prevAsB(); nearUint64(p.reverse, b.reverse, reverse) != b.reverse {
@@ -1434,7 +1828,7 @@ func (h *Map) searchBucket4Key4(k uint64, ignoreBucketEnry bool) (b *bucket, rev
 	return
 }
 
-func nearBucketFromCache(levels [16]*bucket, lbNext *bucket, reverseNoMask uint64) (result *bucket) {
+func nearBucketFromCache[K Key[K], V any](levels [16]*bucket[K, V], lbNext *bucket[K, V], reverseNoMask uint64) (result *bucket[K, V]) {
 	noNil := true
 	result = lbNext
 	for i, b := range levels {
@@ -1455,7 +1849,7 @@ func nearBucketFromCache(levels [16]*bucket, lbNext *bucket, reverseNoMask uint6
 	return
 }
 
-func (h *Map) searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
+func (h *Map[K, V]) searchBybucket(lbCur *bucket[K, V], reverseNoMask uint64, ignoreBucketEnry bool) *embeddedEntry[K, V] {
 	if h.isEmbededItemInBucket {
 		Log(LogWarn, "should use bsearchBybucket() not searchBybucket() in embedded bucket")
 		return h.bsearchBybucket(lbCur, reverseNoMask, ignoreBucketEnry)
@@ -1464,111 +1858,178 @@ func (h *Map) searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketEn
 	return h._searchBybucket(lbCur, reverseNoMask, ignoreBucketEnry)
 }
 
-func (h *Map) _searchBybucket(lbCur *bucket, reverseNoMask uint64, ignoreBucketEnry bool) HMapEntry {
+func (h *Map[K, V]) _searchBybucket(lbCur *bucket[K, V], reverse uint64, ignore bool) *embeddedEntry[K, V] {
+	return h.searchCopyBucket[noDummyTrace](lbCur, reverse, ignore, nil)
+}
+
+func (h *Map[K, V]) searchCopyBucket[T dummyTrace](lbCur *bucket[K, V], reverse uint64, ignore bool, dummy **MapHead) *embeddedEntry[K, V] {
 	if lbCur == nil {
 		return nil
 	}
-
-	lbNext := lbCur
-
-	if h.modeForBucket == CombineSearch2 && lbCur.reverse > reverseNoMask {
-		lbNext = lbCur.NextOnLevel()
+	b := lbCur
+	if h.modeForBucket == CombineSearch2 && b.reverse > reverse {
+		b = b.NextOnLevel()
 	}
-
-	if lbNext.reverse < reverseNoMask {
-		result := lbNext.entry(h)
-
-		// FIXME: why fail to get
-		var resultHead *MapHead
-		if result == nil {
-			result = lbNext.entry(h)
-		}
-		if result != nil {
-			resultHead = result.PtrMapHead()
-		}
-		pCur := resultHead
-		if IsDebug() {
-			lbNext.itemPool().validateItems()
-		}
-		cnt := 0
-		for cur := resultHead; cur != nil; cur = cur.NextWithNil() {
-			cnt++
-			curReverse := cur.reverse
-			if cur.reverse == ^uint64(0) {
-				Log(LogDebug, "last dummy item")
-			}
-			if pCur.reverse > cur.reverse {
-				fmt.Println("invalid item order ")
-			}
-
-			pCur = cur
-			if EnableStats && ignoreBucketEnry {
-				h.mu.Lock()
-				DebugStats[CntReverseSearch]++
-				h.mu.Unlock()
-			}
-			if ignoreBucketEnry && cur.IsIgnored() {
-				continue
-			}
-
-			if curReverse < reverseNoMask {
-				continue
-			}
-			if curReverse == reverseNoMask {
-				return result.HmapEntryFromListHead(cur.PtrListHead())
-			}
-			return nil
-		}
-		return nil
-	}
-	result := lbNext.entry(h)
-	for cur := result.PtrMapHead(); cur != nil; cur = cur.PrevtWithNil() {
-		if EnableStats && ignoreBucketEnry {
-			h.mu.Lock()
-			DebugStats[CntSearchEntry]++
-			h.mu.Unlock()
-		}
-		curReverse := cur.reverse
-		if ignoreBucketEnry && cur.IsIgnored() {
-			continue
-		}
-		if curReverse > reverseNoMask {
-			continue
-		}
-		if curReverse == reverseNoMask {
-			return result.HmapEntryFromListHead(cur.PtrListHead())
-		}
-
-		return nil
-
-	}
-	return nil
-
+	return h.searchCopyEntry[T](b, b.entry(h), reverse, ignore, dummy)
 }
 
-//Delete ... set nil to the key of MapItem. cannot Get entry
-func (h *Map) Delete(key interface{}) bool {
+// Delete marks the matching entry deleted so subsequent lookups cannot find it.
+//
+// Delete returns false when it does not find key, or when another Delete or
+// Purge of key deleted its item first. Without UseEmbeddedPool, it returns
+// false also, doing nothing, when the item left the map after Delete found
+// it, and while another call is working on the item of key: a StoreItem or a
+// Set of the item, which Get may find before it returns, or a StoreItem of
+// the item that returns false as the item is linked already.
+func (h *Map[K, V]) Delete(key K) bool {
+	_, _, mh, ok := h.deleteItem(key)
+	if mh != nil {
+		mh.releaseBusy()
+	}
+	return ok
+}
 
-	item, ok := h.LoadItem(key)
-	if !ok {
-		return false
+// deleteItem marks the item of key deleted, and returns it and the bucket
+// that the lookup found it in, when this call marked it. Without
+// UseEmbeddedPool it returns also the node whose mapIsBusy it holds, for the
+// caller to release.
+func (h *Map[K, V]) deleteItem(key K) (*embeddedEntry[K, V], *bucket[K, V], *MapHead, bool) {
+
+	k, conflict := key.KeyHash()
+	var item *embeddedEntry[K, V]
+	var bucket *bucket[K, V]
+	var lock *trylock.Mutex
+	var dummy *MapHead
+	for {
+		var ok bool
+		item, bucket, dummy, ok = h.lookupItem[saveDummyTrace](k, conflict, key, true)
+		if !ok {
+			return nil, nil, nil, false
+		}
+		if stepEnabled {
+			stepAt("delete.found", unsafe.Pointer(item.PtrListHead()), nil)
+		}
+		if !h.isEmbededItemInBucket {
+			break
+		}
+		lock, ok = h.lockFoundItem(key, item, bucket)
+		if ok {
+			break
+		}
+		runtime.Gosched()
+	}
+	if lock != nil {
+		defer lock.Unlock()
+	}
+	// the item pool moves the item to a larger array: a delete that found
+	// the item and one that found its copy claim one node
+	if entry := item; !h.isEmbededItemInBucket {
+		return h.deleteEntry(entry, bucket, dummy)
+	}
+	origin := elist_head.FindOrigin(item.PtrListHead())
+	mh := mapheadFromLListHead(origin)
+	var hold mapState
+	if !h.isEmbededItemInBucket {
+		hold = mapIsBusy
+	}
+	won, busy := mh.claimDelete(hold)
+	stepAt("delete.claimed", unsafe.Pointer(item.PtrListHead()), nil)
+	if busy {
+		return nil, nil, nil, false
+	}
+	if won && hold != 0 && item.PtrListHead().IsSingle() {
+		// item left the list before this call claimed it
+		atomic.AndUint64((*uint64)(&mh.state), ^uint64(mapIsDeleted|mapIsBusy))
+		return nil, nil, nil, false
+	}
+	if !won && origin == item.PtrListHead() && !elist_head.IsMoved(item.PtrListHead()) {
+		// another delete of the key got there first, and item has no copies
+		// to delete: a StoreItem may have linked item again since
+		return nil, nil, nil, false
+	}
+	if won {
+		// a delete that finds another node of the line of the item once
+		// origin is gone claims that node
+		elist_head.EachOfLine(item.PtrListHead(), func(n *elist_head.ListHead) {
+			atomic.OrUint64((*uint64)(&mapheadFromLListHead(n).state), uint64(mapIsDeleted))
+		})
 	}
 	item.Delete()
-	return true
-
+	// the item pool may have copied the item before it was deleted: the
+	// copy is deleted too, also by a delete that another delete of the key
+	// got ahead of on the origin, before it returns
+	for head := item.PtrListHead(); elist_head.IsMoved(head); {
+		if head = elist_head.MovedTo(head); head == nil {
+			break
+		}
+		atomic.OrUint64((*uint64)(&mapheadFromLListHead(head).state), uint64(mapIsDeleted))
+	}
+	// a delete that finds a node of the line meanwhile claims origin as long
+	// as origin is kept, and that node after it is deleted
+	runtime.KeepAlive(origin)
+	if !won {
+		// another delete of the key got there first
+		return nil, nil, nil, false
+	}
+	h.AddLen(-1)
+	if hold == 0 {
+		return item, bucket, nil, true
+	}
+	return item, bucket, mh, true
 }
 
-//Purge ... key/value entry from map.
-func (h *Map) Purge(key interface{}) bool {
+// Purge ... key/value entry from map.
+//
+// Without UseEmbeddedPool, Purge returns false where Delete does, and then
+// does not take the item out of the list.
+func (h *Map[K, V]) Purge(key K) bool {
 	if h.isEmbededItemInBucket {
 		return h.purgeInEmbedded(key)
 	}
-	return h.Delete(key)
+	return h.purgeItem(key)
 }
 
-func (h *Map) purgeInEmbedded(key interface{}) bool {
-	var item MapItem
-	var bucket *bucket
+// purgeItem deletes the item of key as Delete does, and then takes it out of
+// the list of entries, in the order of purgeInEmbedded.
+func (h *Map[K, V]) purgeItem(key K) bool {
+	item, bucket, mh, ok := h.deleteItem(key)
+	if !ok {
+		return false
+	}
+	defer mh.releaseBusy()
+	head := item.PtrListHead()
+	if !mh.isPoolItem() {
+		// A split may have changed the bucket since the first lookup.
+		k, _ := item.KeyHash()
+		bucket, _ = h.searchBucket4update(k)
+	}
+	for {
+		// an item that the item pool moves stays linked, with its marks;
+		// so do the links that a Set of the item wrote meanwhile
+		err := head.MarkForDelete()
+		if err != elist_head.ErrMoved {
+			head.InitMarked()
+		}
+		// the entry left the list: the bucket counts one entry less, as
+		// setItem counted it, and is not split for entries that are gone
+		if err == nil && bucket.level() > 0 {
+			atomic.AddInt32(&bucket._len, -1)
+		}
+		// the item pool moves or moved the item to a larger array: the
+		// copy is deleted too
+		c := elist_head.MovedTo(head)
+		if c == nil {
+			break
+		}
+		head = c
+		atomic.OrUint64((*uint64)(&mapheadFromLListHead(head).state), uint64(mapIsDeleted))
+	}
+	return true
+}
+
+func (h *Map[K, V]) purgeInEmbedded(key K) bool {
+	var item *embeddedEntry[K, V]
+	var bucket *bucket[K, V]
 	var found bool
 	var lock *trylock.Mutex
 	_, _, _, _ = item, bucket, lock, found
@@ -1584,114 +2045,138 @@ func (h *Map) purgeInEmbedded(key interface{}) bool {
 	// remove item
 	// 1. item status to remove
 	// 2. purge from linked-list
-	// 3. insert free list ( keep pointer order ?)
 
 	pool := bucket.itemPool()
 	if pool == nil {
 		return false
 	}
 	item.Delete()
+	h.AddLen(-1)
 
-	pOpts := elist_head.SharedTrav(list_head.WaitNoM())
 	item.PtrListHead().MarkForDelete()
-	elist_head.SharedTrav(pOpts...)
+	if stepEnabled {
+		stepAt("purge.beforeInit", unsafe.Pointer(item.PtrListHead()), nil)
+	}
 	item.PtrListHead().Init()
+	if !item.isPoolItem() {
+		return true
+	}
 
 	pItems := pool.ptrItems()
 	len := pItems.Len()
 	if item.PtrListHead() == &pItems._at(len-1, true, false).ListHead &&
 		atomic_util.CompareAndSwapInt(&pItems.len, len, len-1) {
+		if stepEnabled {
+			stepAt("purge.lenLowered", unsafe.Pointer(item.PtrListHead()), unsafe.Pointer(pool))
+		}
 		pool.shrinkLen()
 		return true
 	}
 
-	err := pool.PushWithOrder(item.(*SampleItem))
-	if err != nil {
-		return false
-	}
+	// The slot stays in the array, unlinked, with mapIsDeleted set; that flag
+	// is what getWithFn's foundFree path reuses. No free list: its offsets
+	// would go stale when expand/insertToPool rebuild the array.
 	return true
 }
 
 // RangeItem ... calls f sequentially for each key and value present in the map.
 // called ordre is reverse key order
-func (h *Map) RangeItem(f func(MapItem) bool) {
+//
+// It panics with UseEmbeddedPool; use Range to visit keys and values instead.
+// RangeItem does not provide a snapshot during concurrent updates.
+func (h *Map[K, V]) RangeItem(f func(*Entry[K, V]) bool) {
+	h.checkEntryAccess()
+	h.rangeItem(func(e *embeddedEntry[K, V]) bool { return f(e.viewEntry()) })
+}
 
-	oldConfs := list_head.DefaultModeTraverse.Option(list_head.WaitNoM())
-	defer list_head.DefaultModeTraverse.Option(oldConfs...)
-
-	for cur := h.head.Prev(list_head.WaitNoM()).Next(list_head.WaitNoM()); !cur.Empty(); cur = cur.Next(list_head.WaitNoM()) {
-		mhead := EmptyMapHead.FromListHead(cur).(*MapHead)
-		if mhead.IsIgnored() {
+func (h *Map[K, V]) rangeItem(f func(*embeddedEntry[K, V]) bool) {
+	defer runtime.KeepAlive(h)
+	for cur := h.head.DirectNext(); !cur.Empty(); cur = cur.DirectNext() {
+		mh := mapheadFromLListHead(cur)
+		if mh.IsIgnored() {
 			continue
 		}
-		e := h.ItemFn().HmapEntryFromListHead(mhead.PtrListHead()).(MapItem)
+		e := entryHMapFromListHead[K, V](cur)
+		if !h.isEmbededItemInBucket {
+			h.rangeCopyEntries(e, f)
+			return
+		}
+		stepAt("range.item", unsafe.Pointer(e.PtrListHead()), nil)
 		if !f(e) {
-			break
+			return
 		}
 	}
 }
 
 // Range ... calls f sequentially for each key and value present in the map.
 // order is reverse key order
-func (h *Map) Range(f func(key, value interface{}) bool) {
-
-	h.RangeItem(func(item MapItem) bool {
-		return f(item.Key(), item.Value())
+// Range does not provide a snapshot during concurrent updates.
+func (h *Map[K, V]) Range(f func(K, V) bool) {
+	h.rangeItem(func(e *embeddedEntry[K, V]) bool {
+		key, value, state := e.loadTypedKeyValue()
+		if state&(mapIsDummy|mapIsDeleted) != 0 {
+			return true
+		}
+		if stepEnabled {
+			stepAt("range.keyRead", unsafe.Pointer(e.PtrListHead()), nil)
+		}
+		return f(key, value)
 	})
 }
 
-func (h *Map) First() HMapEntry {
-	cur := h.head.DirectPrev().DirectNext()
-	return h.ItemFn().HmapEntryFromListHead(cur)
+// First returns the first live value in Range order. It returns false when
+// empty or when concurrent removal or reuse invalidates the candidate.
+func (h *Map[K, V]) First() (V, bool) { return h.endValue(false) }
+
+// Last returns the last live value in Range order. It returns false when
+// empty or when concurrent removal or reuse invalidates the candidate.
+func (h *Map[K, V]) Last() (V, bool) { return h.endValue(true) }
+
+func (h *Map[K, V]) first() *embeddedEntry[K, V] {
+	for head := h.head.DirectNext(); head != h.tail; head = head.DirectNext() {
+		if head.Empty() {
+			return nil
+		}
+		if !mapheadFromLListHead(head).IsIgnored() {
+			return entryHMapFromListHead[K, V](head)
+		}
+	}
+	return nil
 }
 
-func (h *Map) Last() HMapEntry {
-	cur := h.tail.DirectNext().DirectPrev()
-	return h.ItemFn().HmapEntryFromListHead(cur)
+func (h *Map[K, V]) last() *embeddedEntry[K, V] {
+	for head := h.tail.DirectPrev(); head != h.head; head = head.DirectPrev() {
+		if head.Empty() {
+			return nil
+		}
+		if !mapheadFromLListHead(head).IsIgnored() {
+			return entryHMapFromListHead[K, V](head)
+		}
+	}
+	return nil
 }
 
-func (h *Map) allpools() (pools []*samepleItemPool) {
+func (h *Map[K, V]) allpools() (pools []*samepleItemPool[K, V]) {
 	if h.pooler == nil {
 		return
 	}
 
 	for i := range h.pooler.itemPool {
-		pools = append(pools, samepleItemPoolFromListHead(h.pooler.itemPool[i].Next()))
+		pools = append(pools, samepleItemPoolFromListHead[K, V](h.pooler.itemPool[i].Next()))
 	}
 	return
 }
 
-func (h *Map) FindBucket(reverse uint64) (b *bucket) {
+func (h *Map[K, V]) FindBucket(reverse uint64) (b *bucket[K, V]) {
 	return h._findBucket(reverse, false, false)
 }
 
-func (h *Map) findBucket(reverse uint64) (b *bucket) {
+func (h *Map[K, V]) findBucket(reverse uint64) (b *bucket[K, V]) {
 
 	return h._findBucket(reverse, false, false)
 }
 
-func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy bool) (b *bucket) {
-
-	emptyeList := elist_head.ListHead{}
-
-	results := []*bucket{}
-
-	defer func() {
-		if h.isEmbededItemInBucket || b._parent != nil || b.dummy.ListHead != emptyeList {
-			return
-		}
-		results = append(results, b)
-		if !h.isEmbededItemInBucket {
-			loncha.Reverse(results)
-		}
-		for _, cBucket := range results {
-			if cBucket.dummy.ListHead != emptyeList {
-				b = cBucket
-				return
-			}
-		}
-		Log(LogWarn, "not found with inited-dummpy")
-	}()
+func (h *Map[K, V]) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy bool) (b *bucket[K, V]) {
 
 	for l := 1; l < 16; l++ {
 		if l == 1 {
@@ -1703,7 +2188,7 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy b
 			b = &h.buckets[idx]
 			continue
 		}
-		var bucketDowns *bucketSlice
+		var bucketDowns *bucketSlice[K, V]
 		bucketDowns = b.ptrDownLevels()
 		if bucketDowns == nil || atomic_util.LoadInt(&bucketDowns.cap) == 0 {
 			break
@@ -1717,21 +2202,21 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy b
 
 		idx := int((reverse >> (4 * (16 - l))) & 0xf)
 		if atomic_util.LoadInt(&bucketDowns.len) <= idx ||
-			bucketDowns.at(idx).level() == 0 {
+			bucketDowns.at(idx).level() <= 0 {
 
 			nidx := idx
 			if downlen := atomic_util.LoadInt(&bucketDowns.len); nidx > downlen-1 {
 				nidx = downlen - 1
 			}
 			for i := nidx; i > -1; i-- {
-				if bucketDowns.at(i).level() == 0 {
+				if bucketDowns.at(i).level() <= 0 {
 					continue
 				}
 				// FIXME: should not lookup direct
 				if ignoreNoPool && bucketDowns.at(i)._itemPool == nil {
 					continue
 				}
-				if ignoreNoInitDummy && bucketDowns.at(i).state != bucketStateActive {
+				if ignoreNoInitDummy && atomic.LoadUint32(&bucketDowns.at(i).state) != bucketStateActive {
 					continue
 				}
 
@@ -1745,7 +2230,7 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy b
 		if ignoreNoPool && bucketDowns.at(idx)._itemPool == nil {
 			break
 		}
-		if ignoreNoInitDummy && bucketDowns.at(idx).state != bucketStateActive {
+		if ignoreNoInitDummy && atomic.LoadUint32(&bucketDowns.at(idx).state) != bucketStateActive {
 			break
 		}
 		// MENTION: if result pool is require, enable
@@ -1763,7 +2248,7 @@ func (h *Map) _findBucket(reverse uint64, ignoreNoPool bool, ignoreNoInitDummy b
 
 const recoverBucketWithOutInit bool = false
 
-func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk func()) {
+func (h *Map[K, V]) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket[K, V], onOk func()) {
 	// h.mu.Lock()
 	// defer h.mu.Unlock()
 
@@ -1776,7 +2261,7 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 		level++
 	}
 
-	bucketNotInits := []*bucket{}
+	bucketNotInits := []*bucket[K, V]{}
 
 	for l := int32(1); l <= level; l++ {
 		if l == 1 {
@@ -1788,36 +2273,28 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 	RETRY_INITIALIZE:
 		if atomic.CompareAndSwapInt32(&b.cntOfActiveLevels, 0, 1) {
 
-			downLevels := make([]bucket, 1, 16)
+			downLevels := make([]bucket[K, V], 1, 16)
 
-			downLevels[0].setLevel(b.level() + 1)
+			downLevels[0].setLevel(b.childLevel())
 			downLevels[0].reverse = b.reverse
 			downLevels[0].Init()
 			downLevels[0].LevelHead.Init()
 			downLevels[0]._parent = b
-			downLevels[0].setItemPoolFn = func(p *samepleItemPool) {
+			downLevels[0].setItemPoolFn = func(p *samepleItemPool[K, V]) {
 				b.setItemPool(p)
 			}
 
-			lCur := h.levelBucket(l)
-			if lCur.LevelHead.Empty() {
-				lCur = bucketFromLevelHead(lCur.LevelHead.DirectPrev().DirectNext())
-			}
-			for ; lCur != lCur.NextOnLevel(); lCur = lCur.NextOnLevel() {
-				if lCur.LevelHead.Empty() {
-					break
-				}
-				if lCur.reverse < b.reverse {
-					break
-				}
-			}
-			lCur.LevelHead.InsertBefore(&downLevels[0].LevelHead)
+			h.insertOnLevel(&downLevels[0], l, "bucketFromPool.levelFound", unsafe.Pointer(b))
 			downLevels[0].state = bucketStateInit
 			// if idx != 0 && !h.isEmbededItemInBucket {
 			// 	h.add2(b.head(), &b.downLevels[0].dummy)
 			// }
-			b.downLevels = downLevels
-		} else if len(b.downLevels) == 0 {
+			downs := b.ptrDownLevels()
+			atomic.StorePointer(&downs.data, unsafe.Pointer(unsafe.SliceData(downLevels)))
+			atomic_util.StoreInt(&downs.cap, cap(downLevels))
+			atomic_util.StoreInt(&downs.len, len(downLevels))
+			stepAt("bucketFromPool.lenStored", unsafe.Pointer(b), nil)
+		} else if b.ptrDownLevels().Len() == 0 {
 			if !recoverBucketWithOutInit {
 				goto RETRY_INITIALIZE
 			}
@@ -1827,16 +2304,19 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 			goto RETRY_INITIALIZE
 		}
 	RETRY_SETUP:
-		if b.cntOfActiveLevels <= int32(idx) && atomic.CompareAndSwapInt32(&b.cntOfActiveLevels, int32(len(b.downLevels)), int32(idx)+1) {
-			cidx := int(b.cntOfActiveLevels) - 1
+		active := atomic.LoadInt32(&b.cntOfActiveLevels)
+		if active <= int32(idx) && active == int32(b.ptrDownLevels().Len()) && atomic.CompareAndSwapInt32(&b.cntOfActiveLevels, active, int32(idx)+1) {
+			// The successful CAS claimed idx. Another splitter may already have
+			// advanced the shared count before this goroutine initializes its slot.
+			cidx := idx
 			if cidx > 32 || cidx < -32 {
 				Log(LogWarn, "invalid cidx ")
 			}
 
-			nDownLevel := &b.downLevels[cidx : cidx+1 : cidx+1][0]
+			nDownLevel := b.ptrDownLevels()._at(cidx, false)
 			nDownLevel.reverse = b.reverse | (uint64(cidx) << (4 * (16 - l)))
-			nDownLevel.setLevel(b.level() + 1)
-			nDownLevel.state = bucketStateInit
+			nDownLevel.setLevel(b.childLevel())
+			atomic.StoreUint32(&nDownLevel.state, bucketStateInit)
 
 			oBucket := b
 			oIdx := cidx
@@ -1844,7 +2324,7 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 			if onOk != nil {
 				Log(LogWarn, "found old fn ")
 			}
-			nDownLevel.onOkFn = func() {
+			finish := func() {
 				oDownLevels := oBucket.ptrDownLevels()
 				olen, ocap := oDownLevels.Len(), oDownLevels.Cap()
 				if olen > oIdx || ocap <= oIdx { // MENTION: should check ocap <= oIdx
@@ -1862,11 +2342,12 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 				Log(LogDebug, "backet already expand ")
 
 			EXPAND:
-				if !atomic.CompareAndSwapUint32(&oBucket.downLevels[oIdx].state, bucketStateInit, bucketStateActive) {
+				if !atomic.CompareAndSwapUint32(&oBucket.ptrDownLevels().at(oIdx).state, bucketStateInit, bucketStateActive) {
 					Log(LogDebug, "fail bucket state change to finish ")
 				}
 			}
-			onOk = nDownLevel.onOkFn
+			nDownLevel.onOkFn.Store(&finish)
+			onOk = finish
 
 			if !opt.onOk {
 				onOk()
@@ -1876,27 +2357,29 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 
 			b = nDownLevel
 			break
-		} else if len(b.downLevels) <= idx {
+		} else if b.ptrDownLevels().Len() <= idx {
 			// for debug
-			cDownLevels := b.downLevels[0:b.cntOfActiveLevels]
-			last := &cDownLevels[b.cntOfActiveLevels-1]
+			last := b.ptrDownLevels()._at(int(atomic.LoadInt32(&b.cntOfActiveLevels))-1, false)
 			if !recoverBucketWithOutInit {
 				goto RETRY_SETUP
 			}
 
 			if last.isRequireOnOk() {
-				last.onOkFn()
+				if finish := last.onOkFn.Load(); finish != nil {
+					(*finish)()
+				}
 			}
 
 			goto RETRY_SETUP
 		}
 
-		if idx != 0 && atomic.CompareAndSwapUint32(&b.downLevels[idx].state, bucketStateNone, bucketStateInit) {
+		down := b.ptrDownLevels().at(idx)
+		if idx != 0 && atomic.CompareAndSwapUint32(&down.state, bucketStateNone, bucketStateInit) {
 			if l != level {
 				Log(LogWarn, "not collected already inited")
 			}
-			b.downLevels[idx].setLevel(b.level() + 1)
-			b.downLevels[idx].reverse = b.reverse | (uint64(idx) << (4 * (16 - l)))
+			down.setLevel(-b.childLevel())
+			down.reverse = b.reverse | (uint64(idx) << (4 * (16 - l)))
 			if onOk != nil {
 				Log(LogWarn, "found old fn ")
 			}
@@ -1905,31 +2388,35 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 			oIdx := idx
 
 			onOk = func() {
-				if !atomic.CompareAndSwapUint32(&oBucket.downLevels[oIdx].state, bucketStateInit, bucketStateActive) {
+				if !atomic.CompareAndSwapUint32(&oBucket.ptrDownLevels().at(oIdx).state, bucketStateInit, bucketStateActive) {
 					Log(LogWarn, "fail bucket state change to finish ")
 				}
 			}
-			b.downLevels[idx].onOkFn = onOk
+			finish := onOk
+			down.onOkFn.Store(&finish)
 
-			b = &b.downLevels[idx]
+			b = down
 			if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {
 				Log(LogWarn, "already inited")
 			}
 			break
-		} else if idx != 0 && b.downLevels[idx].state != bucketStateActive {
+		} else if idx != 0 && atomic.LoadUint32(&down.state) != bucketStateActive {
 			Log(LogWarn, "initializetion is not finished")
+			if l == level {
+				// the goroutine that won the CAS makes this bucket
+				return nil, nil
+			}
 		}
 
-		if !h.isEmbededItemInBucket && l < level && idx != 0 && b.downLevels[idx].state != bucketStateActive {
-			bucketNotInits = append(bucketNotInits, &b.downLevels[idx])
+		if !h.isEmbededItemInBucket && l < level && idx != 0 && atomic.LoadUint32(&down.state) != bucketStateActive {
+			bucketNotInits = append(bucketNotInits, down)
 		}
 		if onOk != nil {
 			Log(LogWarn, " skip okfn?")
 		}
-		b = &b.downLevels[idx]
+		b = down
 	}
 	if b.ListHead.DirectPrev() != nil || b.ListHead.DirectNext() != nil {
-		h.DumpBucket(logio)
 		Log(LogWarn, "already inited")
 	}
 	// obucketNotInits := bucketNotInits
@@ -1941,8 +2428,8 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 	// 	h.setupBcukets(bucketNotInits)
 	// }
 	if onOk == nil {
-		if b.onOkFn != nil {
-			onOk = b.onOkFn
+		if finish := b.onOkFn.Load(); finish != nil {
+			onOk = *finish
 		} else {
 			Log(LogWarn, "not set reverse?")
 		}
@@ -1951,16 +2438,17 @@ func (h *Map) bucketFromPool(reverse uint64, opts ...cOptFn) (b *bucket, onOk fu
 }
 
 // init bucket
-//  bucketFromPool()            set bucket.level/ reverser
+//  bucketFromPool()            set bucket.reverse, bucket.level < 0 (claimed)
 //  makeBucket()/makeBucket2()  init  as bucket elemet  .Init()
 //                              init  as level element  .LevelHead.Init()
 //    ->addBucket()             find previous bucket
 //      -> _InsertBefore()      set dummy.fields
 //                              connect dummy to item List
 //                              connect bucket to bucket list
-//  makeBucket()/makeBucket2()  connect bucket to level list
+//  makeBucket()/makeBucket2()  bucket.level > 0: lookups find the bucket from here
+//                              connect bucket to level list
 
-func (h *Map) setupBcukets(buckets []*bucket) {
+func (h *Map[K, V]) setupBcukets(buckets []*bucket[K, V]) {
 
 	emptyListHead := list_head.ListHead{}
 
@@ -1977,19 +2465,10 @@ func (h *Map) setupBcukets(buckets []*bucket) {
 		}
 
 		if !b.LevelHead.IsSingle() {
-			nextLevel := h.findNextLevelBucket(b.reverse, b.level())
-
 			if b.LevelHead.DirectNext() == &b.LevelHead {
 				Log(LogWarn, "bucket.LevelHead is pointed to self")
 			}
-			if nextLevel != nil {
-				nextLevelBucket := bucketFromLevelHead(nextLevel)
-				if nextLevelBucket.reverse < b.reverse {
-					nextLevel.InsertBefore(&b.LevelHead)
-				} else if nextLevelBucket.reverse != b.reverse {
-					nextLevel.DirectNext().InsertBefore(&b.LevelHead)
-				}
-			}
+			h.insertOnLevel(b, b.level(), "makeBucket.levelFound", unsafe.Pointer(b))
 		}
 	}
 

@@ -1,0 +1,47 @@
+{unit: {base: "f24fcc63564e1bb92b26d7c96cc69e85c3a82d20", diff: "diff --git a/maphead.go b/maphead.go
+index 518d993..9de3241 100644
+--- a/maphead.go
++++ b/maphead.go
+@@ -56,7 +56,10 @@ func (mh *MapHead) Offset() uintptr {
+ }
+ 
+ func mapheadFromLListHead(l *elist_head.ListHead) *MapHead {
+-	links := elist_head.NewList[MapHead](nil, nil, mapheadOffset)
++	if l == nil {
++		return nil
++	}
++	links := elist_head.NewList[MapHead](mapheadOffset)
+ 	return links.Element(l)
+ }
+ ", dependency: "159504182307055412d109ea84b8b70c47dd993b", command: "go test ./... -count=1 -timeout=30s", result: {stdout: "ok  	github.com/kazu/skiplistmap	0.776s
+?   	github.com/kazu/skiplistmap/atomic_util	[no test files]
+ok  	github.com/kazu/skiplistmap/rmap	0.004s
+", stderr: "", exit_code: 0}}, recovery_normal: {stdout: "goos: linux
+goarch: amd64
+pkg: github.com/kazu/skiplistmap
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkMapHeadRecovery/Original         	264211372	         1.358 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMapHeadRecovery/Original         	263299569	         1.360 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMapHeadRecovery/Original         	265615494	         1.357 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMapHeadRecovery/List             	255566480	         1.362 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMapHeadRecovery/List             	265309729	         1.356 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMapHeadRecovery/List             	264673342	         1.359 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/kazu/skiplistmap	2.982s
+", stderr: "", exit_code: 0}, recovery_checkptr: {stdout: "goos: linux
+goarch: amd64
+pkg: github.com/kazu/skiplistmap
+cpu: AMD Ryzen 9 8945HS w/ Radeon 780M Graphics
+BenchmarkMapHeadRecovery/Original         	36210972	         9.672 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMapHeadRecovery/Original         	35708871	        10.22 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMapHeadRecovery/Original         	35144923	         9.804 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMapHeadRecovery/List             	21295585	        17.03 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMapHeadRecovery/List             	21352416	        16.85 ns/op	       0 B/op	       0 allocs/op
+BenchmarkMapHeadRecovery/List             	21244078	        17.07 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/kazu/skiplistmap	2.235s
+", stderr: "", exit_code: 0}, readme_example: {stdout: "manual: alpha
+manual: beta
+typed: alpha
+typed: beta
+", stderr: "", exit_code: 0}}

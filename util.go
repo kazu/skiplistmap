@@ -6,6 +6,7 @@
 package skiplistmap
 
 import (
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/kazu/elist_head"
@@ -47,15 +48,13 @@ func ElementOf(head unsafe.Pointer, offset uintptr) unsafe.Pointer {
 
 func PoolCap(len int) int {
 	min := minCapItem()
-	threshold := thresholdCapItem()
 
 	if len < min {
 		return min
 	}
 
-	if len >= threshold {
-		return threshold / 4 * (1 + len/(threshold/4))
-	}
+	// the capacity doubles: an expand moves every item, so that a fixed
+	// step would move them again every few inserts
 	for i := 0; i < 60; i++ {
 		if (len >> i) == 0 {
 			return intPow(2, i)
@@ -101,25 +100,73 @@ func maxInts(ints ...int) (max int) {
 	return
 }
 
-func NilMapEntry() HMapEntry {
-	return (*entryHMap)(nil)
+func NilMapEntry[K Key[K], V any]() HMapEntry[K, V] {
+	return nil
 }
 
-func inserBeforeWithCheck(right *elist_head.ListHead, center *elist_head.ListHead) (*elist_head.ListHead, error) {
+// insertInOrder links center just before right in one attempt, only if the
+// entry that is before right when center is linked does not come after center.
+// It returns an error without linking center otherwise; the caller finds the
+// position again.
+func insertInOrder[K Key[K], V any](right, center *elist_head.ListHead, entry *embeddedEntry[K, V]) error {
+
+	if err := checkLinkBefore(right, center); err != nil {
+		return err
+	}
+	centermHead := mapheadFromLListHead(center)
+	return right.TryInsertBefore(center, func(left *elist_head.ListHead) bool {
+		return canLinkAfter[K, V](mapheadFromLListHead(left), centermHead, entry)
+	})
+}
+
+// checkLinkBefore returns an error unless center is not linked and its key
+// does not come after the key of right.
+func checkLinkBefore(right, center *elist_head.ListHead) error {
 
 	centermHead := mapheadFromLListHead(center)
 	rightmHead := mapheadFromLListHead(right)
-	leftmHead := mapheadFromLListHead(right.Prev())
 	if !center.Empty() && !center.IsSingle() {
-		return nil, NewError(EIItemInvalidAdd, "invalid left state ", nil)
+		return NewError(EIItemInvalidAdd, "invalid left state ", nil)
 	}
 
-	if rightmHead.reverse < centermHead.reverse {
-		return nil, NewError(EIItemInvalidAdd, "invalid insert order", nil)
+	if atomic.LoadUint64(&rightmHead.reverse) < atomic.LoadUint64(&centermHead.reverse) {
+		return NewError(EIItemInvalidAdd, "invalid insert order", nil)
 	}
-	if !leftmHead.Empty() && centermHead.reverse < leftmHead.reverse {
-		return nil, NewError(EIItemInvalidAdd, "invalid insert order", nil)
-	}
+	return nil
+}
 
-	return right.InsertBefore(center)
+// canLinkAfter reports whether center may be linked just after left: left
+// does not come after center, and left is not a live entry of the key of
+// center, which another store may have linked since center was looked up.
+func canLinkAfter[K Key[K], V any](left, center *MapHead, entry *embeddedEntry[K, V]) bool {
+	return left.Empty() || (atomic.LoadUint64(&left.reverse) <= atomic.LoadUint64(&center.reverse) && (entry == nil || linkedSameKey[K, V](left, center, entry) == nil))
+}
+
+// linkedSameKey returns the live entry of the key of center among left and
+// the entries before left with the reverse of center, or nil. Entries of one
+// reverse lie in any order, including distinct keys with equal hash pairs.
+func linkedSameKey[K Key[K], V any](left, center *MapHead, entry *embeddedEntry[K, V]) *MapHead {
+	for cur := left.PtrListHead(); !cur.Empty(); cur = cur.DirectPrev() {
+		m := mapheadFromLListHead(cur)
+		if atomic.LoadUint64(&m.reverse) != atomic.LoadUint64(&center.reverse) {
+			break
+		}
+		if sameKeyLinked(m, center) {
+			other := entryHMapFromListHead[K, V](m.PtrListHead())
+			if !equalItemKey[K, V](other, entry.Key()) {
+				continue
+			}
+			return m
+		}
+	}
+	return nil
+}
+
+// sameKeyLinked reports whether left is an entry of the key of center that
+// is not deleted.
+func sameKeyLinked(left, center *MapHead) bool {
+	return !left.Empty() && !left.IsIgnored() && left != center &&
+		atomic.LoadUint64(&left.reverse) == atomic.LoadUint64(&center.reverse) &&
+		atomic.LoadUint64(&left.conflict) == atomic.LoadUint64(&center.conflict) &&
+		!left.PtrListHead().IsMarked()
 }

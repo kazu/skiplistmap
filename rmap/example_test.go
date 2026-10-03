@@ -2,12 +2,13 @@ package rmap_test
 
 import (
 	"fmt"
+	smap "github.com/kazu/skiplistmap"
 
 	"github.com/kazu/skiplistmap/rmap"
 )
 
 func ExampleRMap() {
-	m := rmap.New()
+	m := rmap.New[smap.StringKey, int]()
 	m.Set("apple", 1)
 	fmt.Println(m.Get("apple"))
 	m.Set("apple", 2)
@@ -21,6 +22,6 @@ func ExampleRMap() {
 	// 1 true
 	// 3 true
 	// 2
-	// <nil> false
+	// 0 false
 	// 1
 }

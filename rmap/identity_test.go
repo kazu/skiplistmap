@@ -8,15 +8,16 @@ import (
 
 func TestReadSlotIdentity(t *testing.T) {
 	for _, differentConflict := range []bool{true, false} {
-		m := New()
+		m := New[smap.StringKey, int]()
 		m.Set("original", 1)
 		m.Get("original")
-		k, conflict := smap.KeyToHash("original")
+		k, conflict := smap.StringKey("original").KeyHash()
 		if differentConflict {
 			conflict ^= 1
 		}
 		read := m.read.Load()
-		if read.store2(m, k, conflict, "collision", 2) {
+		value := 2
+		if read.store2(m, k, conflict, "collision", &value) {
 			t.Errorf("different conflict %v: replaced another key", differentConflict)
 		}
 		if got, ok := m.Get("original"); !ok || got != 1 {
@@ -27,16 +28,16 @@ func TestReadSlotIdentity(t *testing.T) {
 
 func TestReadCollisionsSurvivePromotion(t *testing.T) {
 	for _, sameConflict := range []bool{false, true} {
-		m := New()
+		m := New[smap.StringKey, int]()
 		g := m.read.Load().generation
-		read := &readMap{generation: g, m: make(map[uint64]*readSlot)}
-		for i, key := range []string{"first", "second"} {
+		read := &readMap[smap.StringKey, int]{generation: g, m: make(map[uint64]*readSlot[smap.StringKey, int])}
+		for i, key := range []smap.StringKey{"first", "second"} {
 			conflict := uint64(i)
 			if sameConflict {
 				conflict = 0
 			}
-			slot := &readSlot{key: key, conflict: conflict}
-			slot.value.Store(newStoredValue(i))
+			slot := &readSlot[smap.StringKey, int]{key: key, conflict: conflict}
+			slot.value.Store(newStoredValue(&i))
 			read.addSlot(7, slot)
 		}
 		m.read.Store(read)
@@ -44,7 +45,7 @@ func TestReadCollisionsSurvivePromotion(t *testing.T) {
 		m.len.Store(count)
 		for round := 0; round < 2; round++ {
 			m.promote(m.read.Load().generation)
-			for i, key := range []string{"first", "second"} {
+			for i, key := range []smap.StringKey{"first", "second"} {
 				conflict := uint64(i)
 				if sameConflict {
 					conflict = 0
@@ -61,7 +62,8 @@ func TestReadCollisionsSurvivePromotion(t *testing.T) {
 		if sameConflict {
 			conflict = 0
 		}
-		if !m.read.Load().store2(m, 7, conflict, "second", 9) {
+		value := 9
+		if !m.read.Load().store2(m, 7, conflict, "second", &value) {
 			t.Fatal("could not update the second colliding key")
 		}
 		if got, ok := m.get(7, 0, "first", true); !ok || got != 0 {
@@ -78,7 +80,7 @@ func TestReadCollisionsSurvivePromotion(t *testing.T) {
 }
 
 func TestReadUpdateCallback(t *testing.T) {
-	m := New()
+	m := New[smap.StringKey, any]()
 	var values []interface{}
 	m.onNewStores = []func(smap.MapItem[smap.StringKey,
 

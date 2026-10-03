@@ -205,17 +205,19 @@ StoreItemはembedded poolの要素と外部Entryを混在させられる。外�
 pool配列へコピーせず、配列の移動ではpool要素だけを置換する。混在専用の性能測定は
 task012で行う。Update callback APIはtask019で接続した。
 
-rmapは本体に接続する部分だけを型付きにした。read/dirty/callbackの型消去と
-測定器全体の移行はtask012に残す。
+rmapは`RMap[K,V]`／`New[K,V]()`を使い、Mapと同じ`Key[K]`制約を持つ。
+read/dirty/frozen、値セル、callbackまでK/Vを保持する。`Get`の不在時の結果は
+Vのゼロ値とfalseで、Vがnilを許す型の場合はnilも正常値として登録できる。
+`Set2`／`Get2`のハッシュ対による入口も維持する。
 
 残した型消去は次のとおり。
 
 | 箇所 | 理由・後続 |
 |---|---|
-| `KeyToHash(interface{})` | rmapの既存入口と010の比較fixtureが使用する。本体MapはK.KeyHashを直接呼ぶ。rmapの移行は012 |
-| rmapのSet/Get、storedValue内のatomic.Value | rmapの公開APIとread側の型移行は012。dirty/frozenだけMap[StringKey,*readSlot]へ接続 |
-| rmapのonNewStores | 既存callbackのMapItem[StringKey,any]を維持。012で利用者側と一緒に変更 |
+| `KeyToHash(interface{})` | 既存の公開ハッシュ補助関数。nilと標準の非ラッパー型を受ける既存契約を保持し、旧実装の再現テストと010の比較fixtureが使用する。Mapとrmapの通常経路はK.KeyHashを直接呼ぶ |
 | Log、DumpExpandInfoの可変引数 | fmtへ渡す診断用の異種引数。MapのK/V保存・比較には使用しない |
+| loncha/lista_encabezadoの旧Map/RMap・ハッシュ補助関数 | 既存の比較対象・別の公開API。本体の型付きMap/RMapはこれらにK/Vを保存しないため、比較対象の実装を変更しない |
+| lonchaのstephookのatomic.Value | 停止テスト用callbackの公開。通常ビルドには含まれず、K/Vの保存先ではない |
 
 HMapEntry、MapItem、SampleItem、entryHMap、copyEntryは型付きEntryの別名であり、
 interfaceへの変換は行わない。ItemFnは削除した。型パラメータの制約としてのanyと、

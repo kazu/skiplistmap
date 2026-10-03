@@ -21,12 +21,10 @@ verification commands are described in [stability checks](docs/stability-checks.
 
 ## install 
 
-Install this package through go get.
-
-```
-go get "github.com/kazu/skiplistmap"
-
-```
+この型付きAPIは開発版です。公開版を取得する `go get` では、このブランチのAPIは
+入りません。[開発環境と検証手順](docs/stability-checks.md)に従って
+依存checkoutを用意してください。次のバージョンは `VERSION` の0.8.0です。
+[配布前の確認事項](docs/releasing.md)も参照してください。
 
 
 ## basic usage
@@ -72,6 +70,29 @@ func main() {
     fmt.Println(found)
     sMap2.Purge("test1")
     runtime.KeepAlive(item)
+}
+```
+
+## rmap
+
+readとdirtyの世代を分けるrmapも、キーと値を型で指定できます。
+キーの条件はMapと同じで、不在時は値の型のゼロ値とfalseを返します。
+
+```go
+package main
+
+import (
+    "fmt"
+    "github.com/kazu/skiplistmap"
+    "github.com/kazu/skiplistmap/rmap"
+)
+
+func main() {
+    m := rmap.New[skiplistmap.StringKey, int]()
+    m.Set("apple", 1)
+    fmt.Println(m.Get("apple"))
+    m.Delete("apple")
+    fmt.Println(m.Get("apple"))
 }
 ```
 

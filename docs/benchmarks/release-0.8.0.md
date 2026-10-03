@@ -33,6 +33,6 @@ nu tools/summarize-release.nu ../skiplistmap-bench-027/results.txt
 
 ## master方式
 
-`legacy_map_bench_test.go`の`Benchmark_Map`はmaster `b7e996b`のケース・表示・測定処理を復元したもの。読み書き専任goroutine、ビットマスクによるキー選択、未使用のconcurrent指定（復元後のユーザー指示で100から64へ変更）、操作結果を検査しない挙動を保つ。module importとgeneric型引数・内部識別名を現行APIへ適応した。実装自体は現在のMapであり旧製品実装を復元したものではない。復元後のユーザー指示により、この旧方式のskiplistmap4・5も値型を`Map[StringKey, *ListHead]`へ変更した。測定ループ・キー選択・ケース条件は変えていない。
+`legacy_map_bench_test.go`の`Benchmark_Map`はmaster `b7e996b`のケース・表示・測定処理を復元したもの。読み書き専任goroutine、ビットマスクによるキー選択、未使用のconcurrent=100指定、操作結果を検査しない挙動を保つ。module importとgeneric型引数・内部識別名を現行APIへ適応した。実装自体は現在のMapであり旧製品実装を復元したものではない。復元後のユーザー指示により、この旧方式のskiplistmap4・5も値型を`Map[StringKey, *ListHead]`へ変更した。測定ループ・キー選択・ケース条件は変えていない。
 
 旧sync.Mapアダプタの値receiverも保持したため、`go vet`はlockの値コピーを2件報告する。元方式はこの問題を含む歴史的な測定器として保存しており、修正済み方式と混同しない。ビルド確認には`go test -vet=off -run "^$" ./...`を使った。復元後のベンチ本測定は行っていない。

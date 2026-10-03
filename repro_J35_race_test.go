@@ -6,7 +6,7 @@ import (
 	"io"
 	"testing"
 
-	list_head "github.com/kazu/loncha/lista_encabezado"
+	list_head "github.com/kazu/lista_encabezado"
 )
 
 // The pool of the top bucket 3 holds k0 < k1 < k3 < k4 < k5. G1 sets k2:

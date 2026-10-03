@@ -3,6 +3,7 @@ package skiplistmap_test
 import (
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -10,7 +11,7 @@ import (
 
 	"github.com/cespare/xxhash"
 	"github.com/cornelk/hashmap"
-	list_head "github.com/kazu/loncha/lista_encabezado"
+	list_head "github.com/kazu/lista_encabezado"
 	"github.com/kazu/skiplistmap"
 	"github.com/kazu/skiplistmap/rmap"
 	"github.com/lrita/cmap"
@@ -226,8 +227,8 @@ func Benchmark_Map(b *testing.B) {
 		{"skiplistmap5    ", 100, 100000, 0, 0x080, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true))), false},
 
 		// use
-		//{"hashmap.HashMap              ", 100, 100000, 0, 0x000, 0, hashMap{m: &hashmap.HashMap{}}},
-		//{"cmap.Cmap              	   ", 100, 100000, 0, 0x000, 0, &cMap{}},
+		{"hashmap.HashMap", 100, 100000, 0, 0x000, 0, hashMap{m: &hashmap.HashMap{}}, true},
+		{"cmap.Cmap", 100, 100000, 0, 0x000, 0, &cMap{}, true},
 
 		// {"skiplistmap                  ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
 		// {"skiplistmap3                 ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
@@ -244,6 +245,8 @@ func Benchmark_Map(b *testing.B) {
 		// use
 		{"mapWithMutex    ", 100, 100000, 50, 0x000, 0, &list_head.MapWithLock{}, true},
 		{"sync.Map        ", 100, 100000, 50, 0x000, 0, &syncMap{}, true},
+		{"skiplistmap5    ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true))), true},
+		{"skiplistmap5    ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true))), true},
 		{"skiplistmap5    ", 100, 100000, 50, 0x080, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true))), true},
 		{"skiplistmap5    ", 100, 100000, 50, 0x040, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true))), true},
 		{"skiplistmap4    ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any]()), true},
@@ -255,10 +258,21 @@ func Benchmark_Map(b *testing.B) {
 		// use
 		// {"skiplistmap4    ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap()), false},
 		// {"skiplistmap4    ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap()), false},
-		// {"hashmap.HashMap              ", 100, 100000, 50, 0x000, 0, hashMap{m: &hashmap.HashMap{}}},
-		// {"cmap.Cmap              	   ", 100, 100000, 50, 0x000, 0, &cMap{}},
+		{"hashmap.HashMap", 100, 100000, 50, 0x000, 0, hashMap{m: &hashmap.HashMap{}}, true},
+		{"cmap.Cmap", 100, 100000, 50, 0x000, 0, &cMap{}, true},
+		{"hashmap.HashMap", 100, 100000, 50, 0x000, 0, hashMap{m: &hashmap.HashMap{}}, false},
+		{"cmap.Cmap", 100, 100000, 50, 0x000, 0, &cMap{}, false},
 
 		{"RMap                         ", 100, 100000, 50, 0x000, 0, newWRMap(), false},
+		{"RMap                         ", 100, 100000, 50, 0x000, 0, newWRMap(), true},
+	}
+
+	for _, bm := range benchmarks {
+		if _, ok := bm.mapInf.(*WrapHMap); ok {
+			bm.name = strings.TrimSpace(bm.name) + "_typed"
+			bm.mapInf = newTypedBenchmarkMap(bm.mode, bm.buckets)
+			benchmarks = append(benchmarks, bm)
+		}
 	}
 
 	for _, bm := range benchmarks {

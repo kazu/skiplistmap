@@ -1,8 +1,8 @@
 # Stability checks
 
-この開発ブランチはGo 1.27.1と隣の`elist_head`・`loncha`のcheckoutを使う。
-elist_headは`ec42b76be1bc4de322da2b6fd0b3d68d5014ed44`、lonchaは
-`1a71ffebf3c97146f935f257d249261470a54b46`を本体の依存として使う。
+この開発ブランチはGo 1.27.1と隣の`elist_head`・`lista_encabezado`のcheckoutを使う。
+elist_headは`4df679832828840506950c41bcfd2583228178b5`、lista_encabezadoは
+`611497635248e41c2685729b1b6619919a978179`を本体の依存として使う。
 型移行前の比較ではelist_headの`cab6a1bff65b540c8a777c20e9a41cb8899b6d4c`を使用した。
 024で専用の`ReplaceWith`を廃止し、Mapの更新は既存の挿入・削除を組み合わせる。
 `deps/elist_head`のsubmoduleは使わない。
@@ -12,9 +12,9 @@ elist_headは`ec42b76be1bc4de322da2b6fd0b3d68d5014ed44`、lonchaは
 GitHub Actionsは上記のcommitを隣のディレクトリへ
 checkoutする設定であり、依存commitがremoteで取得可能になるまでは実行できない。
 
-リポジトリの隣の `../elist_head` と `../loncha` に上記commitをcheckoutした状態で、
+リポジトリの隣の `../elist_head` と `../lista_encabezado` に上記commitをcheckoutした状態で、
 リポジトリのルートから実行する。
-009 の検証対象は loncha の `task/009-list-stability`、コミット `1a71ffe`。
+旧lonchaの`task/009-list-stability`の修正は、lista_encabezadoへ移設・統合済み。
 
 ```bash
 make ci

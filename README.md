@@ -9,15 +9,15 @@ Skip List Map はキーと値を型で指定する並行Mapです。登録・取
 
 ## features
 
-- buckets, elemenet(key/value item) structure is concurrent embeded-linked list. (using [list_encabezado])
-- keep key order by hash function.
-- ability to store value ( value of key/vale) and elemet of ket/value item(detail is later)
-- improve performance for sync.Map/ internal map in write heavy environment.
+- `Map[K,V]`でキーと値の型を指定でき、独自のキー型も使えます。
+- 値をMap内へ格納する方法と、利用者が保持する`Entry[K,V]`を登録する方法があります。
+- `Update`で現在の値から新しい値を作り、コピーを公開できます。
+- `RMap[K,V]`はreadとdirtyの世代を分けるMapです。
 
 ## requirement
 
-Go 1.27.1 for this development branch. Its local dependency checkouts and
-verification commands are described in [stability checks](docs/stability-checks.md).
+Go 1.27.1を使用します。依存の`elist_head`と`lista_encabezado`は公開済みcommitに固定しています。
+開発時のcheckoutと検証方法は[stability checks](docs/stability-checks.md)を参照してください。
 
 ## install 
 
@@ -29,6 +29,8 @@ verification commands are described in [stability checks](docs/stability-checks.
 
 ## basic usage
 
+`StringKey`などの標準キー、または`KeyHash`と`Equal`を実装した独自キーを使えます。
+格納方法、Entryの寿命、並行更新時の戻り値は[型付きAPI](docs/typed-api.md)を参照してください。
 
 ```go
 package main
@@ -44,6 +46,7 @@ func main() {
     sMap := skiplistmap.New[skiplistmap.StringKey, int](skiplistmap.MaxPefBucket[skiplistmap.StringKey, int](12))
     sMap.Set("test1", 1)
     sMap.Set("test2", 2)
+    sMap.Update("test1", func(value *int) { *value += 1 })
     if value, ok := sMap.Get("test1"); ok {
         fmt.Println(value)
     }
@@ -138,15 +141,13 @@ Benchmark_Map/hashmap______w/50_bucket=__0-16         	37279302	        66.94 ns
 Benchmark_Map/cmap_________w/50_bucket=__0-16            1592382	       733.2  ns/op	    1069 B/op	       7 allocs/op
 ```
 
-## why faster ?
+## structure
 
+- bucketとEntryを双方向リストでつなぎ、ハッシュ値を使って検索範囲を絞ります。
+- embedded poolでは同じbucketの要素を配列に配置し、bucket単位で同期します。
+- Entryのリンクには[elist_head]の相対ポインタを使います。bucket側は[list_encabezado]を使います。
 
-- lock free , thread safe concurrent without lock. embedded pool mode is using lock per bucket
-- buckets, items(key/value items) is doubly linked-list. this linked list is embedded type. so faster
-- items is shards per hash key single bytes. items in the same shard is high-locality because in same slice.
-- next/prev pointer of items's linked list is relative pointer. low-cost copy for expand shad slice. ([elist_head])
-
-[list_encabezado]: https://pkg.go.dev/github.com/kazu/loncha@v0.4.5/lista_encabezado
+[list_encabezado]: https://pkg.go.dev/github.com/kazu/lista_encabezado
 [elist_head]: https://github.com/kazu/elist_head
 [github.com/cornelk/hashmap]: https://github.com/cornelk/hashmap
 [github.com/lrita/cmap]: https://github.com/lrita/cmap

@@ -2,6 +2,6 @@ go 1.27.1
 
 use ..
 
-replace github.com/kazu/elist_head => github.com/kazu/elist_head v0.2.9-0.20261002205835-ec42b76be1bc
+replace github.com/kazu/elist_head => github.com/kazu/elist_head v0.2.9-0.20261003080129-4df679832828
 
-replace github.com/kazu/loncha => github.com/kazu/loncha v0.4.12-0.20260930121855-1a71ffebf3c9
+replace github.com/kazu/lista_encabezado => github.com/kazu/lista_encabezado v0.0.0-20261003072118-611497635248

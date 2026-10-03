@@ -11,7 +11,7 @@ import (
 	"time"
 	"unsafe"
 
-	list_head "github.com/kazu/loncha/lista_encabezado"
+	list_head "github.com/kazu/lista_encabezado"
 )
 
 // J23 (3.3.2): in skiplistmap4 a broken level list does not lose a key.

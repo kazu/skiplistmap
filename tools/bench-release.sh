@@ -26,8 +26,8 @@ trap 'rm -rf "$scratch"' EXIT
 			git -C "$module_dir" status --porcelain
 		fi
 	done
-	printf 'GOMAXPROCS=%s requested_workers=100 actual_workers=%s records=100000 benchtime=%s repeats=%s memory_limit_KB=%s\n' \
-		"$GOMAXPROCS" "$(((100 + GOMAXPROCS - 1) / GOMAXPROCS * GOMAXPROCS))" \
+	printf 'GOMAXPROCS=%s requested_workers=64 actual_workers=%s records=100000 benchtime=%s repeats=%s memory_limit_KB=%s\n' \
+		"$GOMAXPROCS" "$(((64 + GOMAXPROCS - 1) / GOMAXPROCS * GOMAXPROCS))" \
 		"$benchtime" "$repeats" "$(ulimit -v)"
 	lscpu
 } > "$result_dir/environment.txt"
@@ -40,6 +40,7 @@ mapfile -t cases < "$result_dir/cases.txt"
 ((${#cases[@]} > 0))
 : > "$result_dir/results.txt"
 printf 'round\tcase\tmax_rss_KB\telapsed\n' > "$result_dir/resources.tsv"
+for phase in readonly mixed; do
 for ((round=1; round<=repeats; round++)); do
 	for ((position=0; position<${#cases[@]}; position++)); do
 		index=$position
@@ -47,6 +48,8 @@ for ((round=1; round<=repeats; round++)); do
 			index=$((${#cases[@]} - position - 1))
 		fi
 		case_name=${cases[index]}
+        if [[ $phase == readonly && $case_name != *w/__0_u/* ]]; then continue; fi
+        if [[ $phase == mixed && $case_name == *w/__0_u/* ]]; then continue; fi
 		pattern=${case_name//./\\.}
 		pattern="^${pattern//\//$\/^}\$"
 		printf 'round %s/%s case %s/%s %s\n' "$round" "$repeats" \
@@ -65,4 +68,6 @@ for ((round=1; round<=repeats; round++)); do
 			END {printf "%s\t%s\t%s\t%s\n", round, name, rss, elapsed}
 		' "$scratch/result" >> "$result_dir/resources.tsv"
 	done
+done
+printf "phase %s complete\n" "$phase"
 done

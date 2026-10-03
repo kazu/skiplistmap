@@ -12,14 +12,14 @@ vet:
 	done
 
 test:
-	go list ./... | xargs -I{} go test -v -count=1 {}
+	go list ./... | xargs -I{} go test -v {}
 
 race:
-	go list ./... | xargs -I{} go test -v -count=1 -race {}
+	go list ./... | xargs -I{} go test -v -race {}
 
 checkptr:
-	go list ./... | xargs -I{} go test -v -count=1 -gcflags=all=-d=checkptr {}
+	go list ./... | xargs -I{} go test -v -gcflags=all=-d=checkptr {}
 
 step:
-	go test -v -count=1 -race -tags=stephook -run '^(Test|Example|Fuzz)' ./rmap
-	go test -v -count=1 -race -tags=stephook -run '^Test_(J(51|56)|OperationsDistinguishSameHashPair|EmbeddedGetDoesNotReadReusedSlot|EmbeddedRangeKeepsKeyAndValueTogether|DifferentKeysWithSameHashPair|F2)|^Test(Typed|EntryCopy|EntryValue|EntryStorage|EntryNext|EntryInitialization|EntryRetention|RegisteredEntry|SearchIntermediatePurged|EmbeddedEntryAccess|EmbeddedExternal|Update|DeletePurge|_PurgeAndSet|_StepRaceSplit|_ConcurrentUpdateWhileGrowing)' .
+	go test -v -race -tags=stephook -run '^(Test|Example|Fuzz)' ./rmap
+	go test -v -race -tags=stephook -run '^Test_(J(51|56)|OperationsDistinguishSameHashPair|EmbeddedGetDoesNotReadReusedSlot|EmbeddedRangeKeepsKeyAndValueTogether|DifferentKeysWithSameHashPair|F2)|^Test(Typed|EntryCopy|EntryValue|EntryStorage|EntryNext|EntryInitialization|EntryRetention|RegisteredEntry|SearchIntermediatePurged|EmbeddedEntryAccess|EmbeddedExternal|Update|DeletePurge|_PurgeAndSet|_StepRaceSplit|_ConcurrentUpdateWhileGrowing)' .

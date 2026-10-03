@@ -141,7 +141,6 @@ func benchmarkLegacyMap(b *testing.B, workers, records int) {
 		{"skiplistmap5    ", 100, 100000, 0, 0x080, skiplistmap.CombineSearch3, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, false},
 
 		// use
-		{"hashmap.HashMap              ", 100, 100000, 0, 0x000, 0, legacyHashMap{m: &hashmap.HashMap{}}, true},
 		{"cmap.value              	   ", 100, 100000, 0, 0x000, 0, legacyCMap{}, true},
 		{"cmap.reference              	   ", 100, 100000, 0, 0x000, 0, &referenceCMap{}, true},
 
@@ -173,11 +172,21 @@ func benchmarkLegacyMap(b *testing.B, workers, records int) {
 		// use
 		// {"skiplistmap4    ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch4, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]()}, false},
 		// {"skiplistmap4    ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch4, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]()}, false},
-		{"hashmap.HashMap              ", 100, 100000, 50, 0x000, 0, legacyHashMap{m: &hashmap.HashMap{}}, true},
 		{"cmap.value              	   ", 100, 100000, 50, 0x000, 0, legacyCMap{}, true},
 		{"cmap.reference              	   ", 100, 100000, 50, 0x000, 0, &referenceCMap{}, true},
 
 		//{"RMap                         ", 100, 100000, 50, 0x000, 0, newWRMap()},
+	}
+
+	switch records {
+	case 100000:
+		benchmarks = append(benchmarks, []legacyMapTestParam{
+			{"hashmap.HashMap              ", 100, 100000, 0, 0x000, 0, legacyHashMap{m: &hashmap.HashMap{}}, true},
+			{"hashmap.HashMap              ", 100, 100000, 50, 0x000, 0, legacyHashMap{m: &hashmap.HashMap{}}, true},
+		}...)
+		// case 1000000:
+		// Hashmap is disabled here: initial insertion stalled in repeated runs.
+		// benchmarks = append(benchmarks, theHashmapCases...)
 	}
 
 	for _, bm := range benchmarks {
@@ -191,5 +200,5 @@ func benchmarkLegacyMap(b *testing.B, workers, records int) {
 			runBnech(b, &bm)
 		})
 	}
-
+	benchmarkLegacyWrites(b, benchmarks, workers, records)
 }

@@ -7,7 +7,7 @@ import (
 )
 
 // Value adapters preserve the master method bodies and value receivers.
-// Reference adapters differ only in receiver type.
+// The cmap reference adapter differs only in receiver type.
 type legacyHashMap struct {
 	m *hashmap.HashMap
 }
@@ -37,22 +37,6 @@ func (m legacyCMap) Get(k string) (v *list_head.ListHead, ok bool) {
 func (m legacyCMap) Set(k string, v *list_head.ListHead) (ok bool) {
 
 	m.m.Store(k, v)
-	return true
-}
-
-type referenceHashMap struct {
-	m *hashmap.HashMap
-}
-
-func (m *referenceHashMap) Get(k string) (v *list_head.ListHead, ok bool) {
-	inf, ok := m.m.Get(k)
-	v = inf.(*list_head.ListHead)
-	return v, ok
-}
-
-func (m *referenceHashMap) Set(k string, v *list_head.ListHead) (ok bool) {
-
-	m.m.Set(k, v)
 	return true
 }
 

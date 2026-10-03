@@ -230,8 +230,7 @@ func Benchmark_MapPerOperation(b *testing.B) {
 		// use
 		{"cmap.value", 64, 100000, 0, 0x000, 0, legacyCMap{}, true},
 		{"cmap.reference", 64, 100000, 0, 0x000, 0, &referenceCMap{}, true},
-		{"hashmap.value", 64, 100000, 0, 0x000, 0, legacyHashMap{m: &hashmap.HashMap{}}, true},
-		{"hashmap.reference", 64, 100000, 0, 0x000, 0, &referenceHashMap{m: &hashmap.HashMap{}}, true},
+		{"hashmap.HashMap", 64, 100000, 0, 0x000, 0, legacyHashMap{m: &hashmap.HashMap{}}, true},
 
 		// {"skiplistmap                  ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
 		// {"skiplistmap3                 ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
@@ -265,12 +264,10 @@ func Benchmark_MapPerOperation(b *testing.B) {
 		// {"skiplistmap4    ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap()), false},
 		{"cmap.value", 64, 100000, 50, 0x000, 0, legacyCMap{}, true},
 		{"cmap.reference", 64, 100000, 50, 0x000, 0, &referenceCMap{}, true},
-		{"hashmap.value", 64, 100000, 50, 0x000, 0, legacyHashMap{m: &hashmap.HashMap{}}, true},
-		{"hashmap.reference", 64, 100000, 50, 0x000, 0, &referenceHashMap{m: &hashmap.HashMap{}}, true},
+		{"hashmap.HashMap", 64, 100000, 50, 0x000, 0, legacyHashMap{m: &hashmap.HashMap{}}, true},
 		{"cmap.value", 64, 100000, 50, 0x000, 0, legacyCMap{}, false},
 		{"cmap.reference", 64, 100000, 50, 0x000, 0, &referenceCMap{}, false},
-		{"hashmap.value", 64, 100000, 50, 0x000, 0, legacyHashMap{m: &hashmap.HashMap{}}, false},
-		{"hashmap.reference", 64, 100000, 50, 0x000, 0, &referenceHashMap{m: &hashmap.HashMap{}}, false},
+		{"hashmap.HashMap", 64, 100000, 50, 0x000, 0, legacyHashMap{m: &hashmap.HashMap{}}, false},
 
 		{"RMap                         ", 64, 100000, 50, 0x000, 0, newWRMap(), false},
 		{"RMap                         ", 64, 100000, 50, 0x000, 0, newWRMap(), true},

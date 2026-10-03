@@ -227,7 +227,10 @@ func Benchmark_MapPerOperation(b *testing.B) {
 		{"skiplistmap5    ", 64, 100000, 0, 0x080, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true))), false},
 
 		// use
-		{"cmap.Cmap", 64, 100000, 0, 0x000, 0, &cMap{}, true},
+		{"cmap.value", 64, 100000, 0, 0x000, 0, legacyCMap{}, true},
+		{"cmap.reference", 64, 100000, 0, 0x000, 0, &referenceCMap{}, true},
+		{"hashmap.value", 64, 100000, 0, 0x000, 0, legacyHashMap{m: &hashmap.HashMap{}}, true},
+		{"hashmap.reference", 64, 100000, 0, 0x000, 0, &referenceHashMap{m: &hashmap.HashMap{}}, true},
 
 		// {"skiplistmap                  ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap())},
 		// {"skiplistmap3                 ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap())},
@@ -257,8 +260,14 @@ func Benchmark_MapPerOperation(b *testing.B) {
 		// use
 		// {"skiplistmap4    ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap()), false},
 		// {"skiplistmap4    ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap()), false},
-		{"cmap.Cmap", 64, 100000, 50, 0x000, 0, &cMap{}, true},
-		{"cmap.Cmap", 64, 100000, 50, 0x000, 0, &cMap{}, false},
+		{"cmap.value", 64, 100000, 50, 0x000, 0, legacyCMap{}, true},
+		{"cmap.reference", 64, 100000, 50, 0x000, 0, &referenceCMap{}, true},
+		{"hashmap.value", 64, 100000, 50, 0x000, 0, legacyHashMap{m: &hashmap.HashMap{}}, true},
+		{"hashmap.reference", 64, 100000, 50, 0x000, 0, &referenceHashMap{m: &hashmap.HashMap{}}, true},
+		{"cmap.value", 64, 100000, 50, 0x000, 0, legacyCMap{}, false},
+		{"cmap.reference", 64, 100000, 50, 0x000, 0, &referenceCMap{}, false},
+		{"hashmap.value", 64, 100000, 50, 0x000, 0, legacyHashMap{m: &hashmap.HashMap{}}, false},
+		{"hashmap.reference", 64, 100000, 50, 0x000, 0, &referenceHashMap{m: &hashmap.HashMap{}}, false},
 
 		{"RMap                         ", 64, 100000, 50, 0x000, 0, newWRMap(), false},
 		{"RMap                         ", 64, 100000, 50, 0x000, 0, newWRMap(), true},

@@ -10,7 +10,7 @@
 - 読み取り100%、読み取り50%・既存キー書込み50%、読み取り50%・別キー書込み50%を測る。
 - 別キー書込みは`xx0xx`から`xx99999xx`を循環する。初回は挿入、その後は更新になり、無限に新しいキーを増やす測定ではない。
 - mode 4はbucket 16・32、mode 5は16・32・64・128。別キー書込みは従来有効だったmode 5の64・128を維持する。mode 4のコメントアウト済み挿入行は追加しない。
-- `cmap`を含む40ケースを、ケースごとに別プロセスで500msずつ5回測定する。偶数回はケース順を反転する。
+- hashmap・cmapの値receiver版とポインタreceiver版を含む49ケースを、ケースごとに別プロセスで500msずつ5回測定する。偶数回はケース順を反転する。
 - 仮想メモリ上限8GiB。全ケースを発見する試行が4GiBではメモリ不足となったため増やした。各プロセスの最大RSS・時間は`resources.tsv`に記録する。
 - `ns/op`は成功した更新だけの時間ではなく、試行1回当たりの時間。失敗したSetの割合は`failed-writes/op`に別記する。
 
@@ -27,7 +27,7 @@ nu tools/summarize-release.nu ../skiplistmap-bench-027/results.txt
 
 ## 今回の結果
 
-失敗後のユーザー指示により、新方式からcornelk/hashmapの3ケースを除外した。以下の保存結果は除外前の43ケースを対象とする。
+最初の失敗後に新方式のhashmapを一度除外したが、その後のユーザー指示で両方式にhashmap・cmapのvalue/reference比較を追加した。以下の保存結果はそれ以前のもので、現在のケース構成の結果ではない。
 
 64作業者の測定はreadonlyが全85測定完了、50/50は66測定でhashmapのnil型変換panicにより停止した。合計151/215測定。測定commitは`de44f86`で、当時の関数名は`Benchmark_Map`だったが、測定後に`Benchmark_MapPerOperation`へ改名した。原ログ・環境・途中集計はgit_task 027の`attachments/bench-64-per-operation/`に保存済み。README掲載対象は未決定。
 
@@ -36,3 +36,13 @@ nu tools/summarize-release.nu ../skiplistmap-bench-027/results.txt
 `legacy_map_bench_test.go`の`Benchmark_Map`はmaster `b7e996b`のケース・表示・測定処理を復元したもの。読み書き専任goroutine、ビットマスクによるキー選択、未使用のconcurrent=100指定、操作結果を検査しない挙動を保つ。module importとgeneric型引数・内部識別名を現行APIへ適応した。実装自体は現在のMapであり旧製品実装を復元したものではない。復元後のユーザー指示により、この旧方式のskiplistmap4・5も値型を`Map[StringKey, *ListHead]`へ変更した。測定ループ・キー選択・ケース条件は変えていない。
 
 旧sync.Mapアダプタの値receiverも保持したため、`go vet`はlockの値コピーを2件報告する。元方式はこの問題を含む歴史的な測定器として保存しており、修正済み方式と混同しない。ビルド確認には`go test -vet=off -run "^$" ./...`を使った。復元後のベンチ本測定は行っていない。
+
+## 呼び出しアダプタの照合と残る差分
+
+最初の復元では呼び出しアダプタまでmasterと一致しておらず、完全な復元という説明は誤りだった。186ea67までの結果ではcmapに現行のポインタreceiver、skiplistmapに現行のGet(key)を使用していたため、masterと同じ呼び出しを測った結果として扱わない。
+
+修正後、両方式のhashmap/cmapは`value`と`reference`を明示して並べる。`legacy_adapters_bench_test.go`のvalue版はmaster b7e996bのメソッド本文と値receiverを保持し、reference版はreceiverのみポインタにする。hashmapはどちらも内部にHashMapへのポインタを持つ。cmapはCmapを値で保持するため、値receiverとポインタreceiverでは初期化・更新の反映も違い得る。単なるコピー速度だけの比較とは扱わない。新方式のGet成功検査にvalue版が通らない場合も、検査や元アダプタを弱めて隠さない。
+
+旧方式のskiplistmapは`legacyTypedMap`に分離し、MemHashStringとxxhashを明示計算してGetByHashへ渡す。masterはLoadItemByHashの戻り値にValueを呼んでいたが、現行APIではembedded poolのEntry公開は禁止されており、その経路はpanicする。削除済みItemFnも呼べない。これらはAPI上の未復元差分であり、完全に同一の呼び出しとは主張しない。値型はユーザー指定のMap[StringKey,*ListHead]を維持する。製品側の禁止契約を変更していない。
+
+旧方式は26ケース、新方式は49ケース。これらのアダプタ修正・value/reference追加後の本測定は未実施。

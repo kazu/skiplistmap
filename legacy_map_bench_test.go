@@ -122,16 +122,18 @@ func Benchmark_Map(b *testing.B) {
 		{"mapWithMutex                 ", 100, 100000, 0, 0x000, 0, &list_head.MapWithLock{}, true},
 		{"sync.Map                     ", 100, 100000, 0, 0x000, 0, legacySyncMap{}, true},
 
-		{"skiplistmap4    ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch4, &typedBenchmarkMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]()}, false},
-		{"skiplistmap4    ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch4, &typedBenchmarkMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]()}, false},
-		{"skiplistmap5    ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch3, &typedBenchmarkMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, false},
-		{"skiplistmap5    ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch3, &typedBenchmarkMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, false},
-		{"skiplistmap5    ", 100, 100000, 0, 0x040, skiplistmap.CombineSearch3, &typedBenchmarkMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, false},
-		{"skiplistmap5    ", 100, 100000, 0, 0x080, skiplistmap.CombineSearch3, &typedBenchmarkMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, false},
+		{"skiplistmap4    ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch4, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]()}, false},
+		{"skiplistmap4    ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch4, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]()}, false},
+		{"skiplistmap5    ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch3, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, false},
+		{"skiplistmap5    ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch3, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, false},
+		{"skiplistmap5    ", 100, 100000, 0, 0x040, skiplistmap.CombineSearch3, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, false},
+		{"skiplistmap5    ", 100, 100000, 0, 0x080, skiplistmap.CombineSearch3, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, false},
 
 		// use
-		{"hashmap.HashMap              ", 100, 100000, 0, 0x000, 0, hashMap{m: &hashmap.HashMap{}}, true},
-		{"cmap.Cmap              	   ", 100, 100000, 0, 0x000, 0, &cMap{}, true},
+		{"hashmap.value              ", 100, 100000, 0, 0x000, 0, legacyHashMap{m: &hashmap.HashMap{}}, true},
+		{"hashmap.reference              ", 100, 100000, 0, 0x000, 0, &referenceHashMap{m: &hashmap.HashMap{}}, true},
+		{"cmap.value              	   ", 100, 100000, 0, 0x000, 0, legacyCMap{}, true},
+		{"cmap.reference              	   ", 100, 100000, 0, 0x000, 0, &referenceCMap{}, true},
 
 		// {"skiplistmap                  ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]())},
 		// {"skiplistmap3                 ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]())},
@@ -148,26 +150,28 @@ func Benchmark_Map(b *testing.B) {
 		// use
 		{"mapWithMutex    ", 100, 100000, 50, 0x000, 0, &list_head.MapWithLock{}, true},
 		{"sync.Map        ", 100, 100000, 50, 0x000, 0, legacySyncMap{}, true},
-		{"skiplistmap5    ", 100, 100000, 50, 0x080, skiplistmap.CombineSearch3, &typedBenchmarkMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, true},
-		{"skiplistmap5    ", 100, 100000, 50, 0x040, skiplistmap.CombineSearch3, &typedBenchmarkMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, true},
-		{"skiplistmap4    ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch4, &typedBenchmarkMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]()}, true},
-		{"skiplistmap4    ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch4, &typedBenchmarkMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]()}, true},
+		{"skiplistmap5    ", 100, 100000, 50, 0x080, skiplistmap.CombineSearch3, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, true},
+		{"skiplistmap5    ", 100, 100000, 50, 0x040, skiplistmap.CombineSearch3, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, true},
+		{"skiplistmap4    ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch4, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]()}, true},
+		{"skiplistmap4    ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch4, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]()}, true},
 		{"mapWithMutex    ", 100, 100000, 50, 0x000, 0, &list_head.MapWithLock{}, false},
 		{"sync.Map        ", 100, 100000, 50, 0x000, 0, legacySyncMap{}, false},
-		{"skiplistmap5    ", 100, 100000, 50, 0x080, skiplistmap.CombineSearch3, &typedBenchmarkMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, false},
-		{"skiplistmap5    ", 100, 100000, 50, 0x040, skiplistmap.CombineSearch3, &typedBenchmarkMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, false},
+		{"skiplistmap5    ", 100, 100000, 50, 0x080, skiplistmap.CombineSearch3, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, false},
+		{"skiplistmap5    ", 100, 100000, 50, 0x040, skiplistmap.CombineSearch3, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, false},
 		// use
-		// {"skiplistmap4    ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch4, &typedBenchmarkMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]()}, false},
-		// {"skiplistmap4    ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch4, &typedBenchmarkMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]()}, false},
-		{"hashmap.HashMap              ", 100, 100000, 50, 0x000, 0, hashMap{m: &hashmap.HashMap{}}, true},
-		{"cmap.Cmap              	   ", 100, 100000, 50, 0x000, 0, &cMap{}, true},
+		// {"skiplistmap4    ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch4, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]()}, false},
+		// {"skiplistmap4    ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch4, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]()}, false},
+		{"hashmap.value              ", 100, 100000, 50, 0x000, 0, legacyHashMap{m: &hashmap.HashMap{}}, true},
+		{"hashmap.reference              ", 100, 100000, 50, 0x000, 0, &referenceHashMap{m: &hashmap.HashMap{}}, true},
+		{"cmap.value              	   ", 100, 100000, 50, 0x000, 0, legacyCMap{}, true},
+		{"cmap.reference              	   ", 100, 100000, 50, 0x000, 0, &referenceCMap{}, true},
 
 		//{"RMap                         ", 100, 100000, 50, 0x000, 0, newWRMap()},
 	}
 
 	for _, bm := range benchmarks {
 		b.Run(bm.String(), func(b *testing.B) {
-			if whmap, ok := bm.mapInf.(*typedBenchmarkMap); ok {
+			if whmap, ok := bm.mapInf.(*legacyTypedMap); ok {
 				skiplistmap.MaxPefBucket[skiplistmap.StringKey, *list_head.ListHead](bm.buckets)(whmap.base)
 				skiplistmap.BucketMode[skiplistmap.StringKey, *list_head.ListHead](bm.mode)(whmap.base)
 			}

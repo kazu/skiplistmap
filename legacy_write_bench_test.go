@@ -64,13 +64,10 @@ func benchmarkLegacyWrites(b *testing.B, benchmarks []legacyMapTestParam, worker
 	}
 }
 
-// Prepopulate records keys, then give each worker a disjoint, nonwrapping
-// sequence of new keys. The map grows by b.N attempted inserts.
+// Start empty and give each worker a disjoint, nonwrapping sequence of keys.
+// Each calibration pass gets a fresh map and attempts b.N new inserts.
 func runLegacyInsertOnly(b *testing.B, p *legacyMapTestParam) {
 	m := p.mapInf
-	for i := 0; i < p.cnt; i++ {
-		m.Set(fmt.Sprintf("%d", i), &list_head.ListHead{})
-	}
 	parallelism := (p.concurrent + runtime.GOMAXPROCS(0) - 1) / runtime.GOMAXPROCS(0)
 	actualWorkers := parallelism * runtime.GOMAXPROCS(0)
 	b.SetParallelism(parallelism)
@@ -78,7 +75,7 @@ func runLegacyInsertOnly(b *testing.B, p *legacyMapTestParam) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
-		index := uint64(p.cnt) + nextWorker.Add(1) - 1
+		index := nextWorker.Add(1) - 1
 		for pb.Next() {
 			m.Set(fmt.Sprintf("%d", index), &list_head.ListHead{})
 			index += uint64(actualWorkers)

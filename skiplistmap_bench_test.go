@@ -217,7 +217,8 @@ func Benchmark_MapPerOperation(b *testing.B) {
 	benchmarks := []mapTestParam{
 		// use
 		{"mapWithMutex                 ", 64, 100000, 0, 0x000, 0, &list_head.MapWithLock{}, true},
-		{"sync.Map                     ", 64, 100000, 0, 0x000, 0, &syncMap{}, true},
+		{"sync.Map.value                     ", 64, 100000, 0, 0x000, 0, legacySyncMap{}, true},
+		{"sync.Map.reference                     ", 64, 100000, 0, 0x000, 0, &syncMap{}, true},
 
 		{"skiplistmap4    ", 64, 100000, 0, 0x010, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any]()), false},
 		{"skiplistmap4    ", 64, 100000, 0, 0x020, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any]()), false},
@@ -246,7 +247,8 @@ func Benchmark_MapPerOperation(b *testing.B) {
 
 		// use
 		{"mapWithMutex    ", 64, 100000, 50, 0x000, 0, &list_head.MapWithLock{}, true},
-		{"sync.Map        ", 64, 100000, 50, 0x000, 0, &syncMap{}, true},
+		{"sync.Map.value        ", 64, 100000, 50, 0x000, 0, legacySyncMap{}, true},
+		{"sync.Map.reference        ", 64, 100000, 50, 0x000, 0, &syncMap{}, true},
 		{"skiplistmap5    ", 64, 100000, 50, 0x010, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true))), true},
 		{"skiplistmap5    ", 64, 100000, 50, 0x020, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true))), true},
 		{"skiplistmap5    ", 64, 100000, 50, 0x080, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true))), true},
@@ -254,7 +256,8 @@ func Benchmark_MapPerOperation(b *testing.B) {
 		{"skiplistmap4    ", 64, 100000, 50, 0x020, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any]()), true},
 		{"skiplistmap4    ", 64, 100000, 50, 0x010, skiplistmap.CombineSearch4, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any]()), true},
 		{"mapWithMutex    ", 64, 100000, 50, 0x000, 0, &list_head.MapWithLock{}, false},
-		{"sync.Map        ", 64, 100000, 50, 0x000, 0, &syncMap{}, false},
+		{"sync.Map.value        ", 64, 100000, 50, 0x000, 0, legacySyncMap{}, false},
+		{"sync.Map.reference        ", 64, 100000, 50, 0x000, 0, &syncMap{}, false},
 		{"skiplistmap5    ", 64, 100000, 50, 0x080, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true))), false},
 		{"skiplistmap5    ", 64, 100000, 50, 0x040, skiplistmap.CombineSearch3, newWrapHMap(skiplistmap.NewHMap[skiplistmap.StringKey, any](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, any](true))), false},
 		// use

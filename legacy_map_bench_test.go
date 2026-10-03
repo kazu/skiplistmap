@@ -120,7 +120,8 @@ func Benchmark_Map(b *testing.B) {
 	benchmarks := []legacyMapTestParam{
 		// use
 		{"mapWithMutex                 ", 100, 100000, 0, 0x000, 0, &list_head.MapWithLock{}, true},
-		{"sync.Map                     ", 100, 100000, 0, 0x000, 0, legacySyncMap{}, true},
+		{"sync.Map.value                     ", 100, 100000, 0, 0x000, 0, legacySyncMap{}, true},
+		{"sync.Map.reference                     ", 100, 100000, 0, 0x000, 0, &syncMap{}, true},
 
 		{"skiplistmap4    ", 100, 100000, 0, 0x010, skiplistmap.CombineSearch4, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]()}, false},
 		{"skiplistmap4    ", 100, 100000, 0, 0x020, skiplistmap.CombineSearch4, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]()}, false},
@@ -149,13 +150,15 @@ func Benchmark_Map(b *testing.B) {
 
 		// use
 		{"mapWithMutex    ", 100, 100000, 50, 0x000, 0, &list_head.MapWithLock{}, true},
-		{"sync.Map        ", 100, 100000, 50, 0x000, 0, legacySyncMap{}, true},
+		{"sync.Map.value        ", 100, 100000, 50, 0x000, 0, legacySyncMap{}, true},
+		{"sync.Map.reference        ", 100, 100000, 50, 0x000, 0, &syncMap{}, true},
 		{"skiplistmap5    ", 100, 100000, 50, 0x080, skiplistmap.CombineSearch3, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, true},
 		{"skiplistmap5    ", 100, 100000, 50, 0x040, skiplistmap.CombineSearch3, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, true},
 		{"skiplistmap4    ", 100, 100000, 50, 0x020, skiplistmap.CombineSearch4, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]()}, true},
 		{"skiplistmap4    ", 100, 100000, 50, 0x010, skiplistmap.CombineSearch4, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead]()}, true},
 		{"mapWithMutex    ", 100, 100000, 50, 0x000, 0, &list_head.MapWithLock{}, false},
-		{"sync.Map        ", 100, 100000, 50, 0x000, 0, legacySyncMap{}, false},
+		{"sync.Map.value        ", 100, 100000, 50, 0x000, 0, legacySyncMap{}, false},
+		{"sync.Map.reference        ", 100, 100000, 50, 0x000, 0, &syncMap{}, false},
 		{"skiplistmap5    ", 100, 100000, 50, 0x080, skiplistmap.CombineSearch3, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, false},
 		{"skiplistmap5    ", 100, 100000, 50, 0x040, skiplistmap.CombineSearch3, &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](true))}, false},
 		// use

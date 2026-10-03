@@ -2,6 +2,7 @@ package rmap_test
 
 import (
 	"fmt"
+	smap "github.com/kazu/skiplistmap"
 	"math/rand"
 	"runtime"
 	"testing"
@@ -17,9 +18,9 @@ func key(i int) string {
 // Stored values are returned as stored and survive garbage collection.
 func Test_Get_Set(t *testing.T) {
 	const cnt = 1000
-	m := rmap.New()
+	m := rmap.New[smap.StringKey, int]()
 	for i := 0; i < cnt; i++ {
-		m.Set(key(i), i)
+		m.Set(smap.StringKey(key(i)), i)
 		if i%97 == 0 {
 			runtime.GC()
 		}
@@ -27,7 +28,7 @@ func Test_Get_Set(t *testing.T) {
 	runtime.GC()
 
 	for i := 0; i < cnt; i++ {
-		v, ok := m.Get(key(i))
+		v, ok := m.Get(smap.StringKey(key(i)))
 		assert.Truef(t, ok, "Get(%q)", key(i))
 		assert.Equal(t, i, v)
 	}
@@ -36,36 +37,36 @@ func Test_Get_Set(t *testing.T) {
 
 // Get, Delete and Len on an empty RMap must not panic.
 func Test_Empty(t *testing.T) {
-	m := rmap.New()
+	m := rmap.New[smap.StringKey, int]()
 
 	v, ok := m.Get("missing")
 	assert.False(t, ok)
-	assert.Nil(t, v)
+	assert.Zero(t, v)
 	assert.False(t, m.Delete("missing"))
 	assert.Equal(t, 0, m.Len())
 }
 
 // Get of a key that was never stored returns (nil, false) on a filled map.
 func Test_Get_Missing(t *testing.T) {
-	m := rmap.New()
+	m := rmap.New[smap.StringKey, int]()
 	for i := 0; i < 100; i++ {
-		m.Set(key(i), i)
+		m.Set(smap.StringKey(key(i)), i)
 	}
 	v, ok := m.Get("missing")
 	assert.False(t, ok)
-	assert.Nil(t, v)
+	assert.Zero(t, v)
 }
 
 // Set of an existing key replaces its value without changing Len.
 func Test_Update(t *testing.T) {
 	const cnt = 1000
-	m := rmap.New()
+	m := rmap.New[smap.StringKey, int]()
 	for i := 0; i < cnt; i++ {
-		m.Set(key(i), i)
+		m.Set(smap.StringKey(key(i)), i)
 	}
 	for i := 0; i < cnt; i++ {
-		assert.Truef(t, m.Set(key(i), -i), "Set(%q) update", key(i))
-		v, ok := m.Get(key(i))
+		assert.Truef(t, m.Set(smap.StringKey(key(i)), -i), "Set(%q) update", key(i))
+		v, ok := m.Get(smap.StringKey(key(i)))
 		assert.Truef(t, ok, "Get(%q) after update", key(i))
 		assert.Equal(t, -i, v)
 	}
@@ -77,17 +78,17 @@ func Test_Update(t *testing.T) {
 // stores the new value again.
 func Test_Delete_Reinsert(t *testing.T) {
 	const cnt = 1000
-	m := rmap.New()
+	m := rmap.New[smap.StringKey, int]()
 	for i := 0; i < cnt; i++ {
-		m.Set(key(i), i)
+		m.Set(smap.StringKey(key(i)), i)
 	}
 
 	for i := 0; i < cnt; i += 7 {
-		assert.Truef(t, m.Delete(key(i)), "Delete(%q)", key(i))
-		v, ok := m.Get(key(i))
+		assert.Truef(t, m.Delete(smap.StringKey(key(i))), "Delete(%q)", key(i))
+		v, ok := m.Get(smap.StringKey(key(i)))
 		assert.Falsef(t, ok, "Get(%q) found after Delete", key(i))
-		assert.Nil(t, v)
-		assert.Falsef(t, m.Delete(key(i)), "second Delete(%q)", key(i))
+		assert.Zero(t, v)
+		assert.Falsef(t, m.Delete(smap.StringKey(key(i))), "second Delete(%q)", key(i))
 	}
 	deleted := (cnt + 6) / 7
 	assert.Equal(t, cnt-deleted, m.Len())
@@ -95,22 +96,22 @@ func Test_Delete_Reinsert(t *testing.T) {
 	// the deleted keys must stay absent on repeated reads
 	for round := 0; round < 3; round++ {
 		for i := 0; i < cnt; i += 7 {
-			_, ok := m.Get(key(i))
+			_, ok := m.Get(smap.StringKey(key(i)))
 			assert.Falsef(t, ok, "Get(%q) found on repeated read", key(i))
 		}
 	}
 	assert.Equal(t, cnt-deleted, m.Len())
 
 	for i := 0; i < cnt; i += 7 {
-		assert.Truef(t, m.Set(key(i), -i), "Set(%q) after Delete", key(i))
-		v, ok := m.Get(key(i))
+		assert.Truef(t, m.Set(smap.StringKey(key(i)), -i), "Set(%q) after Delete", key(i))
+		v, ok := m.Get(smap.StringKey(key(i)))
 		assert.Truef(t, ok, "Get(%q) after re-insert", key(i))
 		assert.Equal(t, -i, v)
 	}
 	assert.Equal(t, cnt, m.Len())
 
 	for i := 0; i < cnt; i++ {
-		v, ok := m.Get(key(i))
+		v, ok := m.Get(smap.StringKey(key(i)))
 		assert.Truef(t, ok, "Get(%q)", key(i))
 		if i%7 == 0 {
 			assert.Equal(t, -i, v)
@@ -124,30 +125,30 @@ func Test_Delete_Reinsert(t *testing.T) {
 // missing key and re-insert behave the same as on the dirty map.
 func Test_Delete_AfterPromotion(t *testing.T) {
 	const cnt = 100
-	m := rmap.New()
+	m := rmap.New[smap.StringKey, int]()
 	for i := 0; i < cnt; i++ {
-		m.Set(key(i), i)
+		m.Set(smap.StringKey(key(i)), i)
 	}
 	// enough misses to rebuild the read map from the dirty map
 	for i := 0; i < 2*cnt; i++ {
 		m.Get("missing")
 	}
 
-	assert.True(t, m.Delete(key(5)))
-	_, ok := m.Get(key(5))
+	assert.True(t, m.Delete(smap.StringKey(key(5))))
+	_, ok := m.Get(smap.StringKey(key(5)))
 	assert.False(t, ok)
-	assert.False(t, m.Delete(key(5)))
+	assert.False(t, m.Delete(smap.StringKey(key(5))))
 	assert.False(t, m.Delete("missing"))
 	assert.Equal(t, cnt-1, m.Len())
 
-	assert.True(t, m.Set(key(5), -5))
-	v, ok := m.Get(key(5))
+	assert.True(t, m.Set(smap.StringKey(key(5)), -5))
+	v, ok := m.Get(smap.StringKey(key(5)))
 	assert.True(t, ok)
 	assert.Equal(t, -5, v)
 	assert.Equal(t, cnt, m.Len())
 
-	assert.True(t, m.Delete(key(5)))
-	_, ok = m.Get(key(5))
+	assert.True(t, m.Delete(smap.StringKey(key(5))))
+	_, ok = m.Get(smap.StringKey(key(5)))
 	assert.False(t, ok)
 	assert.Equal(t, cnt-1, m.Len())
 }
@@ -157,16 +158,16 @@ func Test_Delete_AfterPromotion(t *testing.T) {
 func Test_Set_AfterAllReadKeysDeleted(t *testing.T) {
 	for _, cnt := range []int{1, 100} {
 		t.Run(fmt.Sprintf("n=%d", cnt), func(t *testing.T) {
-			m := rmap.New()
+			m := rmap.New[smap.StringKey, int]()
 			for i := 0; i < cnt; i++ {
-				m.Set(key(i), i)
+				m.Set(smap.StringKey(key(i)), i)
 			}
 			// enough misses to rebuild the read map from the dirty map
 			for i := 0; i < 2*cnt; i++ {
 				m.Get("missing")
 			}
 			for i := 0; i < cnt; i++ {
-				assert.Truef(t, m.Delete(key(i)), "Delete(%q)", key(i))
+				assert.Truef(t, m.Delete(smap.StringKey(key(i))), "Delete(%q)", key(i))
 			}
 			assert.Equal(t, 0, m.Len())
 
@@ -187,7 +188,7 @@ func Test_Set_AfterAllReadKeysDeleted(t *testing.T) {
 // dirty map: repeated Get and Delete of an absent key must not rebuild them
 // (AllocsPerRun leaves its first call out).
 func Test_Miss_AfterAllKeysDeleted(t *testing.T) {
-	m := rmap.New()
+	m := rmap.New[smap.StringKey, int]()
 	m.Set("a", 1)
 	m.Delete("a")
 	assert.Equal(t, 0, m.Len())
@@ -209,9 +210,9 @@ func Test_Miss_AfterAllKeysDeleted(t *testing.T) {
 // The value and Len must be right before and after the next promotion.
 func Test_Delete_Reinsert_InDirty(t *testing.T) {
 	const cnt = 100
-	m := rmap.New()
+	m := rmap.New[smap.StringKey, int]()
 	for i := 0; i < cnt; i++ {
-		m.Set(key(i), i)
+		m.Set(smap.StringKey(key(i)), i)
 	}
 	for i := 0; i < 2*cnt; i++ {
 		m.Get("missing")
@@ -236,7 +237,7 @@ func Test_Delete_Reinsert_InDirty(t *testing.T) {
 		m.Get("missing")
 	}
 	for k, want := range map[string]int{"dirty": 5, "d2": 2, "d3": 3, "d4": 4} {
-		v, ok := m.Get(k)
+		v, ok := m.Get(smap.StringKey(k))
 		assert.Truef(t, ok, "Get(%q) after promotion", k)
 		assert.Equal(t, want, v)
 	}
@@ -248,23 +249,23 @@ func Test_SequentialModel(t *testing.T) {
 	for seed := int64(1); seed <= 200; seed++ {
 		r := rand.New(rand.NewSource(seed))
 		nkeys := 1 + r.Intn(40)
-		m := rmap.New()
+		m := rmap.New[smap.StringKey, int]()
 		want := map[string]int{}
 		for step := 0; step < 2000; step++ {
 			k := key(r.Intn(nkeys))
 			switch op := r.Intn(10); {
 			case op < 4:
-				m.Set(k, step)
+				m.Set(smap.StringKey(k), step)
 				want[k] = step
 			case op < 7:
-				v, ok := m.Get(k)
+				v, ok := m.Get(smap.StringKey(k))
 				wv, live := want[k]
 				if ok != live || (live && v != wv) {
 					t.Fatalf("seed %d step %d: Get(%q) = (%v, %v), want (%v, %v)", seed, step, k, v, ok, wv, live)
 				}
 			case op < 9:
 				_, live := want[k]
-				if got := m.Delete(k); got != live {
+				if got := m.Delete(smap.StringKey(k)); got != live {
 					t.Fatalf("seed %d step %d: Delete(%q) = %v, want %v", seed, step, k, got, live)
 				}
 				delete(want, k)

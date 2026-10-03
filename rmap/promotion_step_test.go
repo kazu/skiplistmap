@@ -3,13 +3,14 @@
 package rmap
 
 import (
+	smap "github.com/kazu/skiplistmap"
 	"sync"
 	"testing"
 	"time"
 )
 
 func TestLenDuringDeleteAndRevival(t *testing.T) {
-	m := New()
+	m := New[smap.StringKey, int]()
 	m.Set("key", 1)
 	m.Get("key")
 	paused, resume, deleted := make(chan struct{}), make(chan struct{}), make(chan struct{})
@@ -46,7 +47,7 @@ func TestLenDuringDeleteAndRevival(t *testing.T) {
 }
 
 func TestLenDoesNotCombineDifferentStates(t *testing.T) {
-	m := New()
+	m := New[smap.StringKey, int]()
 	m.Set("read", 1)
 	m.Get("read")
 	loaded, resume, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
@@ -86,7 +87,7 @@ func TestLenDoesNotCombineDifferentStates(t *testing.T) {
 }
 
 func TestDetachedValueDoesNotOverwriteReinsertedKey(t *testing.T) {
-	m := New()
+	m := New[smap.StringKey, int]()
 	m.Set("first", 1)
 	loaded, resume, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	var once, release sync.Once
@@ -129,7 +130,7 @@ func TestDetachedValueDoesNotOverwriteReinsertedKey(t *testing.T) {
 }
 
 func TestPromotionKeepsLateInsert(t *testing.T) {
-	m := New()
+	m := New[smap.StringKey, int]()
 	m.Set("first", 1)
 	copied := make(chan struct{})
 	resume := make(chan struct{})
@@ -162,7 +163,7 @@ func TestPromotionKeepsLateInsert(t *testing.T) {
 }
 
 func TestConcurrentInsertCountsOneKey(t *testing.T) {
-	m := New()
+	m := New[smap.StringKey, int]()
 	m.Set("anchor", 1)
 	arrived := make(chan struct{}, 2)
 	resume := make(chan struct{})
@@ -198,7 +199,7 @@ func TestConcurrentInsertCountsOneKey(t *testing.T) {
 func TestPromotionDoesNotBlockWriter(t *testing.T) {
 	for _, point := range []string{"promote.closing", "promote.closed", "promote.copied"} {
 		t.Run(point, func(t *testing.T) {
-			m := New()
+			m := New[smap.StringKey, int]()
 			m.Set("first", 1)
 			paused := make(chan struct{})
 			resume := make(chan struct{})
@@ -236,7 +237,7 @@ func TestPromotionDoesNotBlockWriter(t *testing.T) {
 			<-done
 			stepHook = nil
 			for key, want := range map[string]int{"first": 4, "late": 2} {
-				if got, ok := m.Get(key); !ok || got != want {
+				if got, ok := m.Get(smap.StringKey(key)); !ok || got != want {
 					t.Errorf("Get(%q) = (%v, %v), want %d", key, got, ok, want)
 				}
 			}
@@ -248,7 +249,7 @@ func TestPromotionDoesNotBlockWriter(t *testing.T) {
 }
 
 func TestPromotionKeepsRevivedKey(t *testing.T) {
-	m := New()
+	m := New[smap.StringKey, int]()
 	m.Set("key", 1)
 	m.Get("key")
 	m.Delete("key")

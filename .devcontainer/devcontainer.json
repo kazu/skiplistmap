@@ -5,8 +5,9 @@
 	"build": {
 		"dockerfile": "Dockerfile",
 		"args": {
-			// Update the VARIANT arg to pick a version of Go: 1, 1.16, 1.15
+			// VARIANT selects the base image; GO_VERSION selects the toolchain.
 			"VARIANT": "1.17",
+			"GO_VERSION": "1.27.1",
 			// Options
 			"INSTALL_NODE": "false",
 			"NODE_VERSION": "lts/*"
@@ -32,10 +33,13 @@
 		"GOPATH": "/go",
 		"GO111MODULE": "on",
 	},
-	"workspaceFolder": "/workspace/skiplistmap",
-	"workspaceMount": "source=skiplistmap,target=/workspace,type=volume,consistency=cached",
-	"overrideCommand": false,
-	"postCreateCommand": "git clone https://github.com/kazu/skiplistmap.git .",
+	"workspaceFolder": "${localWorkspaceFolder}",
+	"containerEnv": {
+		"GOWORK": "${localWorkspaceFolder}/.devcontainer/go.work"
+	},
+	"workspaceMount": "source=${localWorkspaceFolder}/..,target=${localWorkspaceFolder}/..,type=bind",
+	"overrideCommand": true,
+	"postCreateCommand": "go version",
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	// "forwardPorts": [],
 

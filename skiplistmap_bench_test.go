@@ -2,7 +2,7 @@ package skiplistmap_test
 
 import (
 	"fmt"
-	"math/rand"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -32,22 +32,21 @@ func (p *mapTestParam) String() string {
 }
 
 type WRMap struct {
-	base *rmap.RMap
+	base *rmap.RMap[skiplistmap.StringKey, *list_head.ListHead]
 }
 
 func (w *WRMap) Set(k string, v *list_head.ListHead) bool {
-	return w.base.Set(k, v)
+	return w.base.Set(skiplistmap.StringKey(k), v)
 
 }
 
 func (w *WRMap) Get(k string) (v *list_head.ListHead, ok bool) {
-	inf, ok := w.base.Get(k)
-	return inf.(*list_head.ListHead), ok
+	return w.base.Get(skiplistmap.StringKey(k))
 }
 
 func newWRMap() *WRMap {
 	return &WRMap{
-		base: rmap.New(),
+		base: rmap.New[skiplistmap.StringKey, *list_head.ListHead](),
 	}
 }
 
@@ -91,53 +90,43 @@ func (p *mapTestParam) Option(opts ...BenchParam) (prevs []BenchParam) {
 }
 
 func runBnech(b *testing.B, param *mapTestParam, opts ...BenchParam) {
-
 	m := param.mapInf
-	concurretRoutine := param.concurrent
-	_ = concurretRoutine
-	operationCnt := param.cnt
-	pctWrites := uint64(param.percent)
-	isUpdate := param.isUpdate
+	size := param.cnt
+	var workers, failedWrites atomic.Uint64
 
+	for j := 0; j < size; j++ {
+		if !m.Set(fmt.Sprintf("%d", j), &list_head.ListHead{}) {
+			b.Fatal("initial Set failed")
+		}
+	}
+	parallelism := (param.concurrent + runtime.GOMAXPROCS(0) - 1) / runtime.GOMAXPROCS(0)
+	b.SetParallelism(parallelism)
 	b.ReportAllocs()
-	size := operationCnt
-	mask := size - 1
-	rc := uint64(0)
-
-	for j := 0; j < operationCnt; j++ {
-		m.Set(fmt.Sprintf("%d", j), &list_head.ListHead{})
-	}
-	if rmap, ok := m.(*list_head.RMap); ok {
-		_ = rmap
-		//rmap.ValidateDirty()
-	}
-
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
-		index := rand.Int() & mask
-		mc := atomic.AddUint64(&rc, 1)
-
-		if pctWrites*mc/100 != pctWrites*(mc-1)/100 {
-			for pb.Next() {
-				if isUpdate {
-					m.Set(fmt.Sprintf("%d", index&mask), &list_head.ListHead{})
-				} else {
-					m.Set(fmt.Sprintf("xx%dxx", index&mask), &list_head.ListHead{})
+		worker := int(workers.Add(1) - 1)
+		index := worker % size
+		operation := worker % 100
+		for pb.Next() {
+			if operation < param.percent {
+				key := fmt.Sprintf("%d", index)
+				if !param.isUpdate {
+					key = fmt.Sprintf("xx%dxx", index)
 				}
-				index = index + 1
+				if !m.Set(key, &list_head.ListHead{}) {
+					failedWrites.Add(1)
+				}
+			} else {
+				if _, ok := m.Get(fmt.Sprintf("%d", index)); !ok {
+					b.Error("Get of a populated key failed")
+					return
+				}
 			}
-		} else {
-			for pb.Next() {
-				m.Get(fmt.Sprintf("%d", index&mask))
-				// if !ok {
-				// 	_, ok = m.Get(fmt.Sprintf("%d", index&mask))
-				// 	fmt.Printf("fail")
-				// }
-				index = index + 1
-			}
+			index = (index + 1) % size
+			operation = (operation + 1) % 100
 		}
 	})
-
+	b.ReportMetric(float64(failedWrites.Load())/float64(b.N), "failed-writes/op")
 }
 
 type syncMap struct {

@@ -1,13 +1,14 @@
 package rmap_test
 
 import (
+	smap "github.com/kazu/skiplistmap"
 	"testing"
 
 	"github.com/kazu/skiplistmap/rmap"
 )
 
 func BenchmarkReadDeleteReinsert(b *testing.B) {
-	m := rmap.New()
+	m := rmap.New[smap.StringKey, int]()
 	m.Set("key", 1)
 	m.Get("key")
 	b.ReportAllocs()

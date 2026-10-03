@@ -1,6 +1,7 @@
 package rmap_test
 
 import (
+	smap "github.com/kazu/skiplistmap"
 	"reflect"
 	"testing"
 
@@ -16,7 +17,7 @@ func FuzzOperations(f *testing.F) {
 		if len(ops) > 512 {
 			ops = ops[:512]
 		}
-		m := rmap.New()
+		m := rmap.New[smap.StringKey, any]()
 		want := map[string]interface{}{}
 		for step, op := range ops {
 			key := string([]byte{'a' + op%16})
@@ -33,16 +34,16 @@ func FuzzOperations(f *testing.F) {
 				case 3:
 					value = []int{step}
 				}
-				m.Set(key, value)
+				m.Set(smap.StringKey(key), value)
 				want[key] = value
 			case 1:
 				_, exists := want[key]
-				if got := m.Delete(key); got != exists {
+				if got := m.Delete(smap.StringKey(key)); got != exists {
 					t.Fatalf("step %d: Delete(%q) = %v, want %v", step, key, got, exists)
 				}
 				delete(want, key)
 			case 2:
-				got, ok := m.Get(key)
+				got, ok := m.Get(smap.StringKey(key))
 				value, exists := want[key]
 				if ok != exists || (ok && !reflect.DeepEqual(got, value)) {
 					t.Fatalf("step %d: Get(%q) = (%v, %v), want (%v, %v)", step, key, got, ok, value, exists)
@@ -56,7 +57,7 @@ func FuzzOperations(f *testing.F) {
 		}
 		for i := byte(0); i < 16; i++ {
 			key := string([]byte{'a' + i})
-			got, ok := m.Get(key)
+			got, ok := m.Get(smap.StringKey(key))
 			value, exists := want[key]
 			if ok != exists || (ok && !reflect.DeepEqual(got, value)) {
 				t.Fatalf("final Get(%q) = (%v, %v), want (%v, %v)", key, got, ok, value, exists)

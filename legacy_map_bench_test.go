@@ -5,6 +5,7 @@ import (
 	list_head "github.com/kazu/lista_encabezado"
 	"github.com/kazu/skiplistmap"
 	"math/rand"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -44,8 +45,7 @@ func (p *legacyMapTestParam) Option(opts ...legacyBenchParam) (prevs []legacyBen
 func runBnech(b *testing.B, param *legacyMapTestParam, opts ...legacyBenchParam) {
 
 	m := param.mapInf
-	concurretRoutine := param.concurrent
-	_ = concurretRoutine
+	b.SetParallelism((param.concurrent + runtime.GOMAXPROCS(0) - 1) / runtime.GOMAXPROCS(0))
 	operationCnt := param.cnt
 	pctWrites := uint64(param.percent)
 	isUpdate := param.isUpdate
@@ -110,6 +110,16 @@ func (m legacySyncMap) Set(k string, v *list_head.ListHead) (ok bool) {
 }
 
 func Benchmark_Map(b *testing.B) {
+	for _, workers := range []int{16, 32, 64} {
+		for _, records := range []int{100000, 1000000} {
+			b.Run(fmt.Sprintf("workers=%d/records=%d", workers, records), func(b *testing.B) {
+				benchmarkLegacyMap(b, workers, records)
+			})
+		}
+	}
+}
+
+func benchmarkLegacyMap(b *testing.B, workers, records int) {
 	newShard := func(fn func(int) list_head.MapGetSet) list_head.MapGetSet {
 		s := &list_head.ShardMap{}
 		s.InitByFn(fn)
@@ -171,6 +181,8 @@ func Benchmark_Map(b *testing.B) {
 	}
 
 	for _, bm := range benchmarks {
+		bm.concurrent = workers
+		bm.cnt = records
 		b.Run(bm.String(), func(b *testing.B) {
 			if whmap, ok := bm.mapInf.(*legacyTypedMap); ok {
 				skiplistmap.MaxPefBucket[skiplistmap.StringKey, *list_head.ListHead](bm.buckets)(whmap.base)

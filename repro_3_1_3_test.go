@@ -9,7 +9,7 @@ import (
 	"time"
 	"unsafe"
 
-	list_head "github.com/kazu/loncha/lista_encabezado"
+	list_head "github.com/kazu/lista_encabezado"
 	"github.com/kazu/skiplistmap"
 )
 

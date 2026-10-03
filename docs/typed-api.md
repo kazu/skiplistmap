@@ -216,7 +216,7 @@ Vのゼロ値とfalseで、Vがnilを許す型の場合はnilも正常値とし�
 |---|---|
 | `KeyToHash(interface{})` | 既存の公開ハッシュ補助関数。nilと標準の非ラッパー型を受ける既存契約を保持し、旧実装の再現テストと010の比較fixtureが使用する。Mapとrmapの通常経路はK.KeyHashを直接呼ぶ |
 | Log、DumpExpandInfoの可変引数 | fmtへ渡す診断用の異種引数。MapのK/V保存・比較には使用しない |
-| loncha/lista_encabezadoの旧Map/RMap・ハッシュ補助関数 | 既存の比較対象・別の公開API。本体の型付きMap/RMapはこれらにK/Vを保存しないため、比較対象の実装を変更しない |
+| lista_encabezadoの旧Map/RMap・ハッシュ補助関数 | 既存の比較対象・別の公開API。本体の型付きMap/RMapはこれらにK/Vを保存しないため、比較対象の実装を変更しない |
 | lonchaのstephookのatomic.Value | 停止テスト用callbackの公開。通常ビルドには含まれず、K/Vの保存先ではない |
 
 HMapEntry、MapItem、SampleItem、entryHMap、copyEntryは型付きEntryの別名であり、

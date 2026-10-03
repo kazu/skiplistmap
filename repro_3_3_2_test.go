@@ -13,7 +13,7 @@ import (
 	"time"
 	"unsafe"
 
-	list_head "github.com/kazu/loncha/lista_encabezado"
+	list_head "github.com/kazu/lista_encabezado"
 )
 
 // The level lists and the list of buckets are kept in descending order of

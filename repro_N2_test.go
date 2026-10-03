@@ -5,7 +5,7 @@ package skiplistmap_test
 import (
 	"testing"
 
-	list_head "github.com/kazu/loncha/lista_encabezado"
+	list_head "github.com/kazu/lista_encabezado"
 )
 
 // A map with the embedded pool that does not split its buckets holds

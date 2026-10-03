@@ -4,8 +4,8 @@
 型パラメータを取る形に変わるため、pre-1.0のminor versionを上げる。
 このファイルとVERSIONは公開済みという意味ではない。tag、push、公開リリースは人が行う。
 
-go.modのrequireは、公開されたelist_headの`ec42b76be1bc4de322da2b6fd0b3d68d5014ed44`と
-lonchaの`1a71ffebf3c97146f935f257d249261470a54b46`のpseudo-versionに固定している。
+go.modのrequireは、公開されたelist_headの`4df679832828840506950c41bcfd2583228178b5`と
+lista_encabezadoの`611497635248e41c2685729b1b6619919a978179`のpseudo-versionに固定している。
 隣のcheckoutへのreplaceは開発用で、利用者側では依存モジュール内のreplaceは適用されない。
 配布検証ではGo workspaceを無効にし、ローカルreplaceなしでこのrequireを取得して実行する。
 

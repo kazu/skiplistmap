@@ -5,7 +5,7 @@ package skiplistmap_test
 import (
 	"testing"
 
-	list_head "github.com/kazu/loncha/lista_encabezado"
+	list_head "github.com/kazu/lista_encabezado"
 )
 
 // The pool of the top bucket 3 holds k0 < k1 < k2 < k3. G1 sets k4, which is

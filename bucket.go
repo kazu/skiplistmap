@@ -5,7 +5,7 @@ import (
 	"unsafe"
 
 	"github.com/kazu/elist_head"
-	list_head "github.com/kazu/loncha/lista_encabezado"
+	list_head "github.com/kazu/lista_encabezado"
 	"github.com/kazu/skiplistmap/atomic_util"
 	"github.com/lk4d4/trylock"
 )

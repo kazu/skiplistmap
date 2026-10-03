@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	list_head "github.com/kazu/loncha/lista_encabezado"
+	list_head "github.com/kazu/lista_encabezado"
 )
 
 // fillPoolButLast stores keys[:63] with Set, so that the pool that the keys

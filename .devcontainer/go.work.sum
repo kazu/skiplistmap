@@ -1,0 +1,4 @@
+github.com/kazu/elist_head v0.2.9-0.20261003080129-4df679832828 h1:PfHG9wPXwFBG5Oyi8RNhYjtE0Rhv2JQFCn4Bab1i8GE=
+github.com/kazu/elist_head v0.2.9-0.20261003080129-4df679832828/go.mod h1:vNI2CBvA8FBZYzylRZAgKnCftDmdV/2N+ZCx8yhFaJw=
+github.com/kazu/lista_encabezado v0.0.0-20261003072118-611497635248 h1:+mkKrOiyffS8gEp/SPH9GDH1z1sCQHyxTpFsQ29i6GU=
+github.com/kazu/lista_encabezado v0.0.0-20261003072118-611497635248/go.mod h1:OUMZF5W+CTJLP/pv3fwmRq5jDc6Cu4wI1whiROZB5bM=

@@ -5,7 +5,7 @@ package skiplistmap
 import (
 	"unsafe"
 
-	list_head "github.com/kazu/loncha/lista_encabezado"
+	list_head "github.com/kazu/lista_encabezado"
 )
 
 // The helpers below are written with what the trees before the fixes also

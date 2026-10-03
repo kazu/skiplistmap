@@ -9,7 +9,7 @@ import (
 	"sort"
 	"testing"
 
-	list_head "github.com/kazu/loncha/lista_encabezado"
+	list_head "github.com/kazu/lista_encabezado"
 )
 
 // A map with embedded item pools (skiplistmap5) links its buckets into two

@@ -171,6 +171,35 @@ func TestPoolSlideAbsorbsShortRun(t *testing.T) {
 	checkPoolList(t, ends, []IntKey{0, 1, 2, 3, 5})
 }
 
+// With no run of free slots after the block and no capacity after the
+// length, the block before the position goes back to a run of free slots
+// before it, and the new entry follows the copy.
+func TestPoolSlideIntoFreeRunBefore(t *testing.T) {
+	p, ends := makeInsertPool(8, 8)
+	for _, i := range []int{1, 2, 3} {
+		purgeSlot(t, p, i)
+	}
+	old := p.items
+	e, _, _ := p.insertToPool(11, nil)
+	if p.items.data != old.data || p.items.Len() != 8 {
+		t.Fatal("insertion did not keep the array and its length")
+	}
+	if e != p.items.at(2) || atomic.LoadUint64(&e.reverse) != 11 || e.IsDeleted() {
+		t.Fatal("the new entry does not follow the copy of the block")
+	}
+	if p.items.at(1).Key() != IntKey(4) || p.items.at(1).IsDeleted() {
+		t.Fatal("entry 4 was not moved to slot 1")
+	}
+	for _, i := range []int{0, 5, 6, 7} {
+		if p.items.at(i).Key() != IntKey(i) || p.items.at(i).IsDeleted() {
+			t.Fatalf("slot %d moved or retired", i)
+		}
+	}
+	// the holes after the new key take the reverse of the entry at the position
+	checkHoles(t, p, 3, 4, 12)
+	checkPoolList(t, ends, []IntKey{0, 4, 5, 6, 7})
+}
+
 func TestPoolSlideAppendReclaimsDetachedTail(t *testing.T) {
 	p, _ := makeInsertPool(8, 11)
 	p.insertToPool(13, nil)

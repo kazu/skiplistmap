@@ -502,6 +502,68 @@ func (sp *samepleItemPool[K, V]) slideBlockToFreeRun(reverse uint64, i, blockEnd
 	return opened
 }
 
+// freeRunBefore is freeRunFor towards the start of the slots: it returns the
+// start of the first run of free slots before i that holds the block
+// [blockStart, i) of the slots before i and, after it, the new entry. The
+// block starts after the first free slot before i; a run that is too short
+// goes into the block with the entries before it. It returns -1 when no run
+// is long enough before the start.
+func (sp *samepleItemPool[K, V]) freeRunBefore(i, olen int) (dst, blockStart int) {
+	blockStart = i
+	for {
+		for blockStart > 0 && !sp.freeSlot(blockStart-1, olen) {
+			blockStart--
+		}
+		need := i - blockStart + 1
+		run := 0
+		for blockStart-run > 0 && sp.freeSlot(blockStart-run-1, olen) {
+			run++
+		}
+		if run >= need {
+			return blockStart - run, blockStart
+		}
+		if blockStart-run <= 0 {
+			return -1, 0
+		}
+		blockStart -= run
+	}
+}
+
+// slideBlockToFreeRunBefore copies the block [blockStart, i) of the slots to
+// the free run at dst before it and puts the key of reverse after the copy;
+// the run holds both. The slots after the new key before i stay as holes
+// with the reverse of the entry at i, so that a binary search keeps its
+// order and a key between the new one and that entry reuses them. It
+// returns the slot of the new key.
+func (sp *samepleItemPool[K, V]) slideBlockToFreeRunBefore(reverse uint64, blockStart, i, dst int) *embeddedEntry[K, V] {
+	need := i - blockStart
+	if EnableStats {
+		DebugStats[CntPoolHoleSlide].Add(1)
+	}
+	for m := dst; m <= dst+need; m++ {
+		sp.items.at(m).reclaimHole()
+	}
+	// Readers must retry throughout retirement, not only during publication.
+	sp.arrayState.Add(1)
+	if need > 0 {
+		movePoolItemsInto(sp.items.slice(dst, dst+need), sp.items.slice(blockStart, i), true)
+	}
+	for m := dst; m < dst+need; m++ {
+		sp.items.at(m).releaseWrite()
+	}
+	nextReverse := atomic.LoadUint64(&sp.items._at(i, false, false).reverse)
+	for j := dst + need + 1; j < i; j++ {
+		item := sp.items._at(j, false, false)
+		atomic.OrUint64((*uint64)(&item.state), uint64(mapIsDeleted|mapIsRetired|mapIsDetached))
+		atomic.StoreUint64(&item.reverse, nextReverse)
+	}
+	opened := sp.items._at(dst+need, false, false)
+	atomic.StoreUint64(&opened.reverse, reverse)
+	opened.releaseWrite()
+	sp.arrayState.Add(1)
+	return opened
+}
+
 // reclaimHole gives a free slot within the length the state of a slot that
 // newPoolItems made and never handed out, so that it takes an entry the way
 // the slots after the length do, and keeps it held for writing: a reader
@@ -557,6 +619,9 @@ func (sp *samepleItemPool[K, V]) insertToPool(reverse uint64, mu sync.Locker) (n
 		}
 		if dst, blockEnd := sp.freeRunFor(i, olen, ocap); dst >= 0 {
 			return sp.slideBlockToFreeRun(reverse, i, blockEnd, dst, olen), nil, lazyUnlock
+		}
+		if dst, blockStart := sp.freeRunBefore(i, olen); dst >= 0 {
+			return sp.slideBlockToFreeRunBefore(reverse, blockStart, i, dst), nil, lazyUnlock
 		}
 		newItems := newPoolItems[K, V](olen+1, maxInts(ocap, olen+1), true)
 		if EnableStats {

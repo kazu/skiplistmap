@@ -1567,10 +1567,27 @@ func (h *Map[K, V]) addBucket(nBtable *bucket[K, V]) error {
 // first bucket whose reverse is not larger, or the end of the list.
 func (h *Map[K, V]) bucketInsertPos(reverse uint64) *list_head.ListHead {
 	pos := h.headBucket.Prev().Next()
+	if h.isEmbededItemInBucket {
+		if b := h.findBucket(reverse); b != nil {
+			// Embedded children become searchable after linking. The zero
+			// child aliases its parent rather than belonging to this list.
+			pos = &b.toBase().ListHead
+			// A linked child can still be absent from the hierarchy search
+			// while its level is negative. Include it via the actual links.
+			for prev := pos.Prev(); !prev.Empty() && bucketFromListHead[K, V](prev).reverse <= reverse; prev = pos.Prev() {
+				pos = prev
+			}
+		}
+	}
 	for !pos.Empty() && bucketFromListHead[K, V](pos).reverse > reverse {
 		pos = pos.Next()
 	}
 	return pos
+}
+
+// instant function remote later
+func (h *Map[K, V]) HeadBucket() *list_head.ListHead {
+	return h.headBucket
 }
 
 // linkBucket links nBtable into the list of buckets before pos. It links it

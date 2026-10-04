@@ -55,6 +55,9 @@ type Map[K Key[K], V any] struct {
 	modeForBucket SearchMode
 	mu            sync.Mutex
 	levels        [16]atomic.Pointer[bucket[K, V]]
+	// levelEnds[i] is the sentinel at the end of the list of level i+1: a
+	// LevelHead that goes after every bucket of the level is linked before it.
+	levelEnds [16]*list_head.ListHead
 
 	pooler *Pool[K, V]
 
@@ -1660,12 +1663,27 @@ func (h *Map[K, V]) insertOnLevel(b *bucket[K, V], level int32, point string, at
 func (h *Map[K, V]) nextOnLevelOf(b *bucket[K, V], level int32) *list_head.ListHead {
 	const near = 64
 	cur := b
-	if cur.nextAsB() == cur && b._parent != nil {
+	if h.isEmbededItemInBucket {
+		// the parent of a first down level can be a first down level itself,
+		// which is not on the list of buckets either: walk from the nearest
+		// ancestor that is
+		for cur.nextAsB() == cur && cur._parent != nil {
+			cur = cur._parent
+		}
+	} else if cur.nextAsB() == cur && b._parent != nil {
 		cur = b._parent
 	}
 	for i := 0; i < near; i++ {
 		next := cur.nextAsB()
-		if next == cur || next.reverse > b.reverse {
+		if next == cur {
+			if h.isEmbededItemInBucket {
+				// no bucket follows cur, so no bucket of level follows b: b
+				// goes at the end of the list of level
+				return h.levelEnds[level-1]
+			}
+			return nil
+		}
+		if next.reverse > b.reverse {
 			return nil
 		}
 		for down := next; down != nil && down != b; down = down.ptrDownLevels().at(0) {
@@ -1696,6 +1714,7 @@ func (h *Map[K, V]) initLevels() {
 		b := newBucket[K, V]()
 		b.setLevel(int32(i) + 1)
 		b.LevelHead.InitAsEmpty()
+		h.levelEnds[i] = b.LevelHead.DirectNext()
 		h.levels[i].Store(b)
 	}
 }

@@ -404,6 +404,117 @@ func (sp *samepleItemPool[K, V]) appendLast(reverse uint64, mu sync.Locker) (new
 	return nil, nil, fn
 }
 
+// freeSlot reports whether slot j can take an entry: after the length a slot
+// that newPoolItems made and nothing took, within it a deleted slot that is
+// off the list, one that insertToPool detached with its block or one that a
+// move copied without linking. A Delete without Purge leaves its slot on the
+// list, so that slot is not free.
+func (sp *samepleItemPool[K, V]) freeSlot(j, olen int) bool {
+	item := sp.items._at(j, false, false)
+	state := mapState(atomic.LoadUint64((*uint64)(&item.state)))
+	if j >= olen {
+		return state == mapIsReusable
+	}
+	return state&mapIsDeleted != 0 && (state&mapIsDetached != 0 || !linkedEntry(&item.ListHead))
+}
+
+// freeRunFor returns the slot that a new entry at i takes, the start of the
+// first run of free slots after i that holds it and the block [i, blockEnd)
+// of the slots after it, which goes behind it. The block ends at the first
+// free slot after i; a run of free slots that is too short goes into the
+// block with the entries after it, and the search goes on from the next run.
+// After the length, a slot that is not fresh is passed over, not taken into
+// the block. It returns -1 when no run is long enough before the capacity
+// ends. The slots the block leaves stay holes, with their links, for a
+// caller that still holds one of them: the new entry never takes them.
+func (sp *samepleItemPool[K, V]) freeRunFor(i, olen, ocap int) (dst, blockEnd int) {
+	blockEnd = i
+	for {
+		for blockEnd < olen && !sp.freeSlot(blockEnd, olen) {
+			blockEnd++
+		}
+		need := blockEnd - i + 1
+		start := blockEnd
+		for {
+			run := 0
+			for start+run < ocap && sp.freeSlot(start+run, olen) {
+				run++
+			}
+			if run >= need {
+				return start, blockEnd
+			}
+			if start+run >= ocap {
+				return -1, 0
+			}
+			if start+run < olen {
+				blockEnd = start + run
+				break
+			}
+			start += run + 1
+		}
+	}
+}
+
+// slideBlockToFreeRun puts the key of reverse at dst, the start of a free run
+// at blockEnd or after it, and copies the block [i, blockEnd) of the slots
+// behind it; the run holds both. The slots from i before dst stay as holes
+// with the reverse of the new key, so that a binary search keeps its order
+// and a key below the new one reuses them. The length grows when the copy
+// reaches past it. It returns the slot of the new key.
+func (sp *samepleItemPool[K, V]) slideBlockToFreeRun(reverse uint64, i, blockEnd, dst, olen int) *embeddedEntry[K, V] {
+	need := blockEnd - i
+	if EnableStats {
+		if dst < olen {
+			DebugStats[CntPoolHoleSlide].Add(1)
+		} else {
+			DebugStats[CntPoolSlide].Add(1)
+		}
+	}
+	for m := dst; m <= dst+need && m < olen; m++ {
+		sp.items.at(m).reclaimHole()
+	}
+	// Readers must retry throughout retirement, not only during publication.
+	sp.arrayState.Add(1)
+	if need > 0 {
+		movePoolItemsInto(sp.items.slice(dst+1, dst+1+need), sp.items.slice(i, blockEnd), dst+1 < olen)
+	}
+	for m := dst + 1; m <= dst+need && m < olen; m++ {
+		sp.items.at(m).releaseWrite()
+	}
+	// Keep the prefix in place. Retired source slots remain holes whose
+	// hashes preserve the order used by searches and subsequent reuse.
+	for j := i; j < dst; j++ {
+		item := sp.items._at(j, false, false)
+		atomic.OrUint64((*uint64)(&item.state), uint64(mapIsDeleted|mapIsRetired|mapIsDetached))
+		atomic.StoreUint64(&item.reverse, reverse)
+	}
+	opened := sp.items._at(dst, false, false)
+	atomic.StoreUint64(&opened.reverse, reverse)
+	if dst < olen {
+		opened.releaseWrite()
+	}
+	if end := dst + 1 + need; end > olen {
+		newItems := sp.items.slice(0, end)
+		stepAt("insertToPool.publish", unsafe.Pointer(sp), nil)
+		sp.ptrItems().CopyFrom(&newItems, 0, newItems.Len())
+	}
+	sp.arrayState.Add(1)
+	return opened
+}
+
+// reclaimHole gives a free slot within the length the state of a slot that
+// newPoolItems made and never handed out, so that it takes an entry the way
+// the slots after the length do, and keeps it held for writing: a reader
+// that still holds the slot from before waits until releaseWrite, after the
+// entry is in. The payload version stays, so that reader sees the change.
+func (e *embeddedEntry[K, V]) reclaimHole() {
+	e.acquireWrite()
+	state := atomic.LoadUint64((*uint64)(&e.state))
+	e.PtrListHead().Init()
+	atomic.StoreUint64(&e.conflict, 0)
+	atomic.StoreUint64((*uint64)(&e.state), (state&^uint64(mapKeyWriting-1))|uint64(mapIsReusable|mapReadersMask))
+}
+
 func (sp *samepleItemPool[K, V]) insertToPool(reverse uint64, mu sync.Locker) (newItem *embeddedEntry[K, V], nPool *samepleItemPool[K, V], fn unlocker) {
 	if mu != nil {
 		mu.Lock()
@@ -444,43 +555,20 @@ func (sp *samepleItemPool[K, V]) insertToPool(reverse uint64, mu sync.Locker) (n
 			newItem, nPool, _ = sp.getWithFn(reverse, nil)
 			return newItem, nPool, fn
 		}
-		var newItems itemSlice[K, V]
+		if dst, blockEnd := sp.freeRunFor(i, olen, ocap); dst >= 0 {
+			return sp.slideBlockToFreeRun(reverse, i, blockEnd, dst, olen), nil, lazyUnlock
+		}
+		newItems := newPoolItems[K, V](olen+1, maxInts(ocap, olen+1), true)
+		if EnableStats {
+			DebugStats[CntPoolInsertAlloc].Add(1)
+		}
 		insertAt := i
-		suffixLen := olen - i
-		if ocap-olen > suffixLen {
-			start := olen
-			// Purge can shorten len while readers still hold the removed slots.
-			for end := olen; end < ocap && end-start <= suffixLen; end++ {
-				if atomic.LoadUint64((*uint64)(&sp.items._at(end, false, false).state)) != uint64(mapIsReusable) {
-					start = end + 1
-				}
-			}
-			if ocap-start > suffixLen {
-				insertAt = start
-				newItems = sp.items.slice(0, start+suffixLen+1)
-			}
-		}
-		if newItems.data == nil {
-			newItems = newPoolItems[K, V](olen+1, maxInts(ocap, olen+1), true)
-			if EnableStats {
-				DebugStats[CntPoolInsertAlloc].Add(1)
-			}
-		} else if EnableStats {
-			DebugStats[CntPoolSlide].Add(1)
-		}
 		// Readers must retry throughout retirement, not only during publication.
 		sp.arrayState.Add(1)
-		if insertAt == i && i > 0 {
+		if i > 0 {
 			movePoolItems(newItems.slice(0, i), sp.items.slice(0, i))
 		}
 		movePoolItems(newItems.slice(insertAt+1, newItems.Len()), sp.items.slice(i, olen))
-		// Keep the prefix in place. Retired source slots remain holes whose
-		// hashes preserve the order used by searches and subsequent reuse.
-		for j := i; j < insertAt; j++ {
-			item := newItems.at(j)
-			atomic.OrUint64((*uint64)(&item.state), uint64(mapIsDeleted|mapIsRetired|mapIsDetached))
-			atomic.StoreUint64(&item.reverse, reverse)
-		}
 
 		newItems.at(insertAt).PtrMapHead().reverse = reverse
 
@@ -941,6 +1029,24 @@ func (list *itemSlice[K, V]) slice(start, end int) itemSlice[K, V] {
 // movePoolItems runs under the pool's writer lock. Neighbouring pools can
 // change the links at a run's ends, so only its interior is copied as a slice.
 func movePoolItems[K Key[K], V any](dst, src itemSlice[K, V]) {
+	movePoolItemsInto(dst, src, false)
+}
+
+// copyListLinks copies the two relative links of src into dst with atomic
+// stores: what a copy of the memory of an entry does for its ListHead, for a
+// slot that a search can read.
+func copyListLinks(dst, src *elist_head.ListHead) {
+	const _ = uint(unsafe.Sizeof(elist_head.ListHead{}) - 2*unsafe.Sizeof(uintptr(0)))
+	d := (*[2]uintptr)(unsafe.Pointer(dst))
+	s := (*[2]uintptr)(unsafe.Pointer(src))
+	atomic.StoreUintptr(&d[0], atomic.LoadUintptr(&s[0]))
+	atomic.StoreUintptr(&d[1], atomic.LoadUintptr(&s[1]))
+}
+
+// movePoolItemsInto is movePoolItems; with published, the slots of dst are
+// within the length, which a search can read, so each entry goes in with the
+// stores of copyFrom, not with a copy of the memory of the block.
+func movePoolItemsInto[K Key[K], V any](dst, src itemSlice[K, V], published bool) {
 	for first := 0; first < src.Len(); {
 		if src.at(first).IsIgnored() || !src.at(first).waitPayload() {
 			dst.at(first).copyFrom(src.at(first))
@@ -960,15 +1066,24 @@ func movePoolItems[K Key[K], V any](dst, src itemSlice[K, V]) {
 		if last != first {
 			dst.at(last).copyFrom(src.at(last))
 		}
-		for i := first + 1; i < last; i++ {
-			src.at(i).acquireWrite()
-		}
-		if last > first+1 {
-			copy(unsafe.Slice(dst.at(first+1), last-first-1), unsafe.Slice(src.at(first+1), last-first-1))
-		}
-		for i := first + 1; i < last; i++ {
-			dst.at(i).state &= mapIsDummy | mapIsDeleted | mapIsPoolItem | mapPayloadReady | mapIsReusable
-			src.at(i).releaseWrite()
+		if published {
+			// InitCopiedFrom needs the interior links copied with the same
+			// layout, as the copy of the memory does
+			for i := first + 1; i < last; i++ {
+				dst.at(i).copyFrom(src.at(i))
+				copyListLinks(&dst.at(i).ListHead, &src.at(i).ListHead)
+			}
+		} else {
+			for i := first + 1; i < last; i++ {
+				src.at(i).acquireWrite()
+			}
+			if last > first+1 {
+				copy(unsafe.Slice(dst.at(first+1), last-first-1), unsafe.Slice(src.at(first+1), last-first-1))
+			}
+			for i := first + 1; i < last; i++ {
+				dst.at(i).state &= mapIsDummy | mapIsDeleted | mapIsPoolItem | mapPayloadReady | mapIsReusable
+				src.at(i).releaseWrite()
+			}
 		}
 		old := elist_head.Block{First: &src.at(first).ListHead, Last: &src.at(last).ListHead}
 		fresh := elist_head.Block{First: &dst.at(first).ListHead, Last: &dst.at(last).ListHead}

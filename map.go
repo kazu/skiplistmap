@@ -1757,7 +1757,8 @@ const (
 	CntOfGet           statKey = 5
 	CntPoolSlide       statKey = 6
 	CntPoolInsertAlloc statKey = 7
-	statCount          statKey = 8
+	CntPoolHoleSlide   statKey = 8
+	statCount          statKey = 9
 )
 
 func nextNoCheck[K Key[K], V any](e *embeddedEntry[K, V]) *embeddedEntry[K, V] {

@@ -23,11 +23,13 @@ func BenchmarkPoolSlideStats(b *testing.B) {
 			runLegacyInsertOnly(b, &p)
 			b.StopTimer()
 			slides := skiplistmap.DebugStats[skiplistmap.CntPoolSlide].Load()
+			holes := skiplistmap.DebugStats[skiplistmap.CntPoolHoleSlide].Load()
 			allocs := skiplistmap.DebugStats[skiplistmap.CntPoolInsertAlloc].Load()
 			b.ReportMetric(float64(slides), "slides")
+			b.ReportMetric(float64(holes), "hole-slides")
 			b.ReportMetric(float64(allocs), "insert-allocs")
-			if total := slides + allocs; total != 0 {
-				b.ReportMetric(100*float64(slides)/float64(total), "slide-%")
+			if total := slides + holes + allocs; total != 0 {
+				b.ReportMetric(100*float64(slides+holes)/float64(total), "slide-%")
 			}
 		})
 	}

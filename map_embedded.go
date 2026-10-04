@@ -440,6 +440,9 @@ func (sp *samepleItemPool[K, V]) insertToPool(reverse uint64, mu sync.Locker) (n
 		}
 		// copy to new slice
 		newItems := newPoolItems[K, V](olen+1, maxInts(ocap, olen+1), true)
+		if EnableStats {
+			DebugStats[CntPoolInsertAlloc].Add(1)
+		}
 		// Readers must retry throughout retirement, not only during publication.
 		sp.arrayState.Add(1)
 		if i > 0 {

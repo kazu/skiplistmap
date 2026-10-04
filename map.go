@@ -486,9 +486,7 @@ func (h *Map[K, V]) getItemMatching(k, conflict uint64, key K, byKey bool) (*emb
 
 func (h *Map[K, V]) searchItem(k uint64) *embeddedEntry[K, V] {
 	if EnableStats {
-		h.mu.Lock()
-		DebugStats[CntOfGet]++
-		h.mu.Unlock()
+		DebugStats[CntOfGet].Add(1)
 	}
 	e := h.searchKey(k, true)
 	if e == nil {
@@ -584,9 +582,7 @@ func (h *Map[K, V]) getItemWithBucket(k, conflict uint64, key K, byKey bool) (*e
 func (h *Map[K, V]) lookupItem[T dummyTrace](k, conflict uint64, key K, byKey bool) (*embeddedEntry[K, V], *bucket[K, V], *MapHead, bool) {
 	var trace T
 	if EnableStats {
-		h.mu.Lock()
-		DebugStats[CntOfGet]++
-		h.mu.Unlock()
+		DebugStats[CntOfGet].Add(1)
 	}
 	for {
 		var bucket *bucket[K, V]
@@ -1735,11 +1731,14 @@ func (h *Map[K, V]) isEmptyBylevel(level int32) bool {
 }
 
 const (
-	CntSearchBucket  statKey = 1
-	CntLevelBucket   statKey = 2
-	CntSearchEntry   statKey = 3
-	CntReverseSearch statKey = 4
-	CntOfGet         statKey = 5
+	CntSearchBucket    statKey = 1
+	CntLevelBucket     statKey = 2
+	CntSearchEntry     statKey = 3
+	CntReverseSearch   statKey = 4
+	CntOfGet           statKey = 5
+	CntPoolSlide       statKey = 6
+	CntPoolInsertAlloc statKey = 7
+	statCount          statKey = 8
 )
 
 func nextNoCheck[K Key[K], V any](e *embeddedEntry[K, V]) *embeddedEntry[K, V] {

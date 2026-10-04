@@ -206,6 +206,7 @@ func Benchmark_HMap_forProfile(b *testing.B) {
 		})
 	}
 }
+
 func Benchmark_HMap_InsertForProfile(b *testing.B) {
 	for _, p := range []legacyMapTestParam{
 		// {name: "skiplistmap4", concurrent: 16, buckets: 32, mode: skiplistmap.CombineSearch4, mapInf: &legacyTypedMap{}},

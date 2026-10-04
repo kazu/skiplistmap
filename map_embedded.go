@@ -932,12 +932,21 @@ func movePoolItems[K Key[K], V any](dst, src itemSlice[K, V]) {
 			dst.at(i).state &= mapIsDummy | mapIsDeleted | mapIsPoolItem | mapPayloadReady | mapIsReusable
 			src.at(i).releaseWrite()
 		}
-		elist_head.ReplaceSliceAfterCopy(unsafe.Pointer(src.at(first)), unsafe.Pointer(src.at(last)),
-			unsafe.Pointer(dst.at(first)), int(src.stride), int(src.at(first).Offset()), func() {
-				for i := first; i <= last; i++ {
-					src.at(i).Delete()
-				}
-			})
+		old := elist_head.Block{First: &src.at(first).ListHead, Last: &src.at(last).ListHead}
+		fresh := elist_head.Block{First: &dst.at(first).ListHead, Last: &dst.at(last).ListHead}
+		fresh.InitCopiedFrom(old)
+		if linkedEntry(old.First) {
+			for fresh.InsertBefore(old.First) != nil {
+				runtime.Gosched()
+			}
+			stepAt("copy.poolblock.inserted", unsafe.Pointer(fresh.First), unsafe.Pointer(old.First))
+			if err := old.Delete(); err != nil {
+				panic(fmt.Sprintf("movePoolItems: detach source block: %v", err))
+			}
+		}
+		for i := first; i <= last; i++ {
+			src.at(i).Delete()
+		}
 		first = last + 1
 	}
 }

@@ -3,6 +3,7 @@
 package skiplistmap
 
 import (
+	"fmt"
 	"math/bits"
 	"runtime"
 	"sync"
@@ -18,6 +19,91 @@ type poolLookupKey uint64
 
 func (k poolLookupKey) KeyHash() (uint64, uint64)      { return bits.Reverse64(uint64(k)), 1 }
 func (k poolLookupKey) Equal(other poolLookupKey) bool { return k == other }
+
+// The two ranges model adjacent pools after a split: each writer owns its
+// range, while their boundary list operations can overlap.
+func TestPoolMoveAdjacentBlocks(t *testing.T) {
+	points := []string{"block.insert.cas2", "block.delete.forward", "del.marked", "block.delete.first"}
+	for _, leftPoint := range points {
+		for _, rightPoint := range points {
+			t.Run(fmt.Sprintf("left=%s/right=%s", leftPoint, rightPoint), func(t *testing.T) {
+				p, ends := makeInsertPool(8, 8)
+				old, fresh := p.items, newPoolItems[IntKey, int](8, 8, true)
+				var reached, resume, done [2]chan struct{}
+				var released [2]sync.Once
+				for i := range reached {
+					reached[i], resume[i], done[i] = make(chan struct{}), make(chan struct{}), make(chan struct{})
+				}
+				elist_head.SetStepHook(func(point string, a, _, _ *elist_head.ListHead) {
+					for side, stop := range []string{leftPoint, rightPoint} {
+						node := &old.at(side * 4).ListHead
+						if stop == "block.insert.cas2" {
+							node = &fresh.at(side * 4).ListHead
+						}
+						if point == stop && a == node {
+							close(reached[side])
+							<-resume[side]
+						}
+					}
+				})
+				t.Cleanup(func() {
+					for i := range resume {
+						released[i].Do(func() { close(resume[i]) })
+					}
+					for _, ch := range done {
+						select {
+						case <-ch:
+						case <-time.After(time.Second):
+							t.Error("pool move did not finish")
+						}
+					}
+					elist_head.SetStepHook(nil)
+				})
+				for side := range 2 {
+					go func() {
+						defer close(done[side])
+						movePoolItems(fresh.slice(side*4, side*4+4), old.slice(side*4, side*4+4))
+					}()
+				}
+				for _, ch := range reached {
+					select {
+					case <-ch:
+					case <-time.After(time.Second):
+						t.Fatal("pool move did not reach boundary operation")
+					}
+				}
+				for i := range resume {
+					released[i].Do(func() { close(resume[i]) })
+				}
+				for _, ch := range done {
+					select {
+					case <-ch:
+					case <-time.After(time.Second):
+						t.Fatal("pool move did not complete")
+					}
+				}
+				prev := &ends[0]
+				for i := 0; i < 8; i++ {
+					item := fresh.at(i)
+					if prev.DirectNext() != &item.ListHead || item.ListHead.DirectPrev() != prev ||
+						item.Key() != IntKey(i) || item.Value() != i || !old.at(i).IsIgnored() {
+						t.Fatalf("wrong links, payload or retirement at slot %d", i)
+					}
+					if elist_head.IsMoved(&old.at(i).ListHead) {
+						t.Fatal("pool move registered a global move")
+					}
+					prev = &item.ListHead
+				}
+				if prev.DirectNext() != &ends[1] || ends[1].DirectPrev() != prev {
+					t.Fatal("wrong tail links")
+				}
+				runtime.KeepAlive(old)
+				runtime.KeepAlive(fresh)
+			})
+		}
+	}
+
+}
 
 func TestPoolInsertRetriesOldCandidate(t *testing.T) {
 	for _, operation := range []string{"Get", "Delete"} {

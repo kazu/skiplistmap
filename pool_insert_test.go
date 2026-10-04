@@ -10,7 +10,7 @@ import (
 
 func TestPoolInsertBetween(t *testing.T) {
 	for _, position := range []int{0, 4, 7} {
-		for _, spare := range []int{0, 1} {
+		for _, spare := range []int{0, 1, 8, 9, 24} {
 			for _, state := range []string{"live", "deleted", "purged"} {
 				t.Run(fmt.Sprintf("position=%d/spare=%d/state=%s", position, spare, state), func(t *testing.T) {
 					deleted := state != "live"
@@ -30,13 +30,17 @@ func TestPoolInsertBetween(t *testing.T) {
 					}
 					old := p.items
 					e, _, _ := p.insertToPool(uint64(position*2+1), nil)
-					if e != p.items.at(position) || p.items.Len() != 9 {
+					insertAt, length := position, 9
+					if p.items.data == old.data {
+						insertAt, length = 8, 17-position
+					}
+					if e != p.items.at(insertAt) || p.items.Len() != length {
 						t.Fatal("wrong insertion slot")
 					}
 					for i := 0; i < 8; i++ {
 						j := i
 						if i >= position {
-							j++
+							j = insertAt + 1 + i - position
 						}
 						item := p.items.at(j)
 						if item.Key() != IntKey(i) || item.Value() != i || item.IsDeleted() != (deleted && i == 2) {
@@ -44,7 +48,7 @@ func TestPoolInsertBetween(t *testing.T) {
 						}
 					}
 					want := []IntKey{0, 1, 2, 99, 3, 4, 5, 6, 7}
-					if deleted {
+					if deleted && !(p.items.data == old.data && position > 2 && state == "deleted") {
 						want = []IntKey{0, 1, 99, 3, 4, 5, 6, 7}
 					}
 					cur := &ends[0]
@@ -81,7 +85,11 @@ func TestPoolInsertRepeatedMoves(t *testing.T) {
 		for p.items.at(index) != e {
 			index++
 		}
-		if _, err := p.items.at(index + 1).ListHead.InsertBefore(&e.ListHead); err != nil {
+		next := index + 1
+		for p.items.at(next).IsIgnored() {
+			next++
+		}
+		if _, err := p.items.at(next).ListHead.InsertBefore(&e.ListHead); err != nil {
 			t.Fatal(err)
 		}
 		for i := 0; i < p.items.Len(); i++ {

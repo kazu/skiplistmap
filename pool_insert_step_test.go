@@ -106,118 +106,137 @@ func TestPoolMoveAdjacentBlocks(t *testing.T) {
 }
 
 func TestPoolInsertRetriesOldCandidate(t *testing.T) {
-	for _, operation := range []string{"Get", "Delete"} {
-		t.Run(operation, func(t *testing.T) {
-			m := New[poolLookupKey, int](UseEmbeddedPool[poolLookupKey, int](true), MaxPefBucket[poolLookupKey, int](512))
-			for i := uint64(2); i <= 16; i += 2 {
-				if !m.Set(poolLookupKey(i<<40), int(i)) {
-					t.Fatal("initial Set")
+	for _, reuse := range []bool{false, true} {
+		for _, operation := range []string{"Get", "Delete"} {
+			t.Run(fmt.Sprintf("%s/reuse=%t", operation, reuse), func(t *testing.T) {
+				m := New[poolLookupKey, int](UseEmbeddedPool[poolLookupKey, int](true), MaxPefBucket[poolLookupKey, int](512))
+				for i := uint64(2); i <= 16; i += 2 {
+					if !m.Set(poolLookupKey(i<<40), int(i)) {
+						t.Fatal("initial Set")
+					}
 				}
-			}
-			key := poolLookupKey(4 << 40)
-			pool := m.findBucket(uint64(key)).toBase().itemPool()
-			old := pool.items
-			candidate := m.bsearchBybucket(m.findBucket(uint64(key)), uint64(key), true)
-			if old.Len() != 8 || candidate != old.at(1) {
-				t.Fatal("candidate must be an interior pool entry")
-			}
-			reached, resume := make(chan struct{}), make(chan struct{})
-			done := make(chan bool, 1)
-			var stopped atomic.Bool
-			var release sync.Once
-			pointToStop := "lookup.pool.candidate"
-			if operation == "Get" {
-				pointToStop = "get.beforeValue"
-			}
-			SetStepHook(func(point string, a, _ unsafe.Pointer) {
-				if point == pointToStop && a == unsafe.Pointer(candidate.PtrListHead()) && stopped.CompareAndSwap(false, true) {
-					close(reached)
-					<-resume
+				key := poolLookupKey(12 << 40)
+				pool := m.findBucket(uint64(key)).toBase().itemPool()
+				old := pool.items
+				candidate := m.bsearchBybucket(m.findBucket(uint64(key)), uint64(key), true)
+				if old.Len() != 8 || candidate != old.at(5) {
+					t.Fatal("candidate must be an interior pool entry")
 				}
+				reached, resume := make(chan struct{}), make(chan struct{})
+				done := make(chan bool, 1)
+				var stopped atomic.Bool
+				var release sync.Once
+				pointToStop := "lookup.pool.candidate"
+				if operation == "Get" {
+					pointToStop = "get.beforeValue"
+				}
+				SetStepHook(func(point string, a, _ unsafe.Pointer) {
+					if point == pointToStop && a == unsafe.Pointer(candidate.PtrListHead()) && stopped.CompareAndSwap(false, true) {
+						close(reached)
+						<-resume
+					}
+				})
+				t.Cleanup(func() { release.Do(func() { close(resume) }); SetStepHook(nil) })
+				go func() {
+					if operation == "Delete" {
+						done <- m.Delete(key)
+						return
+					}
+					value, ok := m.Get(key)
+					done <- ok && value == 12
+				}()
+				select {
+				case <-reached:
+				case <-time.After(time.Second):
+					t.Fatal("lookup did not reach candidate")
+				}
+				if !m.Set(poolLookupKey(9<<40), 9) {
+					t.Fatal("middle insertion")
+				}
+				if !candidate.IsIgnored() || candidate.ListHead.IsMarked() {
+					t.Fatal("expected retired interior with untouched links")
+				}
+				if reuse {
+					for offset := uint64(1); offset <= 2; offset++ {
+						if !m.Set(poolLookupKey(8<<40|offset), int(offset)) {
+							t.Fatal("reuse source hole")
+						}
+					}
+					if got := m.bsearchBybucket(m.findBucket(8<<40|2), 8<<40|2, true); got != candidate {
+						t.Fatal("old candidate was not reused")
+					}
+				}
+				release.Do(func() { close(resume) })
+				select {
+				case ok := <-done:
+					if !ok {
+						t.Fatal("lookup lost existing key after pool insertion")
+					}
+				case <-time.After(time.Second):
+					t.Fatal("lookup did not resume")
+				}
+				runtime.KeepAlive(old)
 			})
-			t.Cleanup(func() { release.Do(func() { close(resume) }); SetStepHook(nil) })
-			go func() {
-				if operation == "Delete" {
-					done <- m.Delete(key)
-					return
-				}
-				value, ok := m.Get(key)
-				done <- ok && value == 4
-			}()
-			select {
-			case <-reached:
-			case <-time.After(time.Second):
-				t.Fatal("lookup did not reach candidate")
-			}
-			if !m.Set(poolLookupKey(15<<40), 15) {
-				t.Fatal("middle insertion")
-			}
-			if !candidate.IsIgnored() || candidate.ListHead.IsMarked() {
-				t.Fatal("expected retired interior with untouched links")
-			}
-			release.Do(func() { close(resume) })
-			select {
-			case ok := <-done:
-				if !ok {
-					t.Fatal("lookup lost existing key after pool insertion")
-				}
-			case <-time.After(time.Second):
-				t.Fatal("lookup did not resume")
-			}
-			runtime.KeepAlive(old)
-		})
+		}
 	}
 }
 
 func TestPoolInsertKeepsInteriorLinks(t *testing.T) {
-	p, ends := makeInsertPool(8, 16)
-	old := p.items
-	interior := old.at(1)
-	links := interior.ListHead
-	reached, resume, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	var release sync.Once
-	elist_head.SetStepHook(func(point string, a, _, _ *elist_head.ListHead) {
-		if point == "move.marked" && a == &old.at(0).ListHead {
-			close(reached)
-			<-resume
-		}
-	})
-	t.Cleanup(func() {
-		release.Do(func() { close(resume) })
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Error("insertion did not finish")
-		}
-		elist_head.SetStepHook(nil)
-	})
-	go func() {
-		p.insertToPool(9, nil)
-		close(done)
-	}()
-	select {
-	case <-reached:
-	case <-time.After(time.Second):
-		t.Fatal("replacement did not reach its boundary publication")
+	for _, capacity := range []int{12, 13} {
+		t.Run(fmt.Sprintf("capacity=%d", capacity), func(t *testing.T) {
+			p, ends := makeInsertPool(8, capacity)
+			old := p.items
+			interior := old.at(5)
+			links := interior.ListHead
+			reached, resume, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			var release sync.Once
+			elist_head.SetStepHook(func(point string, a, _, _ *elist_head.ListHead) {
+				if point == "del.marked" && a == &old.at(4).ListHead {
+					close(reached)
+					<-resume
+				}
+			})
+			t.Cleanup(func() {
+				release.Do(func() { close(resume) })
+				select {
+				case <-done:
+				case <-time.After(time.Second):
+					t.Error("insertion did not finish")
+				}
+				elist_head.SetStepHook(nil)
+			})
+			go func() {
+				p.insertToPool(9, nil)
+				close(done)
+			}()
+			select {
+			case <-reached:
+			case <-time.After(time.Second):
+				t.Fatal("replacement did not reach its boundary publication")
+			}
+			if interior.ListHead != links || interior.ListHead.IsMarked() {
+				t.Fatal("interior source links changed during replacement")
+			}
+			if elist_head.IsMoved(&old.at(4).ListHead) {
+				t.Fatal("pool block replacement registered a global move")
+			}
+			if interior.Key() != 5 || interior.Value() != 5 {
+				t.Fatal("reader lost its old payload during replacement")
+			}
+			release.Do(func() { close(resume) })
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("replacement did not finish")
+			}
+			if interior.ListHead != links || p.items.at(1).ListHead != links {
+				t.Fatal("interior links were rewritten instead of copied unchanged")
+			}
+			if !interior.IsDeleted() || p.items.at(1).IsDeleted() {
+				t.Fatal("retirement did not distinguish old and current entries")
+			}
+			runtime.KeepAlive(ends)
+			runtime.KeepAlive(old)
+		})
 	}
-	if interior.ListHead != links || interior.ListHead.IsMarked() {
-		t.Fatal("interior source links changed during replacement")
-	}
-	if interior.Key() != 1 || interior.Value() != 1 {
-		t.Fatal("reader lost its old payload during replacement")
-	}
-	release.Do(func() { close(resume) })
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("replacement did not finish")
-	}
-	if interior.ListHead != links || p.items.at(1).ListHead != links {
-		t.Fatal("interior links were rewritten instead of copied unchanged")
-	}
-	if !interior.IsDeleted() || p.items.at(1).IsDeleted() {
-		t.Fatal("retirement did not distinguish old and current entries")
-	}
-	runtime.KeepAlive(ends)
-	runtime.KeepAlive(old)
 }

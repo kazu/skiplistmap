@@ -26,7 +26,9 @@ func TestTypedEmbeddedUpdatesReuseSlots(t *testing.T) {
 		t.Fatalf("Len=%d", m.Len())
 	}
 	pool := m.findBucket(uint64(1) << 63).itemPool()
-	if got := pool.len(); got > 2 {
+	// A disjoint suffix slide keeps one source hole, the new slot, and
+	// the copied old value. Further updates must reuse those three slots.
+	if got := pool.len(); got > 3 {
 		t.Fatalf("single-key updates retained %d slots; retired slots were not reused", got)
 	}
 }

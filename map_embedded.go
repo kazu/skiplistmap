@@ -331,8 +331,8 @@ func (sp *samepleItemPool[K, V]) state4get(reverse uint64, len int, cap int) byt
 }
 
 // bsearchFromFreeList finds a deleted slot without breaking hash order. Check
-// the equal-reverse run and its immediate predecessor, or the first slot when
-// every item is above reverse. Replacements leave free slots inside that run.
+// the first larger slot, the equal-reverse run and its immediate predecessor.
+// Replacements and suffix moves leave free slots inside the ordered array.
 func (sp *samepleItemPool[K, V]) bsearchFromFreeList(reverse uint64) (int, bool) {
 
 	items := sp.ptrItems()
@@ -341,6 +341,9 @@ func (sp *samepleItemPool[K, V]) bsearchFromFreeList(reverse uint64) (int, bool)
 		item := items._at(i, true, false)
 		return atomic.LoadUint64(&item.reverse) > reverse
 	})
+	if idx < items.Len() && items.at(idx).IsDeleted() {
+		return idx, true
+	}
 	if idx < 1 {
 		idx = 1
 	}
@@ -386,7 +389,10 @@ func (sp *samepleItemPool[K, V]) appendLast(reverse uint64, mu sync.Locker) (new
 	// identity and give it reverse while it is past the length, where no
 	// reader looks at it yet
 	slot := items._at(l, false, false)
-	atomic.AndUint64((*uint64)(&slot.PtrMapHead().state), ^uint64(mapIsDummy|mapIsDeleted|mapIsPoolItem|mapIsBusy))
+	if slot.isDetached() {
+		slot.ListHead.Init()
+	}
+	atomic.AndUint64((*uint64)(&slot.PtrMapHead().state), ^uint64(mapIsDummy|mapIsDeleted|mapIsPoolItem|mapIsBusy|mapIsDetached))
 	atomic.StoreUint64(&slot.PtrMapHead().conflict, 0)
 	atomic.StoreUint64(&slot.PtrMapHead().reverse, reverse)
 	if atomic_util.CompareAndSwapInt(&items.len, l, l+1) {
@@ -438,19 +444,45 @@ func (sp *samepleItemPool[K, V]) insertToPool(reverse uint64, mu sync.Locker) (n
 			newItem, nPool, _ = sp.getWithFn(reverse, nil)
 			return newItem, nPool, fn
 		}
-		// copy to new slice
-		newItems := newPoolItems[K, V](olen+1, maxInts(ocap, olen+1), true)
-		if EnableStats {
-			DebugStats[CntPoolInsertAlloc].Add(1)
+		var newItems itemSlice[K, V]
+		insertAt := i
+		suffixLen := olen - i
+		if ocap-olen > suffixLen {
+			start := olen
+			// Purge can shorten len while readers still hold the removed slots.
+			for end := olen; end < ocap && end-start <= suffixLen; end++ {
+				if atomic.LoadUint64((*uint64)(&sp.items._at(end, false, false).state)) != uint64(mapIsReusable) {
+					start = end + 1
+				}
+			}
+			if ocap-start > suffixLen {
+				insertAt = start
+				newItems = sp.items.slice(0, start+suffixLen+1)
+			}
+		}
+		if newItems.data == nil {
+			newItems = newPoolItems[K, V](olen+1, maxInts(ocap, olen+1), true)
+			if EnableStats {
+				DebugStats[CntPoolInsertAlloc].Add(1)
+			}
+		} else if EnableStats {
+			DebugStats[CntPoolSlide].Add(1)
 		}
 		// Readers must retry throughout retirement, not only during publication.
 		sp.arrayState.Add(1)
-		if i > 0 {
+		if insertAt == i && i > 0 {
 			movePoolItems(newItems.slice(0, i), sp.items.slice(0, i))
 		}
-		movePoolItems(newItems.slice(i+1, newItems.Len()), sp.items.slice(i, sp.items.Len()))
+		movePoolItems(newItems.slice(insertAt+1, newItems.Len()), sp.items.slice(i, olen))
+		// Keep the prefix in place. Retired source slots remain holes whose
+		// hashes preserve the order used by searches and subsequent reuse.
+		for j := i; j < insertAt; j++ {
+			item := newItems.at(j)
+			atomic.OrUint64((*uint64)(&item.state), uint64(mapIsDeleted|mapIsRetired|mapIsDetached))
+			atomic.StoreUint64(&item.reverse, reverse)
+		}
 
-		newItems.at(i).PtrMapHead().reverse = reverse
+		newItems.at(insertAt).PtrMapHead().reverse = reverse
 
 		oldItems := sp.ptrItems().dup()
 		newItemSlice := newItems
@@ -469,7 +501,7 @@ func (sp *samepleItemPool[K, V]) insertToPool(reverse uint64, mu sync.Locker) (n
 			fmt.Printf("A: itemPool.items\n%s\n", b.String())
 		}
 
-		return sp.items.at(i), nil, lazyUnlock
+		return sp.items.at(insertAt), nil, lazyUnlock
 	}
 	return sp.getWithFn(reverse, nil)
 	//return nil, nil, nil
@@ -554,7 +586,10 @@ func (sp *samepleItemPool[K, V]) getWithFn(reverse uint64, mu sync.Locker) (new 
 			atomic.StoreUint64(&new.PtrMapHead().reverse, oReverse)
 			goto RETRY
 		}
-		if !new.PtrListHead().IsSingle() {
+		if oState&uint64(mapIsDetached) != 0 {
+			new.PtrListHead().Init()
+			atomic.AndUint64((*uint64)(&new.state), ^uint64(mapIsDetached))
+		} else if !new.PtrListHead().IsSingle() {
 			new.PtrListHead().MarkForDelete()
 		}
 		return new, nil, fn
@@ -730,7 +765,7 @@ func (sp *samepleItemPool[K, V]) shrinkLen() {
 			break
 		}
 		l = i
-		if !item.Empty() {
+		if !item.isDetached() && !item.Empty() {
 			item.MarkForDelete()
 		}
 	}
@@ -910,7 +945,7 @@ func movePoolItems[K Key[K], V any](dst, src itemSlice[K, V]) {
 		if src.at(first).IsIgnored() || !src.at(first).waitPayload() {
 			dst.at(first).copyFrom(src.at(first))
 			dst.at(first).Delete()
-			if linkedEntry(&src.at(first).ListHead) {
+			if !src.at(first).isDetached() && linkedEntry(&src.at(first).ListHead) {
 				src.at(first).ListHead.MarkForDelete()
 			}
 			first++
@@ -963,7 +998,7 @@ func replacePoolItems[K Key[K], V any](dst, src itemSlice[K, V], exclude int) {
 		dst.at(j).ListHead.Init()
 		if src.at(i).IsIgnored() || !src.at(i).waitPayload() {
 			dst.at(j).Delete()
-			if linkedEntry(&src.at(i).ListHead) {
+			if !src.at(i).isDetached() && linkedEntry(&src.at(i).ListHead) {
 				src.at(i).ListHead.MarkForDelete()
 			}
 			continue

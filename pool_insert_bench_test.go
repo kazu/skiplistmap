@@ -39,7 +39,7 @@ func BenchmarkPoolEntryInsertBetween(b *testing.B) {
 
 func benchmarkPoolInsertBetween(b *testing.B, linkEntry bool) {
 	for _, n := range []int{8, 32, 128, 512} {
-		for _, spare := range []int{0, 1} {
+		for _, spare := range []int{0, 1, n + 1, 4*n + 4} {
 			b.Run(fmt.Sprintf("entries=%d/spare=%d", n, spare), func(b *testing.B) {
 				b.ReportAllocs()
 				for i := 0; i < b.N; i++ {

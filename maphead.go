@@ -26,6 +26,8 @@ const (
 	mapPayloadInitializing
 	mapPayloadReady
 	mapIsReusable
+	// mapIsDetached marks a pool hole whose block was already unlinked.
+	mapIsDetached
 	mapReaderUnit
 )
 
@@ -35,7 +37,7 @@ const mapPayloadState = mapPayloadInitializing | mapPayloadReady
 // an exclusive writer; readers wait rather than overflowing this range.
 const mapReadersMask = ((1 << 16) - 1) * mapReaderUnit
 
-// The upper 40 bits remain the payload version, odd while it is being written.
+// The upper 39 bits remain the payload version, odd while it is being written.
 const mapKeyWriting = mapReaderUnit << 16
 const mapTransientState = mapIsBusy | mapReadersMask
 
@@ -105,6 +107,10 @@ func (mh *MapHead) IsDummy() bool {
 
 func (mh *MapHead) IsDeleted() bool {
 	return mapState(atomic.LoadUint64((*uint64)(&mh.state)))&mapIsDeleted > 0
+}
+
+func (mh *MapHead) isDetached() bool {
+	return mapState(atomic.LoadUint64((*uint64)(&mh.state)))&mapIsDetached != 0
 }
 
 func (mh *MapHead) ConflictInHamp() uint64 {

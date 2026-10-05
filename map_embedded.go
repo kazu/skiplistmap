@@ -1111,14 +1111,37 @@ func copyListLinks(dst, src *elist_head.ListHead) {
 // movePoolItemsInto is movePoolItems; with published, the slots of dst are
 // within the length, which a search can read, so each entry goes in with the
 // stores of copyFrom, not with a copy of the memory of the block.
+// movePoolItem moves the entry of src into dst, a slot that nothing uses yet:
+// the block of one of movePoolItems, without the slices. A deleted or unready
+// src leaves dst deleted and is taken off the list when it is still on it.
+func movePoolItem[K Key[K], V any](dst, src *embeddedEntry[K, V]) {
+	dst.copyFrom(src)
+	if src.IsIgnored() || !src.waitPayload() {
+		dst.Delete()
+		if !src.isDetached() && linkedEntry(&src.ListHead) {
+			src.ListHead.MarkForDelete()
+		}
+		return
+	}
+	old := elist_head.Block{First: &src.ListHead, Last: &src.ListHead}
+	fresh := elist_head.Block{First: &dst.ListHead, Last: &dst.ListHead}
+	fresh.InitCopiedFrom(old)
+	if linkedEntry(old.First) {
+		for fresh.InsertBefore(old.First) != nil {
+			runtime.Gosched()
+		}
+		stepAt("copy.poolblock.inserted", unsafe.Pointer(fresh.First), unsafe.Pointer(old.First))
+		if err := old.Delete(); err != nil {
+			panic(fmt.Sprintf("movePoolItem: detach source block: %v", err))
+		}
+	}
+	src.Delete()
+}
+
 func movePoolItemsInto[K Key[K], V any](dst, src itemSlice[K, V], published bool) {
 	for first := 0; first < src.Len(); {
 		if src.at(first).IsIgnored() || !src.at(first).waitPayload() {
-			dst.at(first).copyFrom(src.at(first))
-			dst.at(first).Delete()
-			if !src.at(first).isDetached() && linkedEntry(&src.at(first).ListHead) {
-				src.at(first).ListHead.MarkForDelete()
-			}
+			movePoolItem(dst.at(first), src.at(first))
 			first++
 			continue
 		}
@@ -1127,10 +1150,13 @@ func movePoolItemsInto[K Key[K], V any](dst, src itemSlice[K, V], published bool
 			src.at(last+1).ListHead.DirectPrev() == &src.at(last).ListHead {
 			last++
 		}
-		dst.at(first).copyFrom(src.at(first))
-		if last != first {
-			dst.at(last).copyFrom(src.at(last))
+		if last == first {
+			movePoolItem(dst.at(first), src.at(first))
+			first++
+			continue
 		}
+		dst.at(first).copyFrom(src.at(first))
+		dst.at(last).copyFrom(src.at(last))
 		if published {
 			// InitCopiedFrom needs the interior links copied with the same
 			// layout, as the copy of the memory does

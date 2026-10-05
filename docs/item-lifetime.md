@@ -69,7 +69,7 @@ func main() {
 ## 公開と再利用の同期
 
 - 新しいEntryのK/Vを初期化してから公開する。検索では公開世代、削除状態、ハッシュ対と、キーを受け取る操作では`K.Equal`を確認する。比較不能な独自キーにも同じ`KeyHash`/`Equal`の条件を使う。`GetByHash`はハッシュ対が一致する値の一つを返す。非embeddedの`LoadItemByHash`は対応するEntryを返す。
-- embeddedの配列置換では`publishItems`が公開世代を進める。検索中に配列やslotの世代が変われば検索し直す。`Get`と`GetByHash`は確認した値、`Range`は同じ世代のキーと値を返す。走査全体のsnapshotは保証しない。`Len`は更新中に途中の件数を返し得るが、更新完了後は正確な件数を返す。
+- embeddedの配列置換（`insertToPool`と`expand`）では`arrayState`の公開世代を奇数にしてから写し、差し替えて偶数に戻す。検索中に配列やslotの世代が変われば検索し直す。`Get`と`GetByHash`は確認した値、`Range`は同じ世代のキーと値を返す。走査全体のsnapshotは保証しない。`Len`は更新中に途中の件数を返し得るが、更新完了後は正確な件数を返す。
 - embeddedのslot再利用では、atomic reader pinを持つ読み手が終わるのを待ち、書き手がslotを確保してからK/Vを書き換える。`Value()`と`Key()`を別々に呼んだ結果の組は固定snapshotではない。組として読むには`Get`または`Range`を使う。
 - embeddedの書込みは既存のbucket/poolのロックとowner・slot・世代の再確認を使う。`Delete`/`Purge`も取得後の対象を再確認する。非embeddedの更新は新Entryのコピー公開を使う。全EntryへRWMutexを追加する方式ではない。
 - 再利用する空きslotはreverseの順序を保って選ぶ。同じreverseの連続部分と直前の削除slotも候補にする。末尾では`Purge`で外れたslotを使える。新しいK/Vの準備と公開前の削除状態を維持し、旧読み手との競合を防ぐ。

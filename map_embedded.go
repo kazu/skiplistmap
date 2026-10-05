@@ -791,15 +791,14 @@ func (sp *samepleItemPool[K, V]) expand(mu sync.Locker) (unlocker, error) {
 	nCap := poolCap(sp.items.Len(), sp.minCapItems())
 
 	newItems := newPoolItems[K, V](olen, nCap, true)
-	newItems.CopyDataFrom(0, sp.ptrItems(), 0, olen)
-
-	replacePoolItems(newItems, sp.items, -1)
-
-	oldItems := sp.ptrItems().dup()
-	sp.publishItems(&newItems)
-
-	// for debug
-	_ = oldItems
+	if EnableStats {
+		DebugStats[CntPoolExpand].Add(1)
+	}
+	// Readers must retry throughout retirement, not only during publication.
+	sp.arrayState.Add(1)
+	movePoolItems(newItems.slice(0, olen), sp.items.slice(0, olen))
+	sp.ptrItems().CopyFrom(&newItems, 0, newItems.Len())
+	sp.arrayState.Add(1)
 
 	if IsDebug() {
 		var b strings.Builder
@@ -945,14 +944,6 @@ func (sp *samepleItemPool[K, V]) ptrItems() *itemSlice[K, V] {
 	return &sp.items
 }
 
-// publishItems replaces the array under the bucket lock. An odd publication
-// means readers cannot yet pair its data pointer with its length.
-func (sp *samepleItemPool[K, V]) publishItems(items *itemSlice[K, V]) {
-	sp.arrayState.Add(1)
-	sp.ptrItems().CopyFrom(items, 0, items.Len())
-	sp.arrayState.Add(1)
-}
-
 func (sp *samepleItemPool[K, V]) itemSlice(isNoneZero bool) (result itemSlice[K, V]) {
 	for {
 		//result = *sp.ptrItems()
@@ -1041,13 +1032,6 @@ func (list *itemSlice[K, V]) CopyFrom(slist *itemSlice[K, V], head, len int) {
 
 FAIL:
 	panic("fail copy")
-}
-
-func (list *itemSlice[K, V]) CopyDataFrom(head int, src *itemSlice[K, V], start, count int) {
-	for i := 0; i < count; i++ {
-		to, from := list._at(head+i, false, false), src._at(start+i, false, false)
-		to.copyFrom(from)
-	}
 }
 
 func (list *itemSlice[K, V]) dup() (new *itemSlice[K, V]) {
@@ -1199,26 +1183,5 @@ func movePoolItemsInto[K Key[K], V any](dst, src itemSlice[K, V], published bool
 			src.at(i).Delete()
 		}
 		first = last + 1
-	}
-}
-
-func replacePoolItems[K Key[K], V any](dst, src itemSlice[K, V], exclude int) {
-	for i := 0; i < src.Len(); i++ {
-		j := i
-		if exclude >= 0 && i >= exclude {
-			j++
-		}
-		dst.at(j).ListHead.Init()
-		if src.at(i).IsIgnored() || !src.at(i).waitPayload() {
-			dst.at(j).Delete()
-			if !src.at(i).isDetached() && linkedEntry(&src.at(i).ListHead) {
-				src.at(i).ListHead.MarkForDelete()
-			}
-			continue
-		}
-		_, moved, published := replaceEntryListNode(src.at(i), dst.at(j), "copy.poolmove.inserted")
-		if !published {
-			moved.Delete()
-		}
 	}
 }

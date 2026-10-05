@@ -25,9 +25,11 @@ func BenchmarkPoolSlideStats(b *testing.B) {
 			slides := skiplistmap.DebugStats[skiplistmap.CntPoolSlide].Load()
 			holes := skiplistmap.DebugStats[skiplistmap.CntPoolHoleSlide].Load()
 			allocs := skiplistmap.DebugStats[skiplistmap.CntPoolInsertAlloc].Load()
+			expands := skiplistmap.DebugStats[skiplistmap.CntPoolExpand].Load()
 			b.ReportMetric(float64(slides), "slides")
 			b.ReportMetric(float64(holes), "hole-slides")
 			b.ReportMetric(float64(allocs), "insert-allocs")
+			b.ReportMetric(float64(expands), "expands")
 			if total := slides + holes + allocs; total != 0 {
 				b.ReportMetric(100*float64(slides+holes)/float64(total), "slide-%")
 			}

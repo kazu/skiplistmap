@@ -53,8 +53,11 @@ type Map[K Key[K], V any] struct {
 	tail         *elist_head.ListHead
 
 	modeForBucket SearchMode
-	mu            sync.Mutex
-	levels        [16]atomic.Pointer[bucket[K, V]]
+	// minCapItems is the least capacity of the item pool of a bucket after
+	// it grows; see MinCapItems
+	minCapItems int
+	mu          sync.Mutex
+	levels      [16]atomic.Pointer[bucket[K, V]]
 	// levelEnds[i] is the sentinel at the end of the list of level i+1: a
 	// LevelHead that goes after every bucket of the level is linked before it.
 	levelEnds [16]*list_head.ListHead
@@ -98,6 +101,18 @@ func MaxPefBucket[K Key[K], V any](max int) OptHMap[K, V] {
 		prev := h.maxPerBucket
 		h.maxPerBucket = max
 		return MaxPefBucket[K, V](prev)
+	}
+}
+
+// MinCapItems sets the least capacity that the item pool of a bucket has
+// after it grows, and at least that of its first array; the default is 2. A
+// pool grows by doubling, so a larger value saves the growths up to it, for
+// the memory of the slots that stay empty.
+func MinCapItems[K Key[K], V any](min int) OptHMap[K, V] {
+	return func(h *Map[K, V]) OptHMap[K, V] {
+		prev := h.minCapItems
+		h.minCapItems = min
+		return MinCapItems[K, V](prev)
 	}
 }
 
@@ -155,6 +170,7 @@ func NewHMap[K Key[K], V any](opts ...OptHMap[K, V]) *Map[K, V] {
 	hmap := &Map[K, V]{
 		len:          0,
 		maxPerBucket: 32,
+		minCapItems:  minCapItem(),
 	}
 
 	topBucket := newBucket[K, V]()
@@ -258,7 +274,8 @@ func (h *Map[K, V]) initBeforeSet() {
 			}
 			btable.setupPool()
 			btable._itemPool.reusable = true
-			btable._itemPool._init(h.maxPerBucket * 3 / 2)
+			btable._itemPool.minCap = h.minCapItems
+			btable._itemPool._init(max(h.maxPerBucket*3/2, h.minCapItems))
 		}
 
 		empty = &btable.dummy

@@ -788,7 +788,7 @@ func (sp *samepleItemPool[K, V]) expand(mu sync.Locker) (unlocker, error) {
 		return fn, e
 	}
 
-	nCap := PoolCap(sp.items.Len())
+	nCap := poolCap(sp.items.Len(), sp.minCapItems())
 
 	newItems := newPoolItems[K, V](olen, nCap, true)
 	newItems.CopyDataFrom(0, sp.ptrItems(), 0, olen)
@@ -861,7 +861,7 @@ func (sp *samepleItemPool[K, V]) _split(idx int, connect bool) (nPool *samepleIt
 		return nil, ErrIdxOverflow
 	}
 
-	nPool = &samepleItemPool[K, V]{reusable: sp.reusable}
+	nPool = &samepleItemPool[K, V]{reusable: sp.reusable, minCap: sp.minCap}
 
 	if !atomic.CompareAndSwapInt64(&nlen, int64(sp.items.Len()), nlen+1) {
 		return sp._split(idx, connect)

@@ -30,6 +30,7 @@ func freshLegacyWriteMap(p legacyMapTestParam) list_head.MapGetSet {
 		return &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](
 			skiplistmap.BucketMode[skiplistmap.StringKey, *list_head.ListHead](p.mode),
 			skiplistmap.MaxPefBucket[skiplistmap.StringKey, *list_head.ListHead](p.buckets),
+			skiplistmap.MinCapItems[skiplistmap.StringKey, *list_head.ListHead](p.buckets),
 			skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](p.mode == skiplistmap.CombineSearch3),
 		)}
 	default:

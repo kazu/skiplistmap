@@ -139,6 +139,9 @@ type samepleItemPool[K Key[K], V any] struct {
 	freeTail elist_head.ListHead
 	items    itemSlice[K, V]
 	reusable bool
+	// minCap is the least capacity of the pool after it grows, from
+	// MinCapItems of its Map; 0 means the default of the package
+	minCap int
 	// arrayState is the publication epoch for reusable pools.
 	arrayState  atomic.Uint64
 	initialized atomic.Bool
@@ -175,8 +178,16 @@ func (sp *samepleItemPool[K, V]) init() {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
 	if !sp.initialized.Load() {
-		sp._init(CntOfPersamepleItemPool)
+		sp._init(max(CntOfPersamepleItemPool, sp.minCap))
 	}
+}
+
+// minCapItems returns the least capacity of the pool after it grows.
+func (sp *samepleItemPool[K, V]) minCapItems() int {
+	if sp.minCap > 0 {
+		return sp.minCap
+	}
+	return minCapItem()
 }
 
 func (sp *samepleItemPool[K, V]) _init(cap int) {
@@ -338,7 +349,7 @@ func (sp *samepleItemPool[K, V]) _expand() (*samepleItemPool[K, V], error) {
 		return nil, EPoolAlreadyDeleted
 	}
 
-	nPool := &samepleItemPool[K, V]{reusable: sp.reusable}
+	nPool := &samepleItemPool[K, V]{reusable: sp.reusable, minCap: sp.minCap}
 	_ = nPool
 	var e error
 	var next *list_head.ListHead
@@ -351,7 +362,7 @@ NO_DELETE:
 
 	elist_head.InitAsEmpty(&nPool.freeHead, &nPool.freeTail)
 
-	nCap := PoolCap(sp.items.Len())
+	nCap := poolCap(sp.items.Len(), sp.minCapItems())
 
 	nPool.items = newPoolItems[K, V](sp.items.Len(), nCap, sp.reusable)
 	if !sp.reusable {

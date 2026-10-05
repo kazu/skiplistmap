@@ -1591,15 +1591,24 @@ func reverse2Index(level int, r uint64) (idx int) {
 }
 
 func (h *Map[K, V]) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket[K, V]) {
+	h.insertBucketFrom(tBtable, nBtable, nil)
+}
+
+// insertBucketFrom is _InsertBefore with the node that the walk to the place
+// of the dummy of nBtable starts from; nil starts it from the head of the
+// bucket at tBtable, or of the list.
+func (h *Map[K, V]) insertBucketFrom(tBtable *list_head.ListHead, nBtable *bucket[K, V], anchor *elist_head.ListHead) {
 
 	stepAt("insertBucket.begin", unsafe.Pointer(nBtable), nil)
 	empty := &nBtable.dummy
 	empty.reverse, empty.conflict = nBtable.reverse, 0
 	empty.PtrMapHead().state |= mapIsDummy
 	empty.Init()
-	anchor := h.head
-	if !tBtable.Empty() {
-		anchor = bucketFromListHead[K, V](tBtable).head()
+	if anchor == nil {
+		anchor = h.head
+		if !tBtable.Empty() {
+			anchor = bucketFromListHead[K, V](tBtable).head()
+		}
 	}
 	h.linkEntry(walkStart(anchor), empty, nil, withAnchor[K, V](anchor))
 	stepAt("insertBucket.dummyLinked", unsafe.Pointer(nBtable), nil)
@@ -1617,12 +1626,19 @@ func (h *Map[K, V]) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket[K
 }
 
 func (h *Map[K, V]) addBucket(nBtable *bucket[K, V]) error {
+	return h.addBucketFrom(nBtable, nil)
+}
+
+// addBucketFrom is addBucket with the node that the walk to the place of the
+// dummy of nBtable starts from, a node on the list whose reverse is below
+// that of nBtable; nil starts it from the head of the bucket before.
+func (h *Map[K, V]) addBucketFrom(nBtable *bucket[K, V], anchor *elist_head.ListHead) error {
 
 	pos := h.bucketInsertPos(nBtable.reverse)
 	if !pos.Empty() && bucketFromListHead[K, V](pos).reverse == nBtable.reverse {
 		return ErrBucketAlreadyExit
 	}
-	h._InsertBefore(pos, nBtable)
+	h.insertBucketFrom(pos, nBtable, anchor)
 	return nil
 }
 

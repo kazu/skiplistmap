@@ -167,7 +167,9 @@ func (h *Map[K, V]) makeBucket2(bucket *bucket[K, V]) (err error) {
 	// writers cannot expand its pool while this split still changes its slice.
 	b.muPool.Lock()
 	defer b.muPool.Unlock()
-	h.addBucket(b)
+	// the dummy goes just after the last entry below the split, which the
+	// array knows; the walk from the head of the bucket is not needed
+	h.addBucketFrom(b, bucket.itemPool().splitAnchor(idx))
 	stepAt("makeBucket2.added", unsafe.Pointer(b), unsafe.Pointer(bucket))
 	if level := b.level(); level < 0 {
 		b.setLevel(-level)
@@ -838,15 +840,29 @@ func holeListHeadsOfSampleItem[K Key[K], V any]() (before, after elist_head.List
 	return items[1].ListHead, items[3].ListHead
 }
 
+// findIdx returns the first slot whose reverse is not below reverse. The slots
+// are in the order of their reverse, holes included, which the free-slot path
+// of getWithFn keeps.
 func (sp *samepleItemPool[K, V]) findIdx(reverse uint64) (int, error) {
+	n := sp.items.Len()
+	i := sort.Search(n, func(i int) bool {
+		return reverse <= atomic.LoadUint64(&sp.items.at(i).reverse)
+	})
+	if i == n {
+		return -1, ErrIdxOverflow
+	}
+	return i, nil
+}
 
-	for i := 0; i < sp.items.Len(); i++ {
-		if reverse <= sp.items.at(i).reverse {
-			return i, nil
+// splitAnchor returns the last slot before idx that is on the list, which the
+// dummy of a bucket split at idx is linked after, or nil when there is none.
+func (sp *samepleItemPool[K, V]) splitAnchor(idx int) *elist_head.ListHead {
+	for i := idx - 1; i >= 0; i-- {
+		if e := sp.items.at(i); !e.IsIgnored() && linkedEntry(&e.ListHead) {
+			return &e.ListHead
 		}
 	}
-	return -1, ErrIdxOverflow
-
+	return nil
 }
 
 func (sp *samepleItemPool[K, V]) split(idx int) (nPool *samepleItemPool[K, V], err error) {

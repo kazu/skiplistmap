@@ -475,7 +475,11 @@ func (sp *samepleItemPool[K, V]) slideBlockToFreeRun(reverse uint64, i, blockEnd
 	}
 	// Readers must retry throughout retirement, not only during publication.
 	sp.arrayState.Add(1)
-	if need > 0 {
+	switch {
+	case need == 1:
+		// the block of one needs no slices, which the call would allocate
+		movePoolItem(sp.items._at(dst+1, false, false), sp.items._at(i, false, false))
+	case need > 1:
 		movePoolItemsInto(sp.items.slice(dst+1, dst+1+need), sp.items.slice(i, blockEnd), dst+1 < olen)
 	}
 	for m := dst + 1; m <= dst+need && m < olen; m++ {
@@ -545,7 +549,10 @@ func (sp *samepleItemPool[K, V]) slideBlockToFreeRunBefore(reverse uint64, block
 	}
 	// Readers must retry throughout retirement, not only during publication.
 	sp.arrayState.Add(1)
-	if need > 0 {
+	switch {
+	case need == 1:
+		movePoolItem(sp.items._at(dst, false, false), sp.items._at(blockStart, false, false))
+	case need > 1:
 		movePoolItemsInto(sp.items.slice(dst, dst+need), sp.items.slice(blockStart, i), true)
 	}
 	for m := dst; m < dst+need; m++ {

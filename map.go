@@ -1698,6 +1698,39 @@ func (h *Map[K, V]) linkBucket(pos *list_head.ListHead, nBtable *bucket[K, V]) {
 // finds the place again when another bucket was linked there meanwhile.
 // point names the step point just before the link, and at is its first
 // argument.
+// levelPosBelowParent returns the node of the list of level that the first
+// down level b of its parent goes before. The list is in descending order of
+// reverse, and b has the reverse of its parent, so the bucket of level after
+// it is the highest child of level of the bucket before the parent on the
+// list of the level above, or of the one before that when it has none; the
+// end of the list when no bucket is before the parent. It returns nil when
+// that child is not on the list of level yet, for the walk from the head.
+func (h *Map[K, V]) levelPosBelowParent(b *bucket[K, V], level int32) *list_head.ListHead {
+	parent := b._parent
+	if parent == nil || level < 2 {
+		return nil
+	}
+	for q := parent.LevelHead.Next(); ; q = q.Next() {
+		if q == nil || q.Empty() {
+			return h.levelEnds[level-1]
+		}
+		downs := bucketFromLevelHead[K, V](q).ptrDownLevels()
+		if downs == nil {
+			continue
+		}
+		for d := downs.Len() - 1; d >= 0; d-- {
+			c := downs.at(d)
+			if c == nil || c.level() != level {
+				continue
+			}
+			if p := c.LevelHead.DirectPrev(); p.Empty() && p != &h.levelBucket(level).LevelHead {
+				return nil
+			}
+			return &c.LevelHead
+		}
+	}
+}
+
 func (h *Map[K, V]) insertOnLevel(b *bucket[K, V], level int32, point string, at unsafe.Pointer) {
 	for retry := 0; ; retry++ {
 		if retry > 0 {
@@ -1706,6 +1739,11 @@ func (h *Map[K, V]) insertOnLevel(b *bucket[K, V], level int32, point string, at
 		var pos *list_head.ListHead
 		if retry == 0 {
 			pos = h.nextOnLevelOf(b, level)
+			if pos == nil {
+				// a first down level has no bucket of level near it on the
+				// list of buckets; the level above knows its place
+				pos = h.levelPosBelowParent(b, level)
+			}
 		}
 		if pos == nil {
 			pos = h.levelBucket(level).LevelHead.Next()

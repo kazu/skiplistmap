@@ -29,7 +29,7 @@ func TestPoolInsertDisjointCapacity(t *testing.T) {
 			if p.ptrItems().Len() != 8 {
 				t.Fatal("purge did not leave eight entries")
 			}
-			e, _, _ := p.insertToPool(9, nil)
+			e, _, _ := p.insertToPool(9, nil, nil)
 			insertAt, length := 4, 9
 			if tc.reuse {
 				insertAt, length = tc.published, tc.published+5

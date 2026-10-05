@@ -16,7 +16,7 @@ func (k suffixSlideKey) Equal(other suffixSlideKey) bool { return k == other }
 func TestPoolSlideKeepsPrefix(t *testing.T) {
 	p, ends := makeInsertPool(8, 11)
 	old := *p.ptrItems()
-	e, _, _ := p.insertToPool(13, nil)
+	e, _, _ := p.insertToPool(13, nil, nil)
 	if p.ptrItems().first() != old.first() || p.ptrItems().Cap() != old.Cap() {
 		t.Fatal("suffix fits, but insertion did not keep the existing array")
 	}
@@ -123,7 +123,7 @@ func TestPoolSlideIntoFreeRun(t *testing.T) {
 		purgeSlot(t, p, i)
 	}
 	old := *p.ptrItems()
-	e, _, _ := p.insertToPool(7, nil)
+	e, _, _ := p.insertToPool(7, nil, nil)
 	if p.ptrItems().first() != old.first() || p.ptrItems().Len() != 8 {
 		t.Fatal("insertion did not keep the array and its length")
 	}
@@ -153,7 +153,7 @@ func TestPoolSlideAbsorbsShortRun(t *testing.T) {
 		purgeSlot(t, p, i)
 	}
 	old := *p.ptrItems()
-	e, _, _ := p.insertToPool(5, nil)
+	e, _, _ := p.insertToPool(5, nil, nil)
 	if p.ptrItems().first() != old.first() || p.ptrItems().Len() != 11 {
 		t.Fatalf("insertion did not keep the array with length 11: len=%d", p.ptrItems().Len())
 	}
@@ -180,7 +180,7 @@ func TestPoolSlideIntoFreeRunBefore(t *testing.T) {
 		purgeSlot(t, p, i)
 	}
 	old := *p.ptrItems()
-	e, _, _ := p.insertToPool(11, nil)
+	e, _, _ := p.insertToPool(11, nil, nil)
 	if p.ptrItems().first() != old.first() || p.ptrItems().Len() != 8 {
 		t.Fatal("insertion did not keep the array and its length")
 	}
@@ -202,7 +202,7 @@ func TestPoolSlideIntoFreeRunBefore(t *testing.T) {
 
 func TestPoolSlideAppendReclaimsDetachedTail(t *testing.T) {
 	p, _ := makeInsertPool(8, 11)
-	p.insertToPool(13, nil)
+	p.insertToPool(13, nil, nil)
 	// Removing the moved suffix also shrinks past the old source holes.
 	for i := 8; i < p.ptrItems().Len(); i++ {
 		p.ptrItems().at(i).Delete()

@@ -579,7 +579,7 @@ func (e *embeddedEntry[K, V]) reclaimHole() {
 	atomic.StoreUint64((*uint64)(&e.state), (state&^uint64(mapKeyWriting-1))|uint64(mapIsReusable|mapReadersMask))
 }
 
-func (sp *itemPool[K, V, E]) insertToPool(reverse uint64, mu sync.Locker) (newItem *embeddedEntry[K, V], nPool *itemPool[K, V, E], fn unlocker) {
+func (sp *itemPool[K, V, E]) insertToPool(reverse uint64, mu sync.Locker, free *freePools[K, V, E]) (newItem *embeddedEntry[K, V], nPool *itemPool[K, V, E], fn unlocker) {
 	if mu != nil {
 		mu.Lock()
 		fn = lazyUnlock
@@ -600,7 +600,7 @@ func (sp *itemPool[K, V, E]) insertToPool(reverse uint64, mu sync.Locker) (newIt
 	//sp.validateItems()
 	if olen != sp.ptrItems().Len() {
 		Log(LogDebug, "update olen")
-		newItem, nPool, _ = sp.getWithFn(reverse, nil)
+		newItem, nPool, _ = sp.getWithFn(reverse, nil, free)
 		return newItem, nPool, fn
 	}
 	//olen = sp.ptrItems().Len()
@@ -616,7 +616,7 @@ func (sp *itemPool[K, V, E]) insertToPool(reverse uint64, mu sync.Locker) (newIt
 		}
 		if !atomic.CompareAndSwapInt64(&nlen, int64(sp.ptrItems().Len()), nlen+1) {
 			Log(LogDebug, "update olen")
-			newItem, nPool, _ = sp.getWithFn(reverse, nil)
+			newItem, nPool, _ = sp.getWithFn(reverse, nil, free)
 			return newItem, nPool, fn
 		}
 		if dst, blockEnd := sp.freeRunFor(i, olen, ocap); dst >= 0 {
@@ -625,7 +625,7 @@ func (sp *itemPool[K, V, E]) insertToPool(reverse uint64, mu sync.Locker) (newIt
 		if dst, blockStart := sp.freeRunBefore(i, olen); dst >= 0 {
 			return sp.slideBlockToFreeRunBefore(reverse, blockStart, i, dst), nil, lazyUnlock
 		}
-		newItems := newPoolItems[K, V, E](olen+1, maxInts(ocap, olen+1), true)
+		newItems, reused := takeItems(free, olen+1, maxInts(ocap, olen+1), true)
 		if EnableStats {
 			DebugStats[CntPoolInsertAlloc].Add(1)
 		}
@@ -633,15 +633,19 @@ func (sp *itemPool[K, V, E]) insertToPool(reverse uint64, mu sync.Locker) (newIt
 		// Readers must retry throughout retirement, not only during publication.
 		sp.arrayState.Add(1)
 		if i > 0 {
-			movePoolItems(newItems.slice(0, i), sp.ptrItems().slice(0, i))
+			movePoolItemsInto(newItems.slice(0, i), sp.ptrItems().slice(0, i), reused)
 		}
-		movePoolItems(newItems.slice(insertAt+1, newItems.Len()), sp.ptrItems().slice(i, olen))
+		movePoolItemsInto(newItems.slice(insertAt+1, newItems.Len()), sp.ptrItems().slice(i, olen), reused)
 
-		newItems.at(insertAt).PtrMapHead().reverse = reverse
+		// a search that read the array before a pool let it go may read
+		// the slot still
+		atomic.StoreUint64(&newItems.at(insertAt).PtrMapHead().reverse, reverse)
 
+		oldItems := sp.ptrItems().items
 		stepAt("insertToPool.publish", unsafe.Pointer(sp), nil)
 		sp.setItems(newItems)
 		sp.arrayState.Add(1)
+		free.put(oldItems)
 
 		if IsDebug() {
 			var b strings.Builder
@@ -653,13 +657,13 @@ func (sp *itemPool[K, V, E]) insertToPool(reverse uint64, mu sync.Locker) (newIt
 
 		return sp.ptrItems().at(insertAt), nil, lazyUnlock
 	}
-	return sp.getWithFn(reverse, nil)
+	return sp.getWithFn(reverse, nil, free)
 	//return nil, nil, nil
 
 }
 
 //go:norace
-func (sp *itemPool[K, V, E]) getWithFn(reverse uint64, mu sync.Locker) (new *embeddedEntry[K, V], nPool *itemPool[K, V, E], fn unlocker) {
+func (sp *itemPool[K, V, E]) getWithFn(reverse uint64, mu sync.Locker, free *freePools[K, V, E]) (new *embeddedEntry[K, V], nPool *itemPool[K, V, E], fn unlocker) {
 
 	items := *sp.ptrItems()
 	olen := items.Len()
@@ -689,18 +693,18 @@ func (sp *itemPool[K, V, E]) getWithFn(reverse uint64, mu sync.Locker) (new *emb
 				nPool = sp
 			}
 			// fn stays: the lock, if any, was taken by appendLast above
-			new, nPool, _ = nPool.getWithFn(reverse, nmu)
+			new, nPool, _ = nPool.getWithFn(reverse, nmu, free)
 			if new != nil {
 				return
 			}
 
 		}
 	case getNoCap:
-		fn, err := sp.expand(mu)
+		fn, err := sp.expand(mu, free)
 		if err != nil {
 			Log(LogWarn, "pool.expand() require retry")
 		}
-		new, nPool, _ = sp.getWithFn(reverse, nil)
+		new, nPool, _ = sp.getWithFn(reverse, nil, free)
 		return new, nPool, fn
 	case foundFree:
 		// hold the bucket lock while the slot is reclaimed, like appendLast
@@ -745,17 +749,17 @@ func (sp *itemPool[K, V, E]) getWithFn(reverse uint64, mu sync.Locker) (new *emb
 		return new, nil, fn
 	}
 
-	return sp.insertToPool(reverse, mu)
+	return sp.insertToPool(reverse, mu, free)
 
 RETRY:
 	if fn != nil {
 		mu.Unlock()
 	}
-	return sp.getWithFn(reverse, mu)
+	return sp.getWithFn(reverse, mu, free)
 
 }
 
-func (sp *itemPool[K, V, E]) expand(mu sync.Locker) (unlocker, error) {
+func (sp *itemPool[K, V, E]) expand(mu sync.Locker, free *freePools[K, V, E]) (unlocker, error) {
 	var fn unlocker
 	if mu != nil {
 		mu.Lock()
@@ -767,28 +771,30 @@ func (sp *itemPool[K, V, E]) expand(mu sync.Locker) (unlocker, error) {
 
 	if olen != sp.ptrItems().Len() {
 		Log(LogDebug, "update olen")
-		_, e := sp.expand(nil)
+		_, e := sp.expand(nil, free)
 		return fn, e
 	}
 	nlen := int64(olen)
 
 	if !atomic.CompareAndSwapInt64(&nlen, int64(sp.ptrItems().Len()), nlen+1) {
 		Log(LogDebug, "update olen")
-		_, e := sp.expand(nil)
+		_, e := sp.expand(nil, free)
 		return fn, e
 	}
 
 	nCap := poolCap(sp.ptrItems().Len(), sp.minCapItems())
 
-	newItems := newPoolItems[K, V, E](olen, nCap, true)
+	newItems, reused := takeItems(free, olen, nCap, true)
 	if EnableStats {
 		DebugStats[CntPoolExpand].Add(1)
 	}
+	oldItems := sp.ptrItems().items
 	// Readers must retry throughout retirement, not only during publication.
 	sp.arrayState.Add(1)
-	movePoolItems(newItems.slice(0, olen), sp.ptrItems().slice(0, olen))
+	movePoolItemsInto(newItems.slice(0, olen), sp.ptrItems().slice(0, olen), reused)
 	sp.setItems(newItems)
 	sp.arrayState.Add(1)
+	free.put(oldItems)
 
 	if IsDebug() {
 		var b strings.Builder

@@ -19,7 +19,7 @@ test:
 
 step:
 	go test -v $(GO_TEST_FLAGS) -tags=stephook -run '^(Test|Example|Fuzz)' ./rmap
-	go test -v $(GO_TEST_FLAGS) -tags=stephook -skip '$(STRESS_TESTS)' -run '^Test_(J(51|56)|OperationsDistinguishSameHashPair|EmbeddedGetDoesNotReadReusedSlot|EmbeddedRangeKeepsKeyAndValueTogether|DifferentKeysWithSameHashPair|F2)|^Test(PoolInsert|Typed|EntryCopy|EntryValue|EntryStorage|EntryNext|EntryInitialization|EntryRetention|RegisteredEntry|SearchIntermediatePurged|EmbeddedEntryAccess|EmbeddedExternal|Update|DeletePurge|_PurgeAndSet|_StepRaceSplit|_ConcurrentUpdateWhileGrowing)' .
+	go test -v $(GO_TEST_FLAGS) -tags=stephook -skip '$(STRESS_TESTS)' -run '^Test_(J(51|56)|OperationsDistinguishSameHashPair|EmbeddedGetDoesNotReadReusedSlot|EmbeddedRangeKeepsKeyAndValueTogether|DifferentKeysWithSameHashPair|F2)|^Test(PoolInsert|FreePools|Typed|EntryCopy|EntryValue|EntryStorage|EntryNext|EntryInitialization|EntryRetention|RegisteredEntry|SearchIntermediatePurged|EmbeddedEntryAccess|EmbeddedExternal|Update|DeletePurge|_PurgeAndSet|_StepRaceSplit|_ConcurrentUpdateWhileGrowing)' .
 
 stress:
 	go test -v $(GO_TEST_FLAGS) -timeout=60m -run '$(STRESS_TESTS)' .

@@ -206,7 +206,7 @@ func TestPoolInsertKeepsInteriorLinks(t *testing.T) {
 				elist_head.SetStepHook(nil)
 			})
 			go func() {
-				p.insertToPool(9, nil)
+				p.insertToPool(9, nil, nil)
 				close(done)
 			}()
 			select {

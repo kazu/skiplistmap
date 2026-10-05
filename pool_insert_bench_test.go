@@ -47,7 +47,7 @@ func benchmarkPoolInsertBetween(b *testing.B, linkEntry bool) {
 					b.StopTimer()
 					p, ends := makeInsertPool(n, n+spare)
 					b.StartTimer()
-					e, _, _ := p.insertToPool(uint64(n+1), nil)
+					e, _, _ := p.insertToPool(uint64(n+1), nil, nil)
 					if linkEntry {
 						e.InitEntry(IntKey(n), n)
 						e.reverse = uint64(n + 1)

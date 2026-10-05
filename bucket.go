@@ -361,7 +361,7 @@ func (b *bucket[K, V]) _validateItemsNear() {
 }
 
 func (b *bucket[K, V]) GetItem(r uint64) (*embeddedEntry[K, V], *samepleItemPool[K, V], unlocker) {
-	return b.itemPool().getWithFn(r, &b.muPool)
+	return b.itemPool().getWithFn(r, &b.muPool, nil)
 }
 
 func (b *bucket[K, V]) RunLazyUnlocker(fn unlocker) {

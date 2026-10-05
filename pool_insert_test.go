@@ -29,7 +29,7 @@ func TestPoolInsertBetween(t *testing.T) {
 						p.ptrItems().at(2).ListHead.Init()
 					}
 					old := *p.ptrItems()
-					e, _, _ := p.insertToPool(uint64(position*2+1), nil)
+					e, _, _ := p.insertToPool(uint64(position*2+1), nil, nil)
 					insertAt, length := position, 9
 					if p.ptrItems().first() == old.first() {
 						insertAt, length = 8, 17-position
@@ -78,7 +78,7 @@ func TestPoolInsertRepeatedMoves(t *testing.T) {
 	for pass := 0; pass < 12; pass++ {
 		old = append(old, *p.ptrItems())
 		reverse := uint64([]int{7, 3, 5, 11, 9, 13, 1, 15}[pass%8])
-		e, _, _ := p.insertToPool(reverse, nil)
+		e, _, _ := p.insertToPool(reverse, nil, nil)
 		e.InitEntry(IntKey(100+pass), pass)
 		e.state |= mapIsPoolItem
 		index := 0

@@ -56,8 +56,11 @@ type Map[K Key[K], V any] struct {
 	// minCapItems is the least capacity of the item pool of a bucket after
 	// it grows; see MinCapItems
 	minCapItems int
-	mu          sync.Mutex
-	levels      [16]atomic.Pointer[bucket[K, V]]
+	// free holds the arrays that the pools of the buckets let go of, for
+	// the pools to take back; see freePools
+	free   freePools[K, V, embeddedEntry[K, V]]
+	mu     sync.Mutex
+	levels [16]atomic.Pointer[bucket[K, V]]
 	// levelEnds[i] is the sentinel at the end of the list of level i+1: a
 	// LevelHead that goes after every bucket of the level is linked before it.
 	levelEnds [16]*list_head.ListHead
@@ -258,6 +261,9 @@ func (h *Map[K, V]) initBeforeSet() {
 	}
 	sort.Slice(topReverses, func(i, j int) bool { return topReverses[i] < topReverses[j] })
 
+	if h.isEmbededItemInBucket {
+		h.free.init()
+	}
 	for i := range topReverses {
 		reverse := topReverses[i]
 		btable = &h.buckets[i]
@@ -852,7 +858,7 @@ func (h *Map[K, V]) Set(key K, value V) bool {
 
 		//lastgets = nil
 		oPool := bucket.itemPool()
-		item, nPool, _ := oPool.getWithFn(bits.Reverse64(k), nil)
+		item, nPool, _ := oPool.getWithFn(bits.Reverse64(k), nil, &h.free)
 
 		s = item
 		if nPool != nil {
@@ -1879,7 +1885,9 @@ const (
 	CntPoolInsertAlloc statKey = 7
 	CntPoolHoleSlide   statKey = 8
 	CntPoolExpand      statKey = 9
-	statCount          statKey = 10
+	CntPoolArrayReuse  statKey = 10
+	CntPoolArrayFree   statKey = 11
+	statCount          statKey = 12
 )
 
 func nextNoCheck[K Key[K], V any](e *embeddedEntry[K, V]) *embeddedEntry[K, V] {

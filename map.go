@@ -1022,6 +1022,26 @@ func (h *Map[K, V]) each(start *elist_head.ListHead, fn func(key K, value V)) {
 }
 
 // must renename to find
+// walkStart returns the node that a walk from anchor starts at: the first
+// node after the head of the list, or the anchor itself, or the node that
+// took its place when it was deleted.
+func walkStart(anchor *elist_head.ListHead) *elist_head.ListHead {
+	if anchor.Empty() {
+		return anchor.Next()
+	}
+	return anchor.Prev().Next()
+}
+
+// walkEnd returns the node that the walk of find from start ends at: the tail
+// of the list, or the last node of a block that a move took out of the list.
+func (h *Map[K, V]) walkEnd(start *elist_head.ListHead) *elist_head.ListHead {
+	cur := start
+	for cur != cur.Next() {
+		cur = cur.Next()
+	}
+	return cur
+}
+
 func (h *Map[K, V]) find(start *elist_head.ListHead, cond func(*MapHead) bool) (result *MapHead, cnt int) {
 	stepAt("find.begin", unsafe.Pointer(start), nil)
 	if start.Empty() {
@@ -1171,6 +1191,10 @@ func (h *Map[K, V]) makeBucket(ocur *elist_head.ListHead, back int) (err error) 
 type hmapMethod[K Key[K], V any] struct {
 	bucket *bucket[K, V]
 
+	// anchor is a node that stays on the list, which the walk of linkEntry
+	// starts from again when the node it started from left the list
+	anchor *elist_head.ListHead
+
 	// user is set for an item of StoreItem: add2 does not take it out of
 	// the list that it is found linked into, and reports that in user instead.
 	user *userStore
@@ -1189,6 +1213,14 @@ func WithBucket[K Key[K], V any](b *bucket[K, V]) func(*hmapMethod[K, V]) {
 
 	return func(conf *hmapMethod[K, V]) {
 		conf.bucket = b
+	}
+}
+
+// withAnchor gives linkEntry a node that stays on the list, to start its walk
+// from again when the node it started from left the list.
+func withAnchor[K Key[K], V any](anchor *elist_head.ListHead) HMethodOpt[K, V] {
+	return func(conf *hmapMethod[K, V]) {
+		conf.anchor = anchor
 	}
 }
 
@@ -1227,12 +1259,16 @@ RETRY:
 		return false
 	}
 	if start.IsMarked() || start.Empty() {
-		// start was deleted, taken out by Purge, or replaced by its copy
-		// by an expand of its pool; find the position from the dummy of
-		// the bucket, or from the live node before start
-		if opt != nil && opt.bucket != nil {
+		// start was deleted, taken out by Purge, replaced by its copy by an
+		// expand of its pool, or moved with its block by a slide; find the
+		// position from the anchor, from the dummy of the bucket, or from
+		// the live node before start
+		switch {
+		case opt != nil && opt.anchor != nil:
+			start = walkStart(opt.anchor)
+		case opt != nil && opt.bucket != nil:
 			start = opt.bucket.head()
-		} else {
+		default:
 			start = elist_head.PrevNoM(start)
 		}
 	}
@@ -1304,6 +1340,21 @@ RETRY:
 		}
 
 		return true
+	}
+	// no position: the walk from start reached the tail of the list, or the
+	// last node of a block that a move took out of the list while the walk
+	// was in it; then the walk starts again from a node that stays on the list
+	if end := h.walkEnd(start); end != h.tail {
+		switch {
+		case opt != nil && opt.anchor != nil:
+			start = walkStart(opt.anchor)
+		case opt != nil && opt.bucket != nil:
+			start = opt.bucket.head()
+		default:
+			start = elist_head.PrevNoM(start)
+		}
+		runtime.Gosched()
+		goto RETRY
 	}
 	if opt != nil && opt.bucket != nil && opt.bucket.entry(h) != nil {
 		// pos, _ = h.find(start, func(ehead HMapEntry) bool {
@@ -1529,14 +1580,11 @@ func (h *Map[K, V]) _InsertBefore(tBtable *list_head.ListHead, nBtable *bucket[K
 	empty.reverse, empty.conflict = nBtable.reverse, 0
 	empty.PtrMapHead().state |= mapIsDummy
 	empty.Init()
-	var thead *elist_head.ListHead
-	if tBtable.Empty() {
-		thead = h.head.Prev().Next()
-	} else {
-		tBucket := bucketFromListHead[K, V](tBtable)
-		thead = tBucket.head().Prev().Next()
+	anchor := h.head
+	if !tBtable.Empty() {
+		anchor = bucketFromListHead[K, V](tBtable).head()
 	}
-	h.linkEntry(thead, empty, nil)
+	h.linkEntry(walkStart(anchor), empty, nil, withAnchor[K, V](anchor))
 	stepAt("insertBucket.dummyLinked", unsafe.Pointer(nBtable), nil)
 	if empty.ListHead.DirectPrev() == &empty.ListHead && empty.ListHead.DirectNext() == &empty.ListHead {
 		Log(LogWarn, "fail register dummy of bucket")

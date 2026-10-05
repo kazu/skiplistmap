@@ -15,16 +15,16 @@ func (k suffixSlideKey) Equal(other suffixSlideKey) bool { return k == other }
 
 func TestPoolSlideKeepsPrefix(t *testing.T) {
 	p, ends := makeInsertPool(8, 11)
-	old := p.items
+	old := *p.ptrItems()
 	e, _, _ := p.insertToPool(13, nil)
-	if p.items.data != old.data || p.items.Cap() != old.Cap() {
+	if p.ptrItems().first() != old.first() || p.ptrItems().Cap() != old.Cap() {
 		t.Fatal("suffix fits, but insertion did not keep the existing array")
 	}
-	if p.items.Len() != 11 || e != p.items.at(8) {
+	if p.ptrItems().Len() != 11 || e != p.ptrItems().at(8) {
 		t.Fatal("wrong suffix insertion range")
 	}
 	for i := 0; i < 6; i++ {
-		if p.items.at(i) != old.at(i) || old.at(i).IsDeleted() {
+		if p.ptrItems().at(i) != old.at(i) || old.at(i).IsDeleted() {
 			t.Fatalf("prefix slot %d moved or retired", i)
 		}
 	}
@@ -32,12 +32,12 @@ func TestPoolSlideKeepsPrefix(t *testing.T) {
 		if !old.at(i).IsDeleted() || atomic.LoadUint64(&old.at(i).reverse) != 13 {
 			t.Fatalf("source slot %d is not an ordered hole", i)
 		}
-		if p.items.at(i+3).Key() != IntKey(i) || old.at(i).Key() != IntKey(i) {
+		if p.ptrItems().at(i+3).Key() != IntKey(i) || old.at(i).Key() != IntKey(i) {
 			t.Fatalf("suffix payload lost at %d", i)
 		}
 	}
 	if ends[0].DirectNext() != &old.at(0).ListHead ||
-		old.at(5).ListHead.DirectNext() != &p.items.at(9).ListHead {
+		old.at(5).ListHead.DirectNext() != &p.ptrItems().at(9).ListHead {
 		t.Fatal("prefix is not linked to the moved suffix")
 	}
 }
@@ -50,13 +50,13 @@ func TestPoolSlideReusesHole(t *testing.T) {
 		}
 	}
 	pool := m.findBucket(9 << 40).toBase().itemPool()
-	old := pool.items
-	if !m.Set(suffixSlideKey(9<<40), 9) || pool.items.data != old.data {
+	old := *pool.ptrItems()
+	if !m.Set(suffixSlideKey(9<<40), 9) || pool.ptrItems().first() != old.first() {
 		t.Fatal("middle Set did not slide")
 	}
-	length := pool.items.Len()
+	length := pool.ptrItems().Len()
 	// The first larger slot is a hole left by the move, before key 9.
-	if !m.Set(suffixSlideKey(8<<40|1), 81) || pool.items.Len() != length {
+	if !m.Set(suffixSlideKey(8<<40|1), 81) || pool.ptrItems().Len() != length {
 		t.Fatal("Set did not reuse the source hole")
 	}
 	if item := m.bsearchBybucket(m.findBucket(8<<40|1), 8<<40|1, true); item != old.at(4) {
@@ -76,7 +76,7 @@ func TestPoolSlideReusesHole(t *testing.T) {
 // deleted hole, as Delete and Purge of its key do.
 func purgeSlot(t *testing.T, p *samepleItemPool[IntKey, int], i int) {
 	t.Helper()
-	slot := p.items.at(i)
+	slot := p.ptrItems().at(i)
 	slot.Delete()
 	if err := slot.ListHead.MarkForDelete(); err != nil {
 		t.Fatal(err)
@@ -106,7 +106,7 @@ func checkPoolList(t *testing.T, ends *[2]elist_head.ListHead, want []IntKey) {
 func checkHoles(t *testing.T, p *samepleItemPool[IntKey, int], first, last int, reverse uint64) {
 	t.Helper()
 	for i := first; i <= last; i++ {
-		hole := p.items.at(i)
+		hole := p.ptrItems().at(i)
 		if !hole.IsDeleted() || atomic.LoadUint64(&hole.reverse) != reverse || hole.Key() != IntKey(i) {
 			t.Fatalf("slot %d is not an ordered hole with its payload", i)
 		}
@@ -122,21 +122,21 @@ func TestPoolSlideIntoFreeRun(t *testing.T) {
 	for _, i := range []int{5, 6, 7} {
 		purgeSlot(t, p, i)
 	}
-	old := p.items
+	old := *p.ptrItems()
 	e, _, _ := p.insertToPool(7, nil)
-	if p.items.data != old.data || p.items.Len() != 8 {
+	if p.ptrItems().first() != old.first() || p.ptrItems().Len() != 8 {
 		t.Fatal("insertion did not keep the array and its length")
 	}
-	if e != p.items.at(5) || atomic.LoadUint64(&e.reverse) != 7 || e.IsDeleted() {
+	if e != p.ptrItems().at(5) || atomic.LoadUint64(&e.reverse) != 7 || e.IsDeleted() {
 		t.Fatal("the new entry is not at the start of the free run")
 	}
 	for i := 0; i < 3; i++ {
-		if p.items.at(i).Key() != IntKey(i) || p.items.at(i).IsDeleted() {
+		if p.ptrItems().at(i).Key() != IntKey(i) || p.ptrItems().at(i).IsDeleted() {
 			t.Fatalf("slot %d moved or retired", i)
 		}
 	}
 	for i := 3; i < 5; i++ {
-		if p.items.at(i+3).Key() != IntKey(i) || p.items.at(i+3).IsDeleted() {
+		if p.ptrItems().at(i+3).Key() != IntKey(i) || p.ptrItems().at(i+3).IsDeleted() {
 			t.Fatalf("entry %d was not moved to slot %d", i, i+3)
 		}
 	}
@@ -152,17 +152,17 @@ func TestPoolSlideAbsorbsShortRun(t *testing.T) {
 	for _, i := range []int{4, 6, 7} {
 		purgeSlot(t, p, i)
 	}
-	old := p.items
+	old := *p.ptrItems()
 	e, _, _ := p.insertToPool(5, nil)
-	if p.items.data != old.data || p.items.Len() != 11 {
-		t.Fatalf("insertion did not keep the array with length 11: len=%d", p.items.Len())
+	if p.ptrItems().first() != old.first() || p.ptrItems().Len() != 11 {
+		t.Fatalf("insertion did not keep the array with length 11: len=%d", p.ptrItems().Len())
 	}
-	if e != p.items.at(6) || atomic.LoadUint64(&e.reverse) != 5 || e.IsDeleted() {
+	if e != p.ptrItems().at(6) || atomic.LoadUint64(&e.reverse) != 5 || e.IsDeleted() {
 		t.Fatal("the new entry is not at the start of the free run")
 	}
 	// the block 2, 3, hole, 5 went to slots 7 to 10
 	for i, key := range []IntKey{2, 3, 4, 5} {
-		slot := p.items.at(7 + i)
+		slot := p.ptrItems().at(7 + i)
 		if slot.Key() != key || slot.IsDeleted() != (key == 4) {
 			t.Fatalf("slot %d: key=%v deleted=%t", 7+i, slot.Key(), slot.IsDeleted())
 		}
@@ -179,19 +179,19 @@ func TestPoolSlideIntoFreeRunBefore(t *testing.T) {
 	for _, i := range []int{1, 2, 3} {
 		purgeSlot(t, p, i)
 	}
-	old := p.items
+	old := *p.ptrItems()
 	e, _, _ := p.insertToPool(11, nil)
-	if p.items.data != old.data || p.items.Len() != 8 {
+	if p.ptrItems().first() != old.first() || p.ptrItems().Len() != 8 {
 		t.Fatal("insertion did not keep the array and its length")
 	}
-	if e != p.items.at(2) || atomic.LoadUint64(&e.reverse) != 11 || e.IsDeleted() {
+	if e != p.ptrItems().at(2) || atomic.LoadUint64(&e.reverse) != 11 || e.IsDeleted() {
 		t.Fatal("the new entry does not follow the copy of the block")
 	}
-	if p.items.at(1).Key() != IntKey(4) || p.items.at(1).IsDeleted() {
+	if p.ptrItems().at(1).Key() != IntKey(4) || p.ptrItems().at(1).IsDeleted() {
 		t.Fatal("entry 4 was not moved to slot 1")
 	}
 	for _, i := range []int{0, 5, 6, 7} {
-		if p.items.at(i).Key() != IntKey(i) || p.items.at(i).IsDeleted() {
+		if p.ptrItems().at(i).Key() != IntKey(i) || p.ptrItems().at(i).IsDeleted() {
 			t.Fatalf("slot %d moved or retired", i)
 		}
 	}
@@ -204,14 +204,14 @@ func TestPoolSlideAppendReclaimsDetachedTail(t *testing.T) {
 	p, _ := makeInsertPool(8, 11)
 	p.insertToPool(13, nil)
 	// Removing the moved suffix also shrinks past the old source holes.
-	for i := 8; i < p.items.Len(); i++ {
-		p.items.at(i).Delete()
+	for i := 8; i < p.ptrItems().Len(); i++ {
+		p.ptrItems().at(i).Delete()
 	}
 	p.shrinkLen()
-	if p.items.Len() != 6 {
-		t.Fatalf("length after shrink = %d", p.items.Len())
+	if p.ptrItems().Len() != 6 {
+		t.Fatalf("length after shrink = %d", p.ptrItems().Len())
 	}
-	slot := p.items._at(6, false, false)
+	slot := p.ptrItems()._at(6, false, false)
 	if !slot.isDetached() {
 		t.Fatal("expected a detached source slot beyond the length")
 	}

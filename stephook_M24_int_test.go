@@ -31,7 +31,7 @@ func StepM24PoolList(h *Map[StringKey, any],
 	cur := &h.pooler.itemPool[idx].ListHead
 	head = unsafe.Pointer(cur)
 	for cur = cur.DirectNext().WithOutMark(); cur.DirectNext().WithOutMark() != cur; cur = cur.DirectNext().WithOutMark() {
-		pools = append(pools, unsafe.Pointer(samepleItemPoolFromListHead[StringKey, any](cur)))
+		pools = append(pools, unsafe.Pointer(entryItemPoolFromListHead[StringKey, any](cur)))
 	}
 	return head, unsafe.Pointer(cur), pools
 }
@@ -39,7 +39,7 @@ func StepM24PoolList(h *Map[StringKey, any],
 // StepM24PoolLinks returns the list node of the pool p, which a StepHook
 // point passed, and its prev and next without the mark bit.
 func StepM24PoolLinks(p unsafe.Pointer) (node, prev, next unsafe.Pointer) {
-	l := &(*samepleItemPool[StringKey, any])(p).ListHead
+	l := &(*entryItemPool[StringKey, any])(p).ListHead
 	return unsafe.Pointer(l), unsafe.Pointer(l.DirectPrev().WithOutMark()), unsafe.Pointer(l.DirectNext().WithOutMark())
 }
 

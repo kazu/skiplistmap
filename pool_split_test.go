@@ -9,10 +9,10 @@ func TestPoolSplitIndexAndAnchor(t *testing.T) {
 	p, _ := makeInsertPool(8, 8)
 	// the reverses are 2, 4, ..., 16; slot 3 is a tombstone of Delete, still
 	// on the list, slot 4 a hole of Purge, off the list
-	p.items.at(3).Delete()
-	p.items.at(4).Delete()
-	p.items.at(4).ListHead.MarkForDelete()
-	p.items.at(4).ListHead.Init()
+	p.ptrItems().at(3).Delete()
+	p.ptrItems().at(4).Delete()
+	p.ptrItems().at(4).ListHead.MarkForDelete()
+	p.ptrItems().at(4).ListHead.Init()
 
 	for _, tc := range []struct {
 		reverse uint64
@@ -32,14 +32,14 @@ func TestPoolSplitIndexAndAnchor(t *testing.T) {
 	if a := p.splitAnchor(0); a != nil {
 		t.Fatal("splitAnchor(0) found a slot before the first")
 	}
-	if a := p.splitAnchor(3); a != &p.items.at(2).ListHead {
+	if a := p.splitAnchor(3); a != &p.ptrItems().at(2).ListHead {
 		t.Fatal("splitAnchor(3) is not slot 2")
 	}
 	// the tombstone and the hole are passed over
-	if a := p.splitAnchor(5); a != &p.items.at(2).ListHead {
+	if a := p.splitAnchor(5); a != &p.ptrItems().at(2).ListHead {
 		t.Fatal("splitAnchor(5) is not slot 2")
 	}
-	if a := p.splitAnchor(7); a != &p.items.at(6).ListHead {
+	if a := p.splitAnchor(7); a != &p.ptrItems().at(6).ListHead {
 		t.Fatal("splitAnchor(7) is not slot 6")
 	}
 }

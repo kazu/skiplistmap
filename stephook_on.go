@@ -20,7 +20,6 @@ import (
 //   - "search.unmarked" (item, nil): a copy-entry search checked the cursor mark, before reading its hash or links.
 //   - "set.identity" (item, nil): an embedded slot has its new hashes, before its key and value.
 //   - "bsearch.snapshot" (pool, nil): the search read the pool's data pointer and length.
-//   - "slice.dataPublished" (slice, nil): CopyFrom published data, before cap and len.
 //   - "add2.found" (item, pos): add2 found the position to insert item before.
 //   - "makeBucket.begin" (item, nil): _set starts to split the bucket of item.
 //   - "makeBucket.claimed" (bucket, item): bucketFromPool returned bucket for the split started by item.
@@ -112,7 +111,7 @@ func StepLockBuckets[K Key[K], V any](h *Map[K, V], reverse uint64) (found, base
 // and the reverses of the slots of that pool in the order of the slots.
 func StepPoolOf[K Key[K], V any](h *Map[K, V], reverse uint64) (pool unsafe.Pointer, reverses []uint64) {
 	p := h.findBucket(reverse).itemPool()
-	items := p.itemSlice(false)
+	items := p.ptrItems()
 	reverses = make([]uint64, items.Len())
 	for i := range reverses {
 		reverses[i] = items.reverseAt(i)
@@ -174,12 +173,12 @@ func StepCheckPooledItems[K Key[K], V any](h *Map[K, V]) error {
 	if h.pooler != nil {
 		for i := range h.pooler.itemPool {
 			for cur := h.pooler.itemPool[i].DirectNext(); cur.DirectNext() != cur; cur = cur.DirectNext() {
-				sp := samepleItemPoolFromListHead[K, V](cur)
-				if sp.items.Cap() == 0 {
+				items := entryItemPoolFromListHead[K, V](cur).ptrItems()
+				if items.Cap() == 0 {
 					continue
 				}
-				lo := uintptr(sp.items.data)
-				spans = append(spans, span{lo, lo + uintptr(sp.items.Cap())*sp.items.stride})
+				lo := uintptr(unsafe.Pointer(items.first()))
+				spans = append(spans, span{lo, lo + uintptr(items.Cap())*unsafe.Sizeof(Entry[K, V]{})})
 			}
 		}
 	}

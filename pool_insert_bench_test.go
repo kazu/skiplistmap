@@ -9,11 +9,12 @@ import (
 )
 
 func makeInsertPool(n, capacity int) (*samepleItemPool[IntKey, int], *[2]elist_head.ListHead) {
-	p := &samepleItemPool[IntKey, int]{items: newPoolItems[IntKey, int](n, capacity, true), reusable: true}
+	p := &samepleItemPool[IntKey, int]{reusable: true}
+	p.setItems(newPoolItems[IntKey, int, embeddedEntry[IntKey, int]](n, capacity, true))
 	ends := new([2]elist_head.ListHead)
 	elist_head.InitAsEmpty(&ends[0], &ends[1])
 	for i := 0; i < n; i++ {
-		e := p.items.at(i)
+		e := p.ptrItems().at(i)
 		e.InitEntry(IntKey(i), i)
 		e.reverse = uint64(2 * (i + 1))
 		e.state |= mapIsPoolItem
@@ -51,15 +52,15 @@ func benchmarkPoolInsertBetween(b *testing.B, linkEntry bool) {
 						e.InitEntry(IntKey(n), n)
 						e.reverse = uint64(n + 1)
 						e.state |= mapIsPoolItem
-						if _, err := p.items.at(n/2 + 1).ListHead.InsertBefore(&e.ListHead); err != nil {
+						if _, err := p.ptrItems().at(n/2 + 1).ListHead.InsertBefore(&e.ListHead); err != nil {
 							b.Fatal(err)
 						}
 					}
 					b.StopTimer()
-					if e == nil || p.items.Len() != n+1 {
+					if e == nil || p.ptrItems().Len() != n+1 {
 						b.Fatal("insertion did not allocate one slot")
 					}
-					if linkEntry && (e.ListHead.DirectPrev() != &p.items.at(n/2-1).ListHead || e.ListHead.DirectNext() != &p.items.at(n/2+1).ListHead) {
+					if linkEntry && (e.ListHead.DirectPrev() != &p.ptrItems().at(n/2-1).ListHead || e.ListHead.DirectNext() != &p.ptrItems().at(n/2+1).ListHead) {
 						b.Fatal("entry is not linked between its neighbors")
 					}
 					runtime.KeepAlive(ends)

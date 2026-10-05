@@ -28,7 +28,7 @@ func TestPoolMoveAdjacentBlocks(t *testing.T) {
 		for _, rightPoint := range points {
 			t.Run(fmt.Sprintf("left=%s/right=%s", leftPoint, rightPoint), func(t *testing.T) {
 				p, ends := makeInsertPool(8, 8)
-				old, fresh := p.items, newPoolItems[IntKey, int](8, 8, true)
+				old, fresh := *p.ptrItems(), newPoolItems[IntKey, int, embeddedEntry[IntKey, int]](8, 8, true)
 				var reached, resume, done [2]chan struct{}
 				var released [2]sync.Once
 				for i := range reached {
@@ -117,7 +117,7 @@ func TestPoolInsertRetriesOldCandidate(t *testing.T) {
 				}
 				key := poolLookupKey(12 << 40)
 				pool := m.findBucket(uint64(key)).toBase().itemPool()
-				old := pool.items
+				old := *pool.ptrItems()
 				candidate := m.bsearchBybucket(m.findBucket(uint64(key)), uint64(key), true)
 				if old.Len() != 8 || candidate != old.at(5) {
 					t.Fatal("candidate must be an interior pool entry")
@@ -185,7 +185,7 @@ func TestPoolInsertKeepsInteriorLinks(t *testing.T) {
 	for _, capacity := range []int{12, 13} {
 		t.Run(fmt.Sprintf("capacity=%d", capacity), func(t *testing.T) {
 			p, ends := makeInsertPool(8, capacity)
-			old := p.items
+			old := *p.ptrItems()
 			interior := old.at(5)
 			links := interior.ListHead
 			reached, resume, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
@@ -229,10 +229,10 @@ func TestPoolInsertKeepsInteriorLinks(t *testing.T) {
 			case <-time.After(time.Second):
 				t.Fatal("replacement did not finish")
 			}
-			if interior.ListHead != links || p.items.at(1).ListHead != links {
+			if interior.ListHead != links || p.ptrItems().at(1).ListHead != links {
 				t.Fatal("interior links were rewritten instead of copied unchanged")
 			}
-			if !interior.IsDeleted() || p.items.at(1).IsDeleted() {
+			if !interior.IsDeleted() || p.ptrItems().at(1).IsDeleted() {
 				t.Fatal("retirement did not distinguish old and current entries")
 			}
 			runtime.KeepAlive(ends)

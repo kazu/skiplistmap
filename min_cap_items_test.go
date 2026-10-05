@@ -21,7 +21,7 @@ func TestMinCapItemsSetsThePoolCapacity(t *testing.T) {
 		h.Set("k", 1)
 		var pool *samepleItemPool[StringKey, int]
 		for i := range h.buckets {
-			if p := h.buckets[i]._itemPool; p != nil && p.items.Len() == 1 {
+			if p := h.buckets[i]._itemPool; p != nil && p.ptrItems().Len() == 1 {
 				pool = p
 			}
 		}
@@ -30,8 +30,8 @@ func TestMinCapItemsSetsThePoolCapacity(t *testing.T) {
 		}
 		// the top buckets share their first array, so a bucket can hold a
 		// part of it; with the option, that array is at least min long
-		if tc.min > 0 && pool.items.Cap() < tc.first {
-			t.Fatalf("min=%d: first capacity = %d, want at least %d (pool.minCap=%d h.minCapItems=%d)", tc.min, pool.items.Cap(), tc.first, pool.minCap, h.minCapItems)
+		if tc.min > 0 && pool.ptrItems().Cap() < tc.first {
+			t.Fatalf("min=%d: first capacity = %d, want at least %d (pool.minCap=%d h.minCapItems=%d)", tc.min, pool.ptrItems().Cap(), tc.first, pool.minCap, h.minCapItems)
 		}
 		if got := poolCap(3, pool.minCapItems()); got != tc.grown {
 			t.Fatalf("min=%d: capacity after growing from 3 = %d, want %d", tc.min, got, tc.grown)

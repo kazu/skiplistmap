@@ -766,8 +766,9 @@ func (h *Map[K, V]) lockFoundItem(key K, item *embeddedEntry[K, V], bucket *buck
 		// slot directly, including its current key, instead of searching again.
 		if sample := item; sample != nil && sample.isPoolItem() {
 			items := owner.itemPool().ptrItems()
-			offset := uintptr(unsafe.Pointer(sample)) - uintptr(atomic.LoadPointer(&items.data))
-			if offset < uintptr(items.Len())*items.stride && offset%items.stride == 0 {
+			stride := unsafe.Sizeof(embeddedEntry[K, V]{})
+			offset := uintptr(unsafe.Pointer(sample)) - uintptr(unsafe.Pointer(items.first()))
+			if offset < uintptr(items.Len())*stride && offset%stride == 0 {
 				if _, valid := readMatchingEntry[K, V](item, reverse, conflict, key, true, false, true); valid {
 					return mu, true
 				}
@@ -2215,8 +2216,9 @@ func (h *Map[K, V]) purgeInEmbedded(key K) bool {
 
 	pItems := pool.ptrItems()
 	len := pItems.Len()
-	if item.PtrListHead() == &pItems._at(len-1, true, false).ListHead &&
-		atomic_util.CompareAndSwapInt(&pItems.len, len, len-1) {
+	if item.PtrListHead() == &pItems._at(len-1, true, false).ListHead {
+		// the lock of the bucket keeps the length
+		pool.setItems(pItems.slice(0, len-1))
 		if stepEnabled {
 			stepAt("purge.lenLowered", unsafe.Pointer(item.PtrListHead()), unsafe.Pointer(pool))
 		}
@@ -2307,13 +2309,13 @@ func (h *Map[K, V]) last() *embeddedEntry[K, V] {
 	return nil
 }
 
-func (h *Map[K, V]) allpools() (pools []*samepleItemPool[K, V]) {
+func (h *Map[K, V]) allpools() (pools []*entryItemPool[K, V]) {
 	if h.pooler == nil {
 		return
 	}
 
 	for i := range h.pooler.itemPool {
-		pools = append(pools, samepleItemPoolFromListHead[K, V](h.pooler.itemPool[i].Next()))
+		pools = append(pools, entryItemPoolFromListHead[K, V](h.pooler.itemPool[i].Next()))
 	}
 	return
 }

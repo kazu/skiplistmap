@@ -13,7 +13,7 @@ import (
 // next expand of the new pool waits for ever.
 func Test_PoolGetAfterExpandHandsOnTheLock(t *testing.T) {
 	p := newPool[StringKey, any]()
-	first := samepleItemPoolFromListHead[StringKey, any](p.itemPool[0].Next())
+	first := entryItemPoolFromListHead[StringKey, any](p.itemPool[0].Next())
 	// one item per pool, so that the item taken after an expand to two
 	// items is the last one
 	first._init(1)

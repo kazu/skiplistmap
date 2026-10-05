@@ -21,12 +21,12 @@ func TestPoolInsertDisjointCapacity(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p, ends := makeInsertPool(tc.published, tc.capacity)
-			old := p.items
+			old := *p.ptrItems()
 			for i := 8; i < tc.published; i++ {
-				p.items.at(i).Delete()
+				p.ptrItems().at(i).Delete()
 			}
 			p.shrinkLen()
-			if p.items.Len() != 8 {
+			if p.ptrItems().Len() != 8 {
 				t.Fatal("purge did not leave eight entries")
 			}
 			e, _, _ := p.insertToPool(9, nil)
@@ -34,29 +34,29 @@ func TestPoolInsertDisjointCapacity(t *testing.T) {
 			if tc.reuse {
 				insertAt, length = tc.published, tc.published+5
 			}
-			if e != p.items.at(insertAt) || p.items.Len() != length {
+			if e != p.ptrItems().at(insertAt) || p.ptrItems().Len() != length {
 				t.Fatal("wrong insertion slot")
 			}
 			if tc.reuse {
-				if p.items.data != old.data {
+				if p.ptrItems().first() != old.first() {
 					t.Fatal("insertion moved the prefix")
 				}
-				if p.items.Cap() != tc.capacity {
+				if p.ptrItems().Cap() != tc.capacity {
 					t.Fatal("new capacity extends past the old array")
 				}
 			} else {
 				for i := 0; i < old.Cap(); i++ {
-					if p.items.data == unsafe.Pointer(old._at(i, false, false)) {
+					if unsafe.Pointer(p.ptrItems().first()) == unsafe.Pointer(old._at(i, false, false)) {
 						t.Fatal("insertion reused an insufficient or previously published range")
 					}
 				}
-				if p.items.Cap() != tc.capacity {
+				if p.ptrItems().Cap() != tc.capacity {
 					t.Fatal("allocation changed the existing capacity rule")
 				}
 			}
 			e.InitEntry(IntKey(100), 100)
 			e.state |= mapIsPoolItem
-			if _, err := p.items.at(insertAt + 1).ListHead.InsertBefore(&e.ListHead); err != nil {
+			if _, err := p.ptrItems().at(insertAt + 1).ListHead.InsertBefore(&e.ListHead); err != nil {
 				t.Fatal(err)
 			}
 			for i := 0; i < tc.published; i++ {
@@ -87,7 +87,7 @@ func TestPoolInsertDisjointCapacity(t *testing.T) {
 					index = insertAt + i - 4
 				}
 				next := cur.DirectNext()
-				if next != &p.items.at(index).ListHead || next.DirectPrev() != cur {
+				if next != &p.ptrItems().at(index).ListHead || next.DirectPrev() != cur {
 					t.Fatalf("broken links at slot %d", i)
 				}
 				cur = next

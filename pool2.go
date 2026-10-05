@@ -12,7 +12,6 @@ import (
 
 	"github.com/kazu/elist_head"
 	list_head "github.com/kazu/lista_encabezado"
-	"github.com/kazu/skiplistmap/atomic_util"
 	"github.com/lk4d4/trylock"
 )
 
@@ -45,7 +44,7 @@ type poolReq[K Key[K], V any] struct {
 type Pool[K Key[K], V any] struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
-	itemPool [cntOfPoolMgr]samepleItemPool[K, V]
+	itemPool [cntOfPoolMgr]entryItemPool[K, V]
 	mgrCh    [cntOfPoolMgr]chan poolReq[K, V]
 }
 
@@ -54,7 +53,7 @@ func newPool[K Key[K], V any]() (p *Pool[K, V]) {
 	for i := range p.mgrCh {
 		p.mgrCh[i] = make(chan poolReq[K, V])
 		p.itemPool[i].InitAsEmpty()
-		s := &samepleItemPool[K, V]{}
+		s := &entryItemPool[K, V]{}
 		s.Init()
 		p.itemPool[i].DirectNext().InsertBefore(&s.ListHead)
 
@@ -70,7 +69,7 @@ func (p *Pool[K, V]) startMgr() {
 	for i := range p.itemPool {
 
 		cctx, ccancel := context.WithCancel(p.ctx)
-		go idxMaagement[K, V](cctx, ccancel, samepleItemPoolFromListHead[K, V](&p.itemPool[i].ListHead), p.mgrCh[i])
+		go idxMaagement[K, V](cctx, ccancel, entryItemPoolFromListHead[K, V](&p.itemPool[i].ListHead), p.mgrCh[i])
 
 	}
 
@@ -90,7 +89,7 @@ func (p *Pool[K, V]) Get(reverse uint64, fn successFn[K, V]) {
 				// the list has no pool; an expand is replacing one
 				continue
 			}
-			p := samepleItemPoolFromListHead[K, V](head)
+			p := entryItemPoolFromListHead[K, V](head)
 			stepAt("pool.get.pool", unsafe.Pointer(&p.ListHead), nil)
 			e, _, mu := p.Get()
 			if e == nil {
@@ -113,7 +112,7 @@ func (p *Pool[K, V]) Put(item MapItem[K, V]) {
 	idx := poolIndex(reverse)
 
 	if !UseGoroutineInPool {
-		p := samepleItemPoolFromListHead[K, V](p.itemPool[idx].Next())
+		p := entryItemPoolFromListHead[K, V](p.itemPool[idx].Next())
 		p.Put(&item.embeddedEntry)
 		return
 	}
@@ -133,11 +132,15 @@ const (
 	poolUpdating        = 2
 )
 
-type samepleItemPool[K Key[K], V any] struct {
+// itemPool holds the entries of a bucket of a map with the embedded pool, or
+// of a Pool, in one array of E; see itemSlice for how the array is read and
+// published.
+type itemPool[K Key[K], V any, E poolItem[K, V]] struct {
 	mu       trylock.Mutex
 	freeHead elist_head.ListHead
 	freeTail elist_head.ListHead
-	items    itemSlice[K, V]
+	// items is the array as last published; nil before the pool has one
+	items    atomic.Pointer[itemSlice[K, V, E]]
 	reusable bool
 	// minCap is the least capacity of the pool after it grows, from
 	// MinCapItems of its Map; 0 means the default of the package
@@ -151,30 +154,44 @@ type samepleItemPool[K Key[K], V any] struct {
 	list_head.ListHead
 }
 
+// samepleItemPool is the pool of a bucket, of the entries embedded in it.
+type samepleItemPool[K Key[K], V any] = itemPool[K, V, embeddedEntry[K, V]]
+
+// entryItemPool is a pool of a Pool, of Entry.
+type entryItemPool[K Key[K], V any] = itemPool[K, V, Entry[K, V]]
+
 func EmptysamepleItemPool[K Key[K], V any]() *samepleItemPool[K, V] {
 	return nil
 }
-func samepleItemPoolOffset[K Key[K], V any]() uintptr {
-	return unsafe.Offsetof(EmptysamepleItemPool[K, V]().ListHead)
+func itemPoolOffset[K Key[K], V any, E poolItem[K, V]]() uintptr {
+	return unsafe.Offsetof((*itemPool[K, V, E])(nil).ListHead)
+}
+
+func itemPoolFromListHead[K Key[K], V any, E poolItem[K, V]](head *list_head.ListHead) *itemPool[K, V, E] {
+	return (*itemPool[K, V, E])(ElementOf(unsafe.Pointer(head), itemPoolOffset[K, V, E]()))
 }
 
 func samepleItemPoolFromListHead[K Key[K], V any](head *list_head.ListHead) *samepleItemPool[K, V] {
-	return (*samepleItemPool[K, V])(ElementOf(unsafe.Pointer(head), samepleItemPoolOffset[K, V]()))
+	return itemPoolFromListHead[K, V, embeddedEntry[K, V]](head)
 }
-func (sp *samepleItemPool[K, V]) Offset() uintptr {
-	return samepleItemPoolOffset[K, V]()
+
+func entryItemPoolFromListHead[K Key[K], V any](head *list_head.ListHead) *entryItemPool[K, V] {
+	return itemPoolFromListHead[K, V, Entry[K, V]](head)
 }
-func (sp *samepleItemPool[K, V]) PtrListHead() *list_head.ListHead {
+func (sp *itemPool[K, V, E]) Offset() uintptr {
+	return itemPoolOffset[K, V, E]()
+}
+func (sp *itemPool[K, V, E]) PtrListHead() *list_head.ListHead {
 	return &(sp.ListHead)
 }
-func (sp *samepleItemPool[K, V]) FromListHead(l *list_head.ListHead) list_head.List {
-	return samepleItemPoolFromListHead[K, V](l)
+func (sp *itemPool[K, V, E]) FromListHead(l *list_head.ListHead) list_head.List {
+	return entryItemPoolFromListHead[K, V](l)
 }
-func (sp *samepleItemPool[K, V]) hasNoFree() bool {
+func (sp *itemPool[K, V, E]) hasNoFree() bool {
 	return sp.freeHead.DirectNext() == &sp.freeTail
 }
 
-func (sp *samepleItemPool[K, V]) init() {
+func (sp *itemPool[K, V, E]) init() {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
 	if !sp.initialized.Load() {
@@ -183,30 +200,30 @@ func (sp *samepleItemPool[K, V]) init() {
 }
 
 // minCapItems returns the least capacity of the pool after it grows.
-func (sp *samepleItemPool[K, V]) minCapItems() int {
+func (sp *itemPool[K, V, E]) minCapItems() int {
 	if sp.minCap > 0 {
 		return sp.minCap
 	}
 	return minCapItem()
 }
 
-func (sp *samepleItemPool[K, V]) _init(cap int) {
+func (sp *itemPool[K, V, E]) _init(cap int) {
 
 	elist_head.InitAsEmpty(&sp.freeHead, &sp.freeTail)
 
-	sp.items = newPoolItems[K, V](0, cap, sp.reusable)
+	sp.setItems(newPoolItems[K, V, E](0, cap, sp.reusable))
 	sp.initialized.Store(true)
 	//sp.Init()
 }
 
-func (sp *samepleItemPool[K, V]) validateItems() error {
+func (sp *itemPool[K, V, E]) validateItems() error {
 	old := -1
 	empty := elist_head.ListHead{}
-	for i := 0; i < sp.items.Len(); i++ {
-		if i == 0 && sp.items.at(i).PtrListHead().Prev().Next() != sp.items.at(i).PtrListHead() {
+	for i := 0; i < sp.ptrItems().Len(); i++ {
+		if i == 0 && sp.ptrItems().at(i).PtrListHead().Prev().Next() != sp.ptrItems().at(i).PtrListHead() {
 			return fmt.Errorf("invalid item index i=0")
 		}
-		if sp.items.at(i).ListHead == empty {
+		if sp.ptrItems().at(i).ListHead == empty {
 			old = i
 			continue
 		}
@@ -215,7 +232,7 @@ func (sp *samepleItemPool[K, V]) validateItems() error {
 			continue
 		}
 
-		if i == sp.items.Len()-1 {
+		if i == sp.ptrItems().Len()-1 {
 			continue
 		}
 		pidx := i - 1
@@ -226,14 +243,14 @@ func (sp *samepleItemPool[K, V]) validateItems() error {
 			continue
 		}
 
-		if sp.items.at(pidx).PtrListHead().Next() != sp.items.at(i).PtrListHead() {
-			p := sp.items.at(pidx).Next()
+		if sp.ptrItems().at(pidx).PtrListHead().Next() != sp.ptrItems().at(i).PtrListHead() {
+			p := sp.ptrItems().at(pidx).Next()
 			_ = p
 			return fmt.Errorf("invalid item index i=%d, %d", i, i-1)
 		}
 
-		if sp.items.at(i).PtrListHead().Prev() != sp.items.at(pidx).PtrListHead() {
-			p := sp.items.at(i).Prev()
+		if sp.ptrItems().at(i).PtrListHead().Prev() != sp.ptrItems().at(pidx).PtrListHead() {
+			p := sp.ptrItems().at(i).Prev()
 			_ = p
 			return fmt.Errorf("invalid item index i=%d, %d", i, i-1)
 		}
@@ -242,7 +259,7 @@ func (sp *samepleItemPool[K, V]) validateItems() error {
 
 }
 
-func (sp *samepleItemPool[K, V]) Get() (new *embeddedEntry[K, V], isExpanded bool, lock sync.Locker) {
+func (sp *itemPool[K, V, E]) Get() (new *embeddedEntry[K, V], isExpanded bool, lock sync.Locker) {
 	if !sp.initialized.Load() {
 		sp.init()
 	}
@@ -261,8 +278,9 @@ func (sp *samepleItemPool[K, V]) Get() (new *embeddedEntry[K, V], isExpanded boo
 	var mu *trylock.Mutex
 	var i int
 	var new2 *embeddedEntry[K, V]
+	var longer itemSlice[K, V, E]
 
-	// Read the length once: the CAS below raises it from this value, and
+	// Read the array once: the swap below takes its last slot from it, and
 	// another Get may take the last item between two reads.
 	i = pItems.Len()
 	if pItems.Cap() <= i {
@@ -278,7 +296,10 @@ func (sp *samepleItemPool[K, V]) Get() (new *embeddedEntry[K, V], isExpanded boo
 			return
 		}
 	}
-	if !atomic_util.CompareAndSwapInt(&pItems.len, i, i+1) {
+	// Get runs without the lock of the pool: the array with the slot counted
+	// in goes in only while the array read above is still the current one
+	longer = pItems.slice(0, i+1)
+	if !sp.items.CompareAndSwap(pItems, &longer) {
 		Log(LogWarn, "fail to increment pItem.len=%d pItem.cap=%d i=%d", pItems.Len(), pItems.Cap(), i)
 		// the lock of the last item taken above is this Get's own; the
 		// retry takes it again
@@ -288,7 +309,7 @@ func (sp *samepleItemPool[K, V]) Get() (new *embeddedEntry[K, V], isExpanded boo
 		new, isExpanded, lock = sp.Get()
 		return
 	}
-	new2 = (*pItems).at(i)
+	new2 = longer.at(i)
 	// an expand that started after the CAS above may have marked the item
 	new2.InitUnmarked()
 	if mu != nil {
@@ -304,7 +325,7 @@ EXPAND:
 	// found next pool; the node, not the link with the mark of a delete
 	if nsp := sp.Next(); !nsp.Empty() {
 		stepAt("pool.get.nextPool", unsafe.Pointer(sp), unsafe.Pointer(nsp))
-		return samepleItemPoolFromListHead[K, V](nsp).Get()
+		return entryItemPoolFromListHead[K, V](nsp).Get()
 	}
 
 	// dumping is only debug mode.
@@ -322,7 +343,7 @@ EXPAND:
 
 }
 
-func (sp *samepleItemPool[K, V]) DumpExpandInfo(w io.Writer, outers []unsafe.Pointer, format string, args ...interface{}) {
+func (sp *itemPool[K, V, E]) DumpExpandInfo(w io.Writer, outers []unsafe.Pointer, format string, args ...interface{}) {
 
 	for _, ptr := range outers {
 		cur := (*elist_head.ListHead)(ptr)
@@ -340,7 +361,7 @@ func (sp *samepleItemPool[K, V]) DumpExpandInfo(w io.Writer, outers []unsafe.Poi
 
 }
 
-func (sp *samepleItemPool[K, V]) _expand() (*samepleItemPool[K, V], error) {
+func (sp *itemPool[K, V, E]) _expand() (*itemPool[K, V, E], error) {
 
 	stepAt("pool.expand.begin", unsafe.Pointer(sp), nil)
 	sp.mu.Lock()
@@ -349,11 +370,11 @@ func (sp *samepleItemPool[K, V]) _expand() (*samepleItemPool[K, V], error) {
 		return nil, EPoolAlreadyDeleted
 	}
 
-	nPool := &samepleItemPool[K, V]{reusable: sp.reusable, minCap: sp.minCap}
+	nPool := &itemPool[K, V, E]{reusable: sp.reusable, minCap: sp.minCap}
 	_ = nPool
 	var e error
 	var next *list_head.ListHead
-	a := samepleItemPool[K, V]{}
+	a := itemPool[K, V, E]{}
 	if sp.ListHead == a.ListHead {
 		goto NO_DELETE
 	}
@@ -362,24 +383,24 @@ NO_DELETE:
 
 	elist_head.InitAsEmpty(&nPool.freeHead, &nPool.freeTail)
 
-	nCap := poolCap(sp.items.Len(), sp.minCapItems())
+	nCap := poolCap(sp.ptrItems().Len(), sp.minCapItems())
 
-	nPool.items = newPoolItems[K, V](sp.items.Len(), nCap, sp.reusable)
+	nPool.setItems(newPoolItems[K, V, E](sp.ptrItems().Len(), nCap, sp.reusable))
 	if !sp.reusable {
-		nPool.items.at(0).viewEntry().retainedEntry = sp.items.at(0).viewEntry()
+		nPool.ptrItems().at(0).viewEntry().retainedEntry = sp.ptrItems().at(0).viewEntry()
 	}
 	// the old items get the mark of a delete and the copies their links.
 	// The items that are linked are copied after that: their Set wrote
 	// them before it linked them
 	move := elist_head.FreezeSlice(
-		unsafe.Pointer(sp.items.at(0)),
-		unsafe.Pointer(sp.items.at(sp.items.Len()-1)),
-		unsafe.Pointer(nPool.items.at(0)),
-		int(sp.items.stride),
+		unsafe.Pointer(sp.ptrItems().at(0)),
+		unsafe.Pointer(sp.ptrItems().at(sp.ptrItems().Len()-1)),
+		unsafe.Pointer(nPool.ptrItems().at(0)),
+		int(unsafe.Sizeof(*new(E))),
 		int(SampleItemOffsetOf[K, V]()))
-	for i := 0; i < sp.items.Len(); i++ {
+	for i := 0; i < sp.ptrItems().Len(); i++ {
 		if move.Linked(i) {
-			nPool.items.at(i).copyFrom(sp.items.at(i))
+			nPool.ptrItems().at(i).copyFrom(sp.ptrItems().at(i))
 		}
 	}
 	stepAt("pool.expand.copied", unsafe.Pointer(sp), unsafe.Pointer(nPool))
@@ -389,19 +410,19 @@ NO_DELETE:
 	var b strings.Builder
 	if IsDebug() {
 		outers = elist_head.OuterPtrs(
-			unsafe.Pointer(sp.items.at(0)),
-			unsafe.Pointer(sp.items.at(sp.items.Len()-1)),
-			unsafe.Pointer(nPool.items.at(0)),
-			int(sp.items.stride),
+			unsafe.Pointer(sp.ptrItems().at(0)),
+			unsafe.Pointer(sp.ptrItems().at(sp.ptrItems().Len()-1)),
+			unsafe.Pointer(nPool.ptrItems().at(0)),
+			int(unsafe.Sizeof(*new(E))),
 			int(SampleItemOffsetOf[K, V]()))
-		sp.DumpExpandInfo(&b, outers, "B:rewrite reverse=0x%x\n", &sp.items.at(0).reverse)
+		sp.DumpExpandInfo(&b, outers, "B:rewrite reverse=0x%x\n", &sp.ptrItems().at(0).reverse)
 	}
 
 	move.Relink()
 
 	// for debugging
 	if IsDebug() {
-		sp.DumpExpandInfo(&b, outers, "A:rewrite reverse=0x%x\n", &sp.items.at(0).reverse)
+		sp.DumpExpandInfo(&b, outers, "A:rewrite reverse=0x%x\n", &sp.ptrItems().at(0).reverse)
 		fmt.Println(b.String())
 	}
 
@@ -429,7 +450,7 @@ NO_DELETE:
 	return nPool, nil
 }
 
-func (sp *samepleItemPool[K, V]) Put(item *embeddedEntry[K, V]) {
+func (sp *itemPool[K, V, E]) Put(item *embeddedEntry[K, V]) {
 
 	s := item
 	if s == nil {
@@ -437,24 +458,24 @@ func (sp *samepleItemPool[K, V]) Put(item *embeddedEntry[K, V]) {
 	}
 
 	pItem := uintptr(unsafe.Pointer(s))
-	pTail := uintptr(unsafe.Pointer(sp.items.at(sp.items.Len() - 1)))
+	pTail := uintptr(unsafe.Pointer(sp.ptrItems().at(sp.ptrItems().Len() - 1)))
 
-	//pHead := uintptr(unsafe.Pointer(sp.items.at(0)))
+	//pHead := uintptr(unsafe.Pointer(sp.ptrItems().at(0)))
 
 	if pItem <= pTail {
 		sp.freeTail.InsertBefore(&s.ListHead)
 	}
-	samepleItemPoolFromListHead[K, V](sp.Next()).Put(item)
+	entryItemPoolFromListHead[K, V](sp.Next()).Put(item)
 
 }
 
 var LastItem unsafe.Pointer = nil
 var IsExtended = false
 
-func idxMaagement[K Key[K], V any](ctx context.Context, cancel context.CancelFunc, h *samepleItemPool[K, V], reqCh chan poolReq[K, V]) {
+func idxMaagement[K Key[K], V any](ctx context.Context, cancel context.CancelFunc, h *entryItemPool[K, V], reqCh chan poolReq[K, V]) {
 
 	for req := range reqCh {
-		p := samepleItemPoolFromListHead[K, V](h.Next())
+		p := entryItemPoolFromListHead[K, V](h.Next())
 		switch req.cmd {
 		case CmdGet:
 			e, extend, mu := p.Get()
@@ -464,7 +485,7 @@ func idxMaagement[K Key[K], V any](ctx context.Context, cancel context.CancelFun
 			LastItem = unsafe.Pointer(e.PtrMapHead())
 			// only debug mode
 			if extend {
-				fmt.Printf("expeand reverse=0x%x cap=%d\n ", p.items.at(0).reverse, p.items.Cap())
+				fmt.Printf("expeand reverse=0x%x cap=%d\n ", p.ptrItems().at(0).reverse, p.ptrItems().Cap())
 				fmt.Printf("dump: sampleItemPool.items\n%s\nend: sampleItemPool.items\n", p.dump())
 				IsExtended = extend
 			}
@@ -483,12 +504,12 @@ func idxMaagement[K Key[K], V any](ctx context.Context, cancel context.CancelFun
 
 }
 
-func (sp *samepleItemPool[K, V]) dump() string {
+func (sp *itemPool[K, V, E]) dump() string {
 
 	var b strings.Builder
 
-	for i := 0; i < sp.items.Len(); i++ {
-		mhead := EmptyMapHead.FromListHead(&sp.items.at(i).ListHead)
+	for i := 0; i < sp.ptrItems().Len(); i++ {
+		mhead := EmptyMapHead.FromListHead(&sp.ptrItems().at(i).ListHead)
 		mhead.dump[K, V](&b)
 	}
 	return b.String()

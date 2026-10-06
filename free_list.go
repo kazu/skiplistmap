@@ -25,7 +25,7 @@ func countCap(kind string, have, want int) {
 
 // CapStats returns the counts of the capacities that went through the free
 // list since ResetCapStats, under EnableStats, one line per kind and
-// capacity: put (have = the capacity put), reuse / drop (have = the head,
+// capacity: put (have = the capacity put), reuse / miss (have = the head,
 // want = the capacity asked), empty (want = the capacity asked of an empty
 // list). The lines are sorted.
 func CapStats() string {
@@ -76,13 +76,26 @@ func (l *freeList) release() {
 // list, so that a pool that grows or rebuilds its array takes one back
 // instead of allocating. An array goes to the tail of the list and is taken
 // from the head, so the one that has been idle the longest goes out first.
-// The pools start at one capacity and grow by doubling, so an array at the
-// head smaller than a take asks for is from an earlier growth, and leaves.
-// The list is shared by the pools of the Map: the writers of two buckets
-// may take and put at once.
+// The arrays a pool lets go of are of the capacity a pool starts with, or
+// larger from a pool that grew; the takes ask for that capacity, and a
+// take of more than the head holds allocates. The list is shared by the
+// pools of the Map: the writers of two buckets may take and put at once.
 type freePools[K Key[K], V any, E poolItem[K, V]] struct {
 	list freeList
+	// cutArrays is how many arrays were cut from chunks so far, which
+	// sizes the next chunk; cutting is held by the one cut at a time
+	cutArrays atomic.Int64
+	cutting   atomic.Bool
+	// capacity is the capacity of the arrays that chunks are cut into, the
+	// one the pools ask for; the Map sets it with the list
+	capacity int
 }
+
+// minChunkArrays and maxChunkArrays bound the number of arrays in a chunk.
+const (
+	minChunkArrays = 4
+	maxChunkArrays = 64
+)
 
 func (f *freePools[K, V, E]) init() {
 	list_head.InitAsEmpty(&f.list.head, &f.list.tail)
@@ -92,10 +105,11 @@ func (f *freePools[K, V, E]) view() listaList[freePool[K, V, E]] {
 	return newListaList[freePool[K, V, E]](unsafe.Offsetof(freePool[K, V, E]{}.ListHead))
 }
 
-// take returns the first array from the head of the list of at least
-// capacity, with none of its slots in use, or nil when there is none: then
-// the caller allocates. The smaller arrays before it leave the list for the
-// collector. No put or other take changes the list meanwhile.
+// take returns the array at the head of the list, with none of its slots in
+// use, or nil when the list is empty or that array is smaller than
+// capacity: then the caller allocates, and the array stays for a take of
+// its capacity, which the pools ask for. No put or other take changes the
+// list meanwhile.
 func (f *freePools[K, V, E]) take(capacity int) []E {
 	if f == nil {
 		return nil
@@ -104,40 +118,29 @@ func (f *freePools[K, V, E]) take(capacity int) []E {
 	l.claim()
 	defer l.release()
 	view := f.view()
-	for {
-		h := l.head.DirectNext().WithOutMark()
-		if h == nil || h == &l.tail {
-			if EnableStats {
-				countCap("empty", 0, capacity)
-			}
-			return nil
-		}
-		n := view.Element(h)
-		for view.MarkForDelete(n) != nil {
-			runtime.Gosched()
-		}
+	h := l.head.DirectNext().WithOutMark()
+	if h == nil || h == &l.tail {
 		if EnableStats {
-			if cap(n.pool) < capacity {
-				countCap("drop", cap(n.pool), capacity)
-			} else {
-				countCap("reuse", cap(n.pool), capacity)
-			}
+			countCap("empty", 0, capacity)
 		}
-		if cap(n.pool) < capacity {
-			// an array smaller than what is asked for now is from an earlier
-			// growth of a pool, and the pools only grow: it goes to the
-			// collector, so that it does not keep the head from the arrays
-			// behind it
-			if EnableStats {
-				DebugStats[CntPoolArrayDrop].Add(1)
-			}
-			continue
-		}
-		if EnableStats {
-			DebugStats[CntPoolArrayReuse].Add(1)
-		}
-		return n.pool
+		return nil
 	}
+	n := view.Element(h)
+	if cap(n.pool) < capacity {
+		if EnableStats {
+			DebugStats[CntPoolArrayMiss].Add(1)
+			countCap("miss", cap(n.pool), capacity)
+		}
+		return nil
+	}
+	for view.MarkForDelete(n) != nil {
+		runtime.Gosched()
+	}
+	if EnableStats {
+		DebugStats[CntPoolArrayReuse].Add(1)
+		countCap("reuse", cap(n.pool), capacity)
+	}
+	return n.pool
 }
 
 // put puts the slots of items, all of its capacity, on the free list once
@@ -145,11 +148,13 @@ func (f *freePools[K, V, E]) take(capacity int) []E {
 // of its bucket, and has replaced them. A slot that a node outside the array
 // still leads to, as the one of an entry that Delete left on the list does
 // until its unlink is repaired, keeps the array out of the free list, for
-// the collector. Every slot is made as fresh as newPoolItems makes it, after
-// the readers pinned on it have left; a search that still reads the array
-// finds the slots fresh and starts again on the generation of its pool.
+// the collector. So does an array smaller than the capacity the takes ask
+// for: at the head, it would turn every take away. Every slot is made as
+// fresh as newPoolItems makes it, after the readers pinned on it have left;
+// a search that still reads the array finds the slots fresh and starts
+// again on the generation of its pool.
 func (f *freePools[K, V, E]) put(items []E) {
-	if f == nil || cap(items) == 0 {
+	if f == nil || cap(items) < max(f.capacity, 1) {
 		return
 	}
 	all := items[:cap(items)]
@@ -173,15 +178,43 @@ func (f *freePools[K, V, E]) put(items []E) {
 		DebugStats[CntPoolArrayFree].Add(1)
 		countCap("put", cap(all), 0)
 	}
-	n := &freePool[K, V, E]{pool: all[:0]}
-	// a single node, as InsertBefore of lista_encabezado requires
-	list_head.InitAsEmpty(&n.ListHead, &n.ListHead)
+	f.link([]freePool[K, V, E]{{pool: all[:0]}})
+}
+
+// link puts the arrays of nodes, each with every slot fresh, at the tail
+// of the list in their order, under one claim.
+func (f *freePools[K, V, E]) link(nodes []freePool[K, V, E]) {
 	l := &f.list
 	l.claim()
 	defer l.release()
-	for f.view().InsertBefore(&l.tail, n) != nil {
-		runtime.Gosched()
+	for i := range nodes {
+		// a single node, as InsertBefore of lista_encabezado requires
+		list_head.InitAsEmpty(&nodes[i].ListHead, &nodes[i].ListHead)
+		for f.view().InsertBefore(&l.tail, &nodes[i]) != nil {
+			runtime.Gosched()
+		}
 	}
+}
+
+// cut allocates a chunk of arrays of capacity and puts all but the first
+// on the list; the first comes back with length slots in use. A chunk
+// holds as many arrays as were cut so far, as a slice grows, between
+// minChunkArrays and maxChunkArrays, so the allocations are few and none
+// holds the list for long. One cut runs at a time; a take that finds the
+// list empty meanwhile allocates its array alone and does not wait.
+func (f *freePools[K, V, E]) cut(length, capacity int) itemSlice[K, V, E] {
+	n := min(max(int(f.cutArrays.Load()), minChunkArrays), maxChunkArrays)
+	chunk := newPoolItems[K, V, E](n*capacity, n*capacity, true)
+	nodes := make([]freePool[K, V, E], n-1)
+	for i := range nodes {
+		nodes[i].pool = chunk.items[(i+1)*capacity : (i+1)*capacity : (i+2)*capacity]
+	}
+	f.link(nodes)
+	f.cutArrays.Add(int64(n))
+	if EnableStats {
+		DebugStats[CntPoolChunk].Add(1)
+	}
+	return itemSlice[K, V, E]{items: chunk.items[0:length:capacity]}
 }
 
 // resetSlots makes every slot of all as fresh as newPoolItems makes it, after
@@ -208,11 +241,19 @@ func clearListLinks(dst *elist_head.ListHead) {
 }
 
 // takeItems returns an array of capacity slots or more with length of them
-// in use: one that a pool of the Map let go of when free has one, a new one
-// otherwise. reused tells which, as a search may still read a taken array.
+// in use: one from free when it has one, the first of a chunk cut for free
+// otherwise, or a new one when free is nil or capacity is not the one free
+// cuts for.
+// reused tells whether a pool let the array go, as a search may still read
+// such an array.
 func takeItems[K Key[K], V any, E poolItem[K, V]](free *freePools[K, V, E], length, capacity int, reusable bool) (items itemSlice[K, V, E], reused bool) {
 	if pool := free.take(capacity); pool != nil {
 		return itemSlice[K, V, E]{items: pool[:length]}, true
+	}
+	if free != nil && reusable && capacity == free.capacity && free.cutting.CompareAndSwap(false, true) {
+		items = free.cut(length, capacity)
+		free.cutting.Store(false)
+		return items, false
 	}
 	return newPoolItems[K, V, E](length, capacity, reusable), false
 }

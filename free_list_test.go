@@ -9,6 +9,55 @@ import (
 	"github.com/kazu/elist_head"
 )
 
+// A take from an empty list cuts a chunk of arrays, keeps one and puts the
+// rest on the list, so that the takes after it find the list full; the
+// chunks grow as the arrays cut so far, as a slice grows.
+func TestFreePoolsCutArraysInChunks(t *testing.T) {
+	var f freePools[IntKey, int, embeddedEntry[IntKey, int]]
+	f.init()
+	f.capacity = 8
+	drain := func() (n int) {
+		for f.take(8) != nil {
+			n++
+		}
+		return n
+	}
+	first, reused := takeItems(&f, 2, 8, true)
+	if reused || first.Len() != 2 || first.Cap() != 8 {
+		t.Fatalf("the first take: reused %v len %d cap %d", reused, first.Len(), first.Cap())
+	}
+	if n := drain(); n != minChunkArrays-1 {
+		t.Fatalf("%d arrays on the list after the first cut, not %d", n, minChunkArrays-1)
+	}
+	for i, want := range []int{minChunkArrays - 1, 2*minChunkArrays - 1} {
+		if _, reused := takeItems(&f, 0, 8, true); reused {
+			t.Fatal("a take from the empty list came back as reused")
+		}
+		if n := drain(); n != want {
+			t.Fatalf("%d arrays on the list after cut %d, not %d", n, i+2, want)
+		}
+	}
+	if cut := f.cutArrays.Load(); cut != 4*minChunkArrays {
+		t.Fatalf("%d arrays cut, not %d", cut, 4*minChunkArrays)
+	}
+	// the arrays of a chunk are apart: a put of one leaves the others alone
+	a, _ := takeItems(&f, 8, 8, true)
+	b, _ := takeItems(&f, 8, 8, true)
+	a._at(0, false, false).initializePayload(IntKey(1), 1)
+	f.put(b.items)
+	if a._at(0, false, false).value != 1 {
+		t.Fatal("the put of one array of a chunk touched another")
+	}
+	// an array smaller than the capacity the takes ask for stays off the
+	// list, where it would turn every take away
+	drain()
+	small := newPoolItems[IntKey, int, embeddedEntry[IntKey, int]](0, 4, true)
+	f.put(small.items)
+	if f.take(4) != nil {
+		t.Fatal("an array smaller than the capacity went on the list")
+	}
+}
+
 // A bucket that splits gives the child an array of the capacity a pool starts
 // with and keeps its own, so that every array a pool lets go of or asks for
 // is of that one capacity, and the free list hands them on.
@@ -34,14 +83,16 @@ func TestFreePoolsSplitKeepsOneCapacity(t *testing.T) {
 		if _, err := fmt.Sscanf(line, "%s have=%d want=%d count=%d", &kind, &have, &capacity, &count); err != nil {
 			t.Fatalf("%q: %v", line, err)
 		}
-		// a pool that cannot split grows past the capacity; its array is
-		// asked of the list and not found, and is not what this is about
-		if kind != "empty" && (have != want || (capacity != 0 && capacity != want)) {
-			t.Fatalf("an array of another capacity than %d went through the list: %s", want, line)
+		// a pool that cannot split grows past the capacity, asks the list
+		// for more, which it does not hold, and lets its larger array go
+		// later; what this is about is that a take finds the capacity it
+		// asks for
+		if kind != "reuse" {
+			continue
 		}
-	}
-	if drops := DebugStats[CntPoolArrayDrop].Load(); drops != 0 {
-		t.Fatalf("%d arrays were dropped as too small", drops)
+		if capacity != want || have < want {
+			t.Fatalf("a take asked for another capacity than %d, or found less: %s", want, line)
+		}
 	}
 }
 
@@ -137,16 +188,14 @@ func TestFreePoolsTakeBackAnArray(t *testing.T) {
 	if f.take(8) != nil {
 		t.Fatal("the array came back twice")
 	}
-	// an array smaller than the capacity asked for leaves the list, and the
-	// one behind it comes back
+	// an array smaller than the capacity asked for stays on the list, for
+	// a take of its capacity
 	f.put(again.items)
-	larger, _ := takeItems(&f, 0, 16, true)
-	f.put(larger.items)
-	if got := f.take(16); got == nil || &got[:1][0] != larger.first() {
-		t.Fatal("the larger array behind a smaller one did not come back")
+	if f.take(16) != nil {
+		t.Fatal("an array smaller than the capacity asked for came back")
 	}
-	if f.take(8) != nil {
-		t.Fatal("an array smaller than the capacity asked for stayed on the list")
+	if got := f.take(8); got == nil || &got[:1][0] != again.first() {
+		t.Fatal("the array did not stay for a take of its capacity")
 	}
 
 	// a slot that the list still leads to

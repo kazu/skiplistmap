@@ -286,6 +286,7 @@ func (h *Map[K, V]) initBeforeSet() {
 
 	if h.isEmbededItemInBucket {
 		h.free.init()
+		h.free.capacity = h.poolInitCap()
 	}
 	for i := range topReverses {
 		reverse := topReverses[i]
@@ -1910,8 +1911,9 @@ const (
 	CntPoolExpand      statKey = 9
 	CntPoolArrayReuse  statKey = 10
 	CntPoolArrayFree   statKey = 11
-	CntPoolArrayDrop   statKey = 12
-	statCount          statKey = 13
+	CntPoolArrayMiss   statKey = 12
+	CntPoolChunk       statKey = 13
+	statCount          statKey = 14
 )
 
 func nextNoCheck[K Key[K], V any](e *embeddedEntry[K, V]) *embeddedEntry[K, V] {

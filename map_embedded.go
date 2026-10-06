@@ -476,7 +476,9 @@ func (sp *itemPool[K, V, E]) slideBlockToFreeRun(reverse uint64, i, blockEnd, ds
 		// the block of one needs no slices, which the call would allocate
 		movePoolItem(sp.ptrItems()._at(dst+1, false, false), sp.ptrItems()._at(i, false, false))
 	case need > 1:
-		movePoolItemsInto(sp.ptrItems().slice(dst+1, dst+1+need), sp.ptrItems().slice(i, blockEnd), dst+1 < olen)
+		// the slots past the length are read too, by a search that read the
+		// array before a pool let it go and this pool took it back
+		movePoolItemsInto(sp.ptrItems().slice(dst+1, dst+1+need), sp.ptrItems().slice(i, blockEnd), true)
 	}
 	for m := dst + 1; m <= dst+need && m < olen; m++ {
 		sp.ptrItems().at(m).releaseWrite()
@@ -1057,9 +1059,10 @@ func copyListLinks(dst, src *elist_head.ListHead) {
 	atomic.StoreUintptr(&d[1], atomic.LoadUintptr(&s[1]))
 }
 
-// movePoolItemsInto is movePoolItems; with published, the slots of dst are
-// within the length, which a search can read, so each entry goes in with the
-// stores of copyFrom, not with a copy of the memory of the block.
+// movePoolItemsInto is movePoolItems; with published, a search can read the
+// slots of dst, as the ones within the length and the ones of an array that
+// came back from the free list, so each entry goes in with the stores of
+// copyFrom, not with a copy of the memory of the block.
 // movePoolItem moves the entry of src into dst, a slot that nothing uses yet:
 // the block of one of movePoolItems, without the slices. A deleted or unready
 // src leaves dst deleted and is taken off the list when it is still on it.

@@ -1,10 +1,71 @@
 package skiplistmap
 
 import (
+	"sync/atomic"
 	"testing"
 
 	"github.com/kazu/elist_head"
 )
+
+// A search that read the array of a pool before the pool let it go reads it
+// still, past the length of the pool that took it back: a slide of that pool
+// into the slots past its length, which no search of its own reads, is
+// written with atomic stores. Run with -race: the search and the slide have
+// no order between them.
+func TestFreePoolsSlideOnTakenArrayIsAtomic(t *testing.T) {
+	var f freePools[IntKey, int, embeddedEntry[IntKey, int]]
+	f.init()
+	first, ends := makeInsertPool(8, 16)
+	snapshot := first.ptrItems().items
+
+	ready, done, left := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(left)
+		close(ready)
+		for {
+			select {
+			case <-done:
+				return
+			default:
+			}
+			// the slots past the length of the pool that takes the array
+			for i := 4; i < len(snapshot); i++ {
+				atomic.LoadUint64(&snapshot[i].reverse)
+			}
+		}
+	}()
+	<-ready
+
+	// the pool lets the array go: nothing outside it leads in any more
+	for i := 0; i < 8; i++ {
+		first.ptrItems().at(i).ListHead.Init()
+	}
+	elist_head.InitAsEmpty(&ends[0], &ends[1])
+	f.put(first.ptrItems().items)
+
+	// another pool takes it with four entries, and slides three of them
+	// into the slots past its length
+	taken, reused := takeItems(&f, 4, 16, true)
+	if !reused {
+		t.Fatal("the array did not come back")
+	}
+	second := &samepleItemPool[IntKey, int]{reusable: true}
+	second.setItems(taken)
+	var otherEnds [2]elist_head.ListHead
+	elist_head.InitAsEmpty(&otherEnds[0], &otherEnds[1])
+	for i := 0; i < 4; i++ {
+		e := second.ptrItems().at(i)
+		e.InitEntry(IntKey(i), i)
+		e.reverse = uint64(2 * (i + 1))
+		e.state |= mapIsPoolItem
+		if _, err := otherEnds[1].InsertBefore(&e.ListHead); err != nil {
+			t.Fatal(err)
+		}
+	}
+	second.slideBlockToFreeRun(3, 1, 4, 4, 4)
+	close(done)
+	<-left
+}
 
 // An array that a pool let go of comes back from the free list with every
 // slot as fresh as a new one, once; it does not come back for a larger

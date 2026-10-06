@@ -1,13 +1,47 @@
 package skiplistmap
 
 import (
+	"fmt"
 	"runtime"
+	"sort"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"unsafe"
 
 	"github.com/kazu/elist_head"
 	list_head "github.com/kazu/lista_encabezado"
 )
+
+// capStats counts, under EnableStats, the capacities that go through the
+// free list: what put puts, and what take asks for against what it finds.
+var capStats sync.Map
+
+func countCap(kind string, have, want int) {
+	key := fmt.Sprintf("%-5s have=%-4d want=%-4d", kind, have, want)
+	v, _ := capStats.LoadOrStore(key, new(atomic.Int64))
+	v.(*atomic.Int64).Add(1)
+}
+
+// CapStats returns the counts of the capacities that went through the free
+// list since ResetCapStats, under EnableStats, one line per kind and
+// capacity: put (have = the capacity put), reuse / drop (have = the head,
+// want = the capacity asked), empty (want = the capacity asked of an empty
+// list). The lines are sorted.
+func CapStats() string {
+	var lines []string
+	capStats.Range(func(k, v any) bool {
+		lines = append(lines, fmt.Sprintf("%s count=%d", k.(string), v.(*atomic.Int64).Load()))
+		return true
+	})
+	sort.Strings(lines)
+	return strings.Join(lines, "\n")
+}
+
+// ResetCapStats clears the counts that CapStats returns.
+func ResetCapStats() {
+	capStats.Range(func(k, _ any) bool { capStats.Delete(k); return true })
+}
 
 // freePool is an array of slots that a pool of a Map let go of, on the free
 // list until a pool takes it back.
@@ -73,11 +107,21 @@ func (f *freePools[K, V, E]) take(capacity int) []E {
 	for {
 		h := l.head.DirectNext().WithOutMark()
 		if h == nil || h == &l.tail {
+			if EnableStats {
+				countCap("empty", 0, capacity)
+			}
 			return nil
 		}
 		n := view.Element(h)
 		for view.MarkForDelete(n) != nil {
 			runtime.Gosched()
+		}
+		if EnableStats {
+			if cap(n.pool) < capacity {
+				countCap("drop", cap(n.pool), capacity)
+			} else {
+				countCap("reuse", cap(n.pool), capacity)
+			}
 		}
 		if cap(n.pool) < capacity {
 			// an array smaller than what is asked for now is from an earlier
@@ -136,6 +180,7 @@ func (f *freePools[K, V, E]) put(items []E) {
 	}
 	if EnableStats {
 		DebugStats[CntPoolArrayFree].Add(1)
+		countCap("put", cap(all), 0)
 	}
 	n := &freePool[K, V, E]{pool: all[:0]}
 	// a single node, as InsertBefore of lista_encabezado requires

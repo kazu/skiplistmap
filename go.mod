@@ -5,8 +5,8 @@ go 1.27.1
 require (
 	github.com/cespare/xxhash v1.1.0
 	github.com/cornelk/hashmap v1.0.1
-	github.com/kazu/elist_head v0.3.0-0.20261003194243-65e5ae1c06ca
-	github.com/kazu/lista_encabezado v0.0.0-20261003072118-611497635248
+	github.com/kazu/elist_head v0.2.9-0.20261004155107-b07b0ef49c24
+	github.com/kazu/lista_encabezado v0.0.0-20261005184329-06555803fae8
 	github.com/lk4d4/trylock v0.0.0-20191027065348-ff7e133a5c54
 	github.com/lrita/cmap v0.0.0-20200818170753-e987cd3dfa73
 	github.com/stretchr/testify v1.7.0

@@ -4,67 +4,26 @@ package skiplistmap
 
 import (
 	"fmt"
-	"math/bits"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
-	"unsafe"
 
 	list_head "github.com/kazu/lista_encabezado"
 )
 
-// describeFreeLists tells the state of every free list that holds a node:
-// the links of the head and the tail, and the first and last nodes with
-// their raw links, marks, capacity and taking flag.
-func describeFreeLists[K Key[K], V any, E poolItem[K, V]](f *freePools[K, V, E]) string {
-	var b strings.Builder
-	view := f.view()
-	node := func(h *list_head.ListHead, l *freeList) string {
-		links := (*[2]uintptr)(unsafe.Pointer(h))
-		prev, next := atomic.LoadUintptr(&links[0]), atomic.LoadUintptr(&links[1])
-		s := fmt.Sprintf("%p prev %#x next %#x", h, prev, next)
-		switch h {
-		case &l.head:
-			return s + " (head)"
-		case &l.tail:
-			return s + " (tail)"
-		}
-		n := view.Element(h)
-		return s + fmt.Sprintf(" cap %d", cap(n.pool))
-	}
-	for i := range f.lists {
-		l := &f.lists[i]
-		first, last := l.head.DirectNext().WithOutMark(), l.tail.DirectPrev().WithOutMark()
-		if first == &l.tail && last == &l.head {
-			continue
-		}
-		fmt.Fprintf(&b, "list %d (taking %t):\n  %s\n  %s\n", i, l.taking.Load(), node(&l.head, l), node(&l.tail, l))
-		count := 0
-		for h := first; h != nil && h != &l.tail && count < 100000; h = h.DirectNext().WithOutMark() {
-			if count < 3 || h.DirectNext().WithOutMark() == &l.tail {
-				fmt.Fprintf(&b, "  %s\n", node(h, l))
-			}
-			count++
-		}
-		fmt.Fprintf(&b, "  %d nodes from the head; tail leads back to %s\n", count, node(last, l))
-	}
-	return b.String()
-}
-
 // Two pools that take an array from the free list at once get two arrays, or
-// one of them gets none: an array never goes to both, and the one that gets
-// none does not wait. One take is stopped in its MarkForDelete before it
-// locks, where the other runs to the end.
+// one of them gets none: an array never goes to both. One take is stopped in
+// its MarkForDelete before it locks; the other waits for it and finds the
+// list empty.
 func TestFreePoolsTakeHandsOutAnArrayOnce(t *testing.T) {
 	var f freePools[IntKey, int, embeddedEntry[IntKey, int]]
 	f.init()
 	items, _ := takeItems(&f, 0, 8, true)
 	f.put(items.items)
-	node := f.lists[bits.Len(8)].head.Next()
+	node := f.list.head.Next()
 
 	reached, resume := make(chan struct{}), make(chan struct{})
 	var stopped atomic.Bool
@@ -83,13 +42,21 @@ func TestFreePoolsTakeHandsOutAnArrayOnce(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("the take did not reach MarkForDelete of the node")
 	}
-	second := f.take(8)
+	// the second take waits for the first, which has the list
+	secondCh := make(chan []embeddedEntry[IntKey, int], 1)
+	go func() { secondCh <- f.take(8) }()
+	time.Sleep(10 * time.Millisecond)
 	close(resume)
-	var got []embeddedEntry[IntKey, int]
+	var got, second []embeddedEntry[IntKey, int]
 	select {
 	case got = <-first:
 	case <-time.After(time.Second):
 		t.Fatal("the stopped take did not finish")
+	}
+	select {
+	case second = <-secondCh:
+	case <-time.After(time.Second):
+		t.Fatal("the second take did not finish")
 	}
 	if got == nil {
 		t.Fatal("the take that unlinks the node did not get the array")
@@ -100,15 +67,14 @@ func TestFreePoolsTakeHandsOutAnArrayOnce(t *testing.T) {
 }
 
 // An array whose put has linked it from the head of the list but not yet
-// from the tail is not taken: a take of it would leave the tail leading back
-// to an array that a pool has, and every later put, which inserts before the
-// tail, would fail for ever. The put is stopped between its two CASes, where
-// the take runs; both finish, and the list is whole.
+// from the tail is not taken: the take waits for the put, which has the
+// list. The put is stopped between its two CASes, where the take starts;
+// both finish, the take gets the array, and the list is whole.
 func TestFreePoolsTakeWaitsForAHalfInsertedArray(t *testing.T) {
 	var f freePools[IntKey, int, embeddedEntry[IntKey, int]]
 	f.init()
 	items, _ := takeItems(&f, 0, 8, true)
-	l := &f.lists[bits.Len(8)]
+	l := &f.list
 
 	reached, resume := make(chan struct{}), make(chan struct{})
 	var stopped atomic.Bool
@@ -152,8 +118,8 @@ func TestFreePoolsTakeWaitsForAHalfInsertedArray(t *testing.T) {
 }
 
 // With the free list in use, concurrent inserts of new keys into a map of
-// embedded pools finish, and the free lists stay whole: the head of each
-// leads to the node the tail leads back to.
+// embedded pools finish, and the free list stays whole: the head leads to
+// the node the tail leads back to.
 func TestFreePoolsConcurrentInsertsFinish(t *testing.T) {
 	preload, workers, perWork := 20000, 16, 2000
 	for _, p := range []struct {
@@ -194,13 +160,13 @@ func TestFreePoolsConcurrentInsertsFinish(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Minute):
-		t.Fatalf("concurrent inserts did not finish; free lists:\n%s", describeFreeLists(&m.free))
+		t.Fatalf("concurrent inserts did not finish; free list:\n%s", describeFreeLists(&m.free))
 	}
-	for i := range m.free.lists {
-		l := &m.free.lists[i]
+	{
+		l := &m.free.list
 		first, last := l.head.DirectNext(), l.tail.DirectPrev()
 		if (first == &l.tail) != (last == &l.head) {
-			t.Fatalf("free list %d is not whole: head -> %p, tail -> %p\n%s", i, first, last, describeFreeLists(&m.free))
+			t.Fatalf("free list is not whole: head -> %p, tail -> %p\n%s", first, last, describeFreeLists(&m.free))
 		}
 	}
 	want := preload + workers*perWork

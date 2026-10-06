@@ -6,10 +6,10 @@ import (
 	"github.com/kazu/elist_head"
 )
 
-// An array that a pool let go of comes back from the free list of its size
-// class with every slot as fresh as a new one, once; an array of another
-// size class does not come back for it, and a slot that a node outside the
-// array still leads to keeps the array out of the list.
+// An array that a pool let go of comes back from the free list with every
+// slot as fresh as a new one, once; it does not come back for a larger
+// capacity, and a slot that a node outside the array still leads to keeps
+// the array out of the list.
 func TestFreePoolsTakeBackAnArray(t *testing.T) {
 	var f freePools[IntKey, int, embeddedEntry[IntKey, int]]
 	f.init()
@@ -24,9 +24,6 @@ func TestFreePoolsTakeBackAnArray(t *testing.T) {
 		slot.reverse, slot.conflict = uint64(i)+1, 7
 	}
 	f.put(items.items)
-	if f.take(16) != nil {
-		t.Fatal("an array of another size class came back")
-	}
 	again, reused := takeItems(&f, 3, 8, true)
 	if !reused || again.first() != items.first() || again.Cap() != 8 || again.Len() != 3 {
 		t.Fatalf("the array that was let go of did not come back: reused %v len %d cap %d", reused, again.Len(), again.Cap())
@@ -40,6 +37,17 @@ func TestFreePoolsTakeBackAnArray(t *testing.T) {
 	}
 	if f.take(8) != nil {
 		t.Fatal("the array came back twice")
+	}
+	// an array smaller than the capacity asked for leaves the list, and the
+	// one behind it comes back
+	f.put(again.items)
+	larger, _ := takeItems(&f, 0, 16, true)
+	f.put(larger.items)
+	if got := f.take(16); got == nil || &got[:1][0] != larger.first() {
+		t.Fatal("the larger array behind a smaller one did not come back")
+	}
+	if f.take(8) != nil {
+		t.Fatal("an array smaller than the capacity asked for stayed on the list")
 	}
 
 	// a slot that the list still leads to

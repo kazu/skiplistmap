@@ -1887,7 +1887,8 @@ const (
 	CntPoolExpand      statKey = 9
 	CntPoolArrayReuse  statKey = 10
 	CntPoolArrayFree   statKey = 11
-	statCount          statKey = 12
+	CntPoolArrayDrop   statKey = 12
+	statCount          statKey = 13
 )
 
 func nextNoCheck[K Key[K], V any](e *embeddedEntry[K, V]) *embeddedEntry[K, V] {

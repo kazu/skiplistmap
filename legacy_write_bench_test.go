@@ -75,6 +75,7 @@ func runLegacyInsertOnly(b *testing.B, p *legacyMapTestParam) {
 	var nextWorker atomic.Uint64
 	b.ReportAllocs()
 	b.ResetTimer()
+	b.StartTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		index := nextWorker.Add(1) - 1
 		for pb.Next() {
@@ -82,4 +83,5 @@ func runLegacyInsertOnly(b *testing.B, p *legacyMapTestParam) {
 			index += uint64(actualWorkers)
 		}
 	})
+	b.StopTimer()
 }

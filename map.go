@@ -56,6 +56,9 @@ type Map[K Key[K], V any] struct {
 	// minCapItems is the least capacity of the item pool of a bucket after
 	// it grows; see MinCapItems
 	minCapItems int
+	// poolCapRatio is the capacity of the array of a pool over maxPerBucket;
+	// see PoolCapRatio
+	poolCapRatio float64
 	// free holds the arrays that the pools of the buckets let go of, for
 	// the pools to take back; see freePools
 	free   freePools[K, V, embeddedEntry[K, V]]
@@ -85,10 +88,22 @@ func minCapItem() int {
 }
 
 // poolInitCap is the capacity of the array a pool of a bucket starts with,
-// and of the one a bucket gets at a split: above the entries of a bucket,
-// so that a bucket splits before its pool is full.
+// and of the one a bucket gets at a split: MaxPefBucket times PoolCapRatio,
+// at least MinCapItems.
 func (h *Map[K, V]) poolInitCap() int {
-	return max(h.maxPerBucket*3/2, h.minCapItems)
+	return max(int(float64(h.maxPerBucket)*h.poolCapRatio), h.minCapItems)
+}
+
+// PoolCapRatio sets the capacity of the array of the pool of a bucket, as
+// a multiple of MaxPefBucket. Above 1, a bucket splits before its pool is
+// full, and the room after its entries takes the inserts between them
+// without a copy of the array. The default is 1.5.
+func PoolCapRatio[K Key[K], V any](ratio float64) OptHMap[K, V] {
+	return func(h *Map[K, V]) OptHMap[K, V] {
+		prev := h.poolCapRatio
+		h.poolCapRatio = ratio
+		return PoolCapRatio[K, V](prev)
+	}
 }
 
 func thresholdCapItem() int {
@@ -181,6 +196,7 @@ func NewHMap[K Key[K], V any](opts ...OptHMap[K, V]) *Map[K, V] {
 		len:          0,
 		maxPerBucket: 32,
 		minCapItems:  minCapItem(),
+		poolCapRatio: 1.5,
 	}
 
 	topBucket := newBucket[K, V]()

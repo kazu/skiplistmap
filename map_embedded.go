@@ -170,10 +170,10 @@ func (h *Map[K, V]) makeBucket2(bucket *bucket[K, V]) (err error) {
 	if level := b.level(); level < 0 {
 		b.setLevel(-level)
 	}
-	// the parent keeps the slots below the split, and no more: the slots
-	// from idx belong to the child
-	parent := bucket.itemPool()
-	parent.setItems(embeddedItems[K, V]{items: parent.ptrItems().items[:idx:idx]})
+	// the parent keeps its array with the slots below the split; the slots
+	// from idx move into an array of the child, of the capacity a pool
+	// starts with, so that the arrays of the pools stay of one capacity
+	bucket.itemPool().moveTailInto(nPool, idx, h.poolInitCap(), &h.free)
 
 	h.insertOnLevel(b, b.level(), "makeBucket2.levelFound", unsafe.Pointer(b))
 	stepAt("makeBucket2.recurse", unsafe.Pointer(bucket), unsafe.Pointer(b))
@@ -878,7 +878,8 @@ func (sp *itemPool[K, V, E]) _split(idx int, connect bool) (nPool *itemPool[K, V
 		return sp._split(idx, connect)
 	}
 
-	// sp keeps its items: the caller shrinks sp after nPool's bucket is readable.
+	// sp keeps its items: nPool reads the slots from idx in them until the
+	// caller moves them into an array of nPool, after its bucket is readable
 	nPool.setItems(itemSlice[K, V, E]{items: sp.ptrItems().items[idx:]})
 	nPool.Init()
 	//sp.validateItems()
@@ -889,6 +890,25 @@ func (sp *itemPool[K, V, E]) _split(idx int, connect bool) (nPool *itemPool[K, V
 	}
 	return
 
+}
+
+// moveTailInto moves the slots of sp from idx into an array of nPool, which
+// reads the slots of sp from idx until then, of capacity from the free list
+// or fresh; sp keeps its array with the length idx, and the slots moved out
+// are made fresh for its appends. A search of either pool starts again
+// meanwhile. The caller holds the locks of both pools.
+func (sp *itemPool[K, V, E]) moveTailInto(nPool *itemPool[K, V, E], idx, capacity int, free *freePools[K, V, E]) {
+	olen := sp.ptrItems().Len()
+	n := olen - idx
+	items, reused := takeItems(free, n, max(capacity, n), sp.reusable)
+	nPool.arrayState.Add(1)
+	sp.arrayState.Add(1)
+	movePoolItemsInto(items.slice(0, n), sp.ptrItems().slice(idx, olen), reused)
+	nPool.setItems(items)
+	nPool.arrayState.Add(1)
+	sp.setItems(sp.ptrItems().slice(0, idx))
+	resetSlots[K, V](sp.ptrItems().items[idx:olen])
+	sp.arrayState.Add(1)
 }
 
 func (sp *itemPool[K, V, E]) initFreeList() {

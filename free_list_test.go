@@ -1,11 +1,49 @@
 package skiplistmap
 
 import (
+	"fmt"
+	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/kazu/elist_head"
 )
+
+// A bucket that splits gives the child an array of the capacity a pool starts
+// with and keeps its own, so that every array a pool lets go of or asks for
+// is of that one capacity, and the free list hands them on.
+func TestFreePoolsSplitKeepsOneCapacity(t *testing.T) {
+	// the map is built before the stats are on, which dump the first buckets
+	h := New[StringKey, int](UseEmbeddedPool[StringKey, int](true), MaxPefBucket[StringKey, int](16), BucketMode[StringKey, int](CombineSearch3))
+	previous := EnableStats
+	defer func() { EnableStats = previous }()
+	EnableStats = true
+	ResetStats()
+	ResetCapStats()
+	for i := 0; i < 20000; i++ {
+		h.Set(StringKey(fmt.Sprintf("k%d", i)), i)
+	}
+	want := h.poolInitCap()
+	stats := CapStats()
+	if DebugStats[CntPoolArrayFree].Load() == 0 || strings.Count(stats, "put") == 0 {
+		t.Fatalf("no array went through the free list:\n%s", stats)
+	}
+	for _, line := range strings.Split(stats, "\n") {
+		var kind string
+		var have, capacity, count int
+		if _, err := fmt.Sscanf(line, "%s have=%d want=%d count=%d", &kind, &have, &capacity, &count); err != nil {
+			t.Fatalf("%q: %v", line, err)
+		}
+		// a pool that cannot split grows past the capacity; its array is
+		// asked of the list and not found, and is not what this is about
+		if kind != "empty" && (have != want || (capacity != 0 && capacity != want)) {
+			t.Fatalf("an array of another capacity than %d went through the list: %s", want, line)
+		}
+	}
+	if drops := DebugStats[CntPoolArrayDrop].Load(); drops != 0 {
+		t.Fatalf("%d arrays were dropped as too small", drops)
+	}
+}
 
 // A search that read the array of a pool before the pool let it go reads it
 // still, past the length of the pool that took it back: a slide of that pool

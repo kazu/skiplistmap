@@ -168,16 +168,7 @@ func (f *freePools[K, V, E]) put(items []E) {
 			return
 		}
 	}
-	for i := range all {
-		slot := (*embeddedEntry[K, V])(unsafe.Pointer(&all[i]))
-		slot.acquireWrite()
-		var zero embeddedEntry[K, V]
-		slot.key, slot.value = zero.key, zero.value
-		clearListLinks(&slot.ListHead)
-		atomic.StoreUint64(&slot.conflict, 0)
-		atomic.StoreUint64(&slot.reverse, 0)
-		atomic.StoreUint64((*uint64)(&slot.state), uint64(mapIsReusable))
-	}
+	resetSlots[K, V](all)
 	if EnableStats {
 		DebugStats[CntPoolArrayFree].Add(1)
 		countCap("put", cap(all), 0)
@@ -190,6 +181,21 @@ func (f *freePools[K, V, E]) put(items []E) {
 	defer l.release()
 	for f.view().InsertBefore(&l.tail, n) != nil {
 		runtime.Gosched()
+	}
+}
+
+// resetSlots makes every slot of all as fresh as newPoolItems makes it, after
+// the readers pinned on it have left, for a search that still reads it.
+func resetSlots[K Key[K], V any, E poolItem[K, V]](all []E) {
+	for i := range all {
+		slot := (*embeddedEntry[K, V])(unsafe.Pointer(&all[i]))
+		slot.acquireWrite()
+		var zero embeddedEntry[K, V]
+		slot.key, slot.value = zero.key, zero.value
+		clearListLinks(&slot.ListHead)
+		atomic.StoreUint64(&slot.conflict, 0)
+		atomic.StoreUint64(&slot.reverse, 0)
+		atomic.StoreUint64((*uint64)(&slot.state), uint64(mapIsReusable))
 	}
 }
 

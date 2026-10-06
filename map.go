@@ -84,6 +84,13 @@ func minCapItem() int {
 	return atomic_util.LoadInt(&conf.minCapItems)
 }
 
+// poolInitCap is the capacity of the array a pool of a bucket starts with,
+// and of the one a bucket gets at a split: above the entries of a bucket,
+// so that a bucket splits before its pool is full.
+func (h *Map[K, V]) poolInitCap() int {
+	return max(h.maxPerBucket*3/2, h.minCapItems)
+}
+
 func thresholdCapItem() int {
 	return atomic_util.LoadInt(&conf.thresholdCap)
 }
@@ -281,7 +288,7 @@ func (h *Map[K, V]) initBeforeSet() {
 			btable.setupPool()
 			btable._itemPool.reusable = true
 			btable._itemPool.minCap = h.minCapItems
-			btable._itemPool._init(max(h.maxPerBucket*3/2, h.minCapItems))
+			btable._itemPool._init(h.poolInitCap())
 		}
 
 		empty = &btable.dummy

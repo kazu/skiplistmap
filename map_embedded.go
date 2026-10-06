@@ -133,7 +133,9 @@ func (h *Map[K, V]) makeBucket2(bucket *bucket[K, V]) (err error) {
 	}
 	// Decide whether a split is possible before claiming a slot of the bucket table.
 	idx, err := bucket.itemPool().findIdx(newReverse)
-	if err != nil || idx == 0 {
+	// no entry below the split: the free slots a split left before the
+	// entries do not count
+	if err != nil || idx <= bucket.itemPool().leadingFree() {
 		return err
 	}
 
@@ -173,13 +175,13 @@ func (h *Map[K, V]) makeBucket2(bucket *bucket[K, V]) (err error) {
 	// the parent keeps its array with the slots below the split; the slots
 	// from idx move into an array of the child, of the capacity a pool
 	// starts with, so that the arrays of the pools stay of one capacity
-	bucket.itemPool().moveTailInto(nPool, idx, h.poolInitCap(), &h.free)
+	bucket.itemPool().moveTailInto(nPool, idx, h.poolInitCap(), h.maxPerBucket, &h.free)
 
 	h.insertOnLevel(b, b.level(), "makeBucket2.levelFound", unsafe.Pointer(b))
 	stepAt("makeBucket2.recurse", unsafe.Pointer(bucket), unsafe.Pointer(b))
-	if int(b.len()) > h.maxPerBucket {
+	if b.entries() > h.maxPerBucket {
 		h.makeBucket2(b)
-	} else if int(bucket.len()) > h.maxPerBucket {
+	} else if bucket.entries() > h.maxPerBucket {
 		h.makeBucket2(bucket)
 	}
 
@@ -400,15 +402,27 @@ func (sp *itemPool[K, V, E]) appendLast(reverse uint64, mu sync.Locker) (newItem
 	return new, nil, fn
 }
 
-// freeSlot reports whether slot j can take an entry: after the length a slot
-// that newPoolItems made and nothing took, within it a deleted slot that is
-// off the list, one that insertToPool detached with its block or one that a
-// move copied without linking. A Delete without Purge leaves its slot on the
+// leadingFree is the number of free slots a split left before the entries,
+// which are within the length but hold no entry.
+func (sp *itemPool[K, V, E]) leadingFree() int {
+	items := sp.ptrItems()
+	free := 0
+	for free < items.Len() && mapState(atomic.LoadUint64((*uint64)(&items._at(free, false, false).state))) == mapIsReusable {
+		free++
+	}
+	return free
+}
+
+// freeSlot reports whether slot j can take an entry: a slot that
+// newPoolItems made and nothing took, after the length or one a split left
+// before the entries; within the length also a deleted slot that is off the
+// list, one that insertToPool detached with its block or one that a move
+// copied without linking. A Delete without Purge leaves its slot on the
 // list, so that slot is not free.
 func (sp *itemPool[K, V, E]) freeSlot(j, olen int) bool {
 	item := sp.ptrItems()._at(j, false, false)
 	state := mapState(atomic.LoadUint64((*uint64)(&item.state)))
-	if j >= olen {
+	if j >= olen || state == mapIsReusable {
 		return state == mapIsReusable
 	}
 	return state&mapIsDeleted != 0 && (state&mapIsDetached != 0 || !linkedEntry(&item.ListHead))
@@ -620,6 +634,11 @@ func (sp *itemPool[K, V, E]) insertToPool(reverse uint64, mu sync.Locker, free *
 			Log(LogDebug, "update olen")
 			newItem, nPool, _ = sp.getWithFn(reverse, nil, free)
 			return newItem, nPool, fn
+		}
+		// the slot before i, when free, takes the entry as it is: the order
+		// holds between the entries on either side, and nothing moves
+		if i > 0 && sp.freeSlot(i-1, olen) {
+			return sp.slideBlockToFreeRunBefore(reverse, i, i, i-1), nil, lazyUnlock
 		}
 		if dst, blockEnd := sp.freeRunFor(i, olen, ocap); dst >= 0 {
 			return sp.slideBlockToFreeRun(reverse, i, blockEnd, dst, olen), nil, lazyUnlock
@@ -895,15 +914,21 @@ func (sp *itemPool[K, V, E]) _split(idx int, connect bool) (nPool *itemPool[K, V
 // moveTailInto moves the slots of sp from idx into an array of nPool, which
 // reads the slots of sp from idx until then, of capacity from the free list
 // or fresh; sp keeps its array with the length idx, and the slots moved out
-// are made fresh for its appends. A search of either pool starts again
-// meanwhile. The caller holds the locks of both pools.
-func (sp *itemPool[K, V, E]) moveTailInto(nPool *itemPool[K, V, E], idx, capacity int, free *freePools[K, V, E]) {
+// are made fresh for its appends. The slots go to the middle of the array,
+// so that the inserts of nPool find free slots before them as well as
+// after; the free slots before them are not entries of the bucket, and
+// leave room for limit entries, so that the bucket splits before the array
+// is full. A search of either pool starts again meanwhile. The caller holds
+// the locks of both pools.
+func (sp *itemPool[K, V, E]) moveTailInto(nPool *itemPool[K, V, E], idx, capacity, limit int, free *freePools[K, V, E]) {
 	olen := sp.ptrItems().Len()
 	n := olen - idx
-	items, reused := takeItems(free, n, max(capacity, n), sp.reusable)
+	capacity = max(capacity, n)
+	off := max(min((capacity-n)/2, capacity-limit-1), 0)
+	items, reused := takeItems(free, off+n, capacity, sp.reusable)
 	nPool.arrayState.Add(1)
 	sp.arrayState.Add(1)
-	movePoolItemsInto(items.slice(0, n), sp.ptrItems().slice(idx, olen), reused)
+	movePoolItemsInto(items.slice(off, off+n), sp.ptrItems().slice(idx, olen), reused)
 	nPool.setItems(items)
 	nPool.arrayState.Add(1)
 	sp.setItems(sp.ptrItems().slice(0, idx))

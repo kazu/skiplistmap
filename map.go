@@ -1376,7 +1376,7 @@ RETRY:
 			return true
 		}
 		btable := opt.bucket
-		if btable == nil || node.IsIgnored() || int(btable.len()) <= h.maxPerBucket {
+		if btable == nil || node.IsIgnored() || btable.entries() <= h.maxPerBucket {
 			return true
 		}
 

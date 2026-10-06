@@ -124,6 +124,16 @@ func (b *bucket[K, V]) len() int32 {
 
 }
 
+// entries is len without the free slots a split left before the entries
+// of the pool, which the inserts below them take: the count a split is
+// decided on.
+func (b *bucket[K, V]) entries() int {
+	if b._itemPool == nil && b.itemPoolFn == nil {
+		return int(b.len())
+	}
+	return int(b.len()) - b.itemPool().leadingFree()
+}
+
 func (b *bucket[K, V]) itemPool() *samepleItemPool[K, V] {
 
 	if b._itemPool != nil && b.tailPool.Prev() != b.headPool.Prev() {

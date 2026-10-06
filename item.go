@@ -41,9 +41,7 @@ func CondOfFind[K Key[K], V any](reverse uint64, l sync.Locker) CondOfFinder[K, 
 	return func(ehead *Entry[K, V]) bool {
 
 		if EnableStats {
-			l.Lock()
-			DebugStats[CntSearchEntry]++
-			l.Unlock()
+			DebugStats[CntSearchEntry].Add(1)
 		}
 		return reverse <= ehead.reverse
 	}

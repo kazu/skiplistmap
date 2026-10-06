@@ -14,7 +14,7 @@ jobs:
     - uses: actions/checkout@v2
       with:
         repository: kazu/elist_head
-        ref: 4df679832828840506950c41bcfd2583228178b5
+        ref: 65e5ae1c06ca91ef1e66c655233d6d0934d9c8a9
         path: elist_head
 
     - uses: actions/checkout@v2

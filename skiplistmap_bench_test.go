@@ -206,6 +206,32 @@ func Benchmark_HMap_forProfile(b *testing.B) {
 		})
 	}
 }
+
+func Benchmark_HMap_InsertForProfile(b *testing.B) {
+	// skiplistmap.EnableStats = true
+	// skiplistmap.ResetStats()
+	// os.Remove("/tmp/skiplistmap-capstats.txt") // 起動ごとに古いのを消す
+
+	for _, p := range []legacyMapTestParam{
+		// {name: "skiplistmap4", concurrent: 16, buckets: 32, mode: skiplistmap.CombineSearch4, mapInf: &legacyTypedMap{}},
+		{name: "skiplistmap5", concurrent: 16, buckets: 16, mode: skiplistmap.CombineSearch3, mapInf: &legacyTypedMap{}},
+	} {
+
+		b.Run(p.name, func(b *testing.B) {
+			p.mapInf = freshLegacyWriteMap(p)
+			runLegacyInsertOnly(b, &p)
+		})
+		// stats := &skiplistmap.DebugStats
+		// f, err := os.OpenFile("/tmp/skiplistmap-capstats.txt", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+		// if err != nil {
+		// 	b.Fatal(err)
+		// }
+		// fmt.Fprintf(f, "== %s bucket=%d\n%s\n", p.name, p.buckets, skiplistmap.CapStats())
+		// f.Close()
+		// fmt.Printf("%+v\n", stats)
+	}
+}
+
 func Benchmark_MapPerOperation(b *testing.B) {
 	newShard := func(fn func(int) list_head.MapGetSet) list_head.MapGetSet {
 		s := &list_head.ShardMap{}

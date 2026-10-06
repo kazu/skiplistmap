@@ -47,8 +47,12 @@ func ElementOf(head unsafe.Pointer, offset uintptr) unsafe.Pointer {
 }
 
 func PoolCap(len int) int {
-	min := minCapItem()
+	return poolCap(len, minCapItem())
+}
 
+// poolCap returns the capacity of a pool that grows from len items: at least
+// min, otherwise the next power of two above len.
+func poolCap(len, min int) int {
 	if len < min {
 		return min
 	}

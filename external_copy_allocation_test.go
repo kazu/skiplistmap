@@ -44,7 +44,7 @@ func allocatedPoolSlots(m *Map[IntKey, int]) int {
 	for i := range m.pooler.itemPool {
 		head := m.pooler.itemPool[i].Next()
 		if !head.Empty() {
-			count += samepleItemPoolFromListHead[IntKey, int](head).items.Len()
+			count += entryItemPoolFromListHead[IntKey, int](head).ptrItems().Len()
 		}
 	}
 	return count

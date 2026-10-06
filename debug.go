@@ -3,16 +3,19 @@ package skiplistmap
 import (
 	"fmt"
 	"io"
+	"sync/atomic"
 )
 
 type statKey byte
 
 var EnableStats bool = false
 
-var DebugStats map[statKey]int = map[statKey]int{}
+var DebugStats [statCount]atomic.Int64
 
 func ResetStats() {
-	DebugStats = map[statKey]int{}
+	for i := range DebugStats {
+		DebugStats[i].Store(0)
+	}
 }
 
 type LogLevel byte

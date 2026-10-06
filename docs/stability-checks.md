@@ -1,7 +1,7 @@
 # Stability checks
 
 この開発ブランチはGo 1.27.1と隣の`elist_head`・`lista_encabezado`のcheckoutを使う。
-elist_headは`4df679832828840506950c41bcfd2583228178b5`、lista_encabezadoは
+elist_headは`65e5ae1c06ca91ef1e66c655233d6d0934d9c8a9`、lista_encabezadoは
 `611497635248e41c2685729b1b6619919a978179`を本体の依存として使う。
 型移行前の比較ではelist_headの`cab6a1bff65b540c8a777c20e9a41cb8899b6d4c`を使用した。
 024で専用の`ReplaceWith`を廃止し、Mapの更新は既存の挿入・削除を組み合わせる。
@@ -27,7 +27,7 @@ Go 1.27.1、Bash、`xargs` が必要。
 
 ゲートは vet、race、`stephook` タグ付き race の順に確認する。
 タグ付き検証は RMap の全テスト、バケットの J51/J56、型付きMap・キー照合・
-slot再利用・コピー更新・外部Entry混在・Update callback・分割と更新の並行テストを対象にする。
+slot再利用・pool中間挿入・コピー更新・外部Entry混在・Update callback・分割と更新の並行テストを対象にする。
 通常の検証と checkptr は race 付きの `go test -v` に含める。
 負荷の大きいテストは Makefile の `STRESS_TESTS` で分け、`make ci` では実行しない。
 `make stress` はそれらを race 付きで実行し、分割中の並行更新は `stephook` 付きでも検証する。

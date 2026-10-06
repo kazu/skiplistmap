@@ -18,6 +18,13 @@ import (
 )
 
 func (h *Map[K, V]) bsearchBybucket(bucket *bucket[K, V], reverseNoMask uint64, ignoreBucketEnry bool) *embeddedEntry[K, V] {
+	entry, _, _ := h.bsearchPool(bucket, reverseNoMask, ignoreBucketEnry)
+	return entry
+}
+
+// bsearchPool returns the array generation with the candidate so callers can
+// validate a collision walk that overlaps retirement of the source array.
+func (h *Map[K, V]) bsearchPool(bucket *bucket[K, V], reverseNoMask uint64, ignoreBucketEnry bool) (*embeddedEntry[K, V], *samepleItemPool[K, V], uint64) {
 
 	stepAt("bsearch.begin", unsafe.Pointer(bucket), nil)
 	pool := bucket.toBase().itemPool()
@@ -25,21 +32,18 @@ func (h *Map[K, V]) bsearchBybucket(bucket *bucket[K, V], reverseNoMask uint64, 
 	if pool == nil {
 		pool = bucket.toBase().itemPool()
 	}
-	// MENTION: should remove 0 slice ?
-	//items := pool.itemSlice(false)
-	items := pool.ptrItems()
+	var version uint64
 	// insertToPool may put a new array into the pool while the search reads
 	// the old one; the search starts again when the array changed under it
 	for {
-		version := pool.arrayState.Load()
-		data := atomic.LoadPointer(&items.data)
-		l := items.Len()
+		version = pool.arrayState.Load()
+		snapshot := pool.ptrItems().items
+		l := len(snapshot)
 		stepAt("bsearch.snapshot", unsafe.Pointer(pool), nil)
 		if version&1 != 0 || pool.arrayState.Load() != version {
 			runtime.Gosched()
 			continue
 		}
-		snapshot := unsafe.Slice((*embeddedEntry[K, V])(data), l)
 
 		idx := sort.Search(l, func(i int) bool {
 			item := skipDeletedItems[K, V](&snapshot[i], &snapshot[0], unsafe.Sizeof(embeddedEntry[K, V]{}))
@@ -94,7 +98,7 @@ func (h *Map[K, V]) bsearchBybucket(bucket *bucket[K, V], reverseNoMask uint64, 
 			continue
 		}
 		if found != nil {
-			return found
+			return found, pool, version
 		}
 		break
 	}
@@ -102,11 +106,11 @@ func (h *Map[K, V]) bsearchBybucket(bucket *bucket[K, V], reverseNoMask uint64, 
 	a := bucket.toBase().prevAsB()
 	if a.reverse < reverseNoMask {
 		if nb := h.findBucket(reverseNoMask); nb.toBase() != bucket.toBase() {
-			return h.bsearchBybucket(nb, reverseNoMask, ignoreBucketEnry)
+			return h.bsearchPool(nb, reverseNoMask, ignoreBucketEnry)
 		}
 	}
 
-	return nil
+	return nil, pool, version
 }
 
 func (h *Map[K, V]) searchKeyFromEmbeddedPool(k uint64, ignoreBucketEnry bool) *embeddedEntry[K, V] {
@@ -129,7 +133,9 @@ func (h *Map[K, V]) makeBucket2(bucket *bucket[K, V]) (err error) {
 	}
 	// Decide whether a split is possible before claiming a slot of the bucket table.
 	idx, err := bucket.itemPool().findIdx(newReverse)
-	if err != nil || idx == 0 {
+	// no entry below the split: the free slots a split left before the
+	// entries do not count
+	if err != nil || idx <= bucket.itemPool().leadingFree() {
 		return err
 	}
 
@@ -148,7 +154,7 @@ func (h *Map[K, V]) makeBucket2(bucket *bucket[K, V]) (err error) {
 	b.LevelHead.Init()
 	b.initItemPool()
 
-	olen := bucket.itemPool().items.Len()
+	olen := bucket.itemPool().ptrItems().Len()
 	nPool, err2 := bucket.itemPool()._split(idx, false)
 	_ = err2
 	b.setItemPool(nPool)
@@ -159,20 +165,23 @@ func (h *Map[K, V]) makeBucket2(bucket *bucket[K, V]) (err error) {
 	// writers cannot expand its pool while this split still changes its slice.
 	b.muPool.Lock()
 	defer b.muPool.Unlock()
-	h.addBucket(b)
+	// the dummy goes just after the last entry below the split, which the
+	// array knows; the walk from the head of the bucket is not needed
+	h.addBucketFrom(b, bucket.itemPool().splitAnchor(idx))
 	stepAt("makeBucket2.added", unsafe.Pointer(b), unsafe.Pointer(bucket))
 	if level := b.level(); level < 0 {
 		b.setLevel(-level)
 	}
-	spItems := bucket.itemPool().ptrItems()
-	atomic_util.StoreInt(&spItems.len, idx)
-	atomic_util.StoreInt(&spItems.cap, idx)
+	// the parent keeps its array with the slots below the split; the slots
+	// from idx move into an array of the child, of the capacity a pool
+	// starts with, so that the arrays of the pools stay of one capacity
+	bucket.itemPool().moveTailInto(nPool, idx, h.poolInitCap(), h.maxPerBucket, &h.free)
 
 	h.insertOnLevel(b, b.level(), "makeBucket2.levelFound", unsafe.Pointer(b))
 	stepAt("makeBucket2.recurse", unsafe.Pointer(bucket), unsafe.Pointer(b))
-	if int(b.len()) > h.maxPerBucket {
+	if b.entries() > h.maxPerBucket {
 		h.makeBucket2(b)
-	} else if int(bucket.len()) > h.maxPerBucket {
+	} else if bucket.entries() > h.maxPerBucket {
 		h.makeBucket2(bucket)
 	}
 
@@ -288,16 +297,16 @@ const (
 	foundFree          = 5
 )
 
-func (sp *samepleItemPool[K, V]) len() (l int) {
+func (sp *itemPool[K, V, E]) len() (l int) {
 	return sp.ptrItems().Len()
 
 }
 
-func (sp *samepleItemPool[K, V]) cap() (l int) {
+func (sp *itemPool[K, V, E]) cap() (l int) {
 	return sp.ptrItems().Cap()
 }
 
-func (sp *samepleItemPool[K, V]) state4get(reverse uint64, len int, cap int) byte {
+func (sp *itemPool[K, V, E]) state4get(reverse uint64, len int, cap int) byte {
 
 	if len == 0 {
 		return getEmpty
@@ -312,8 +321,7 @@ func (sp *samepleItemPool[K, V]) state4get(reverse uint64, len int, cap int) byt
 	}
 
 	// deleted items keep their place in the order, so compare with the last one
-	items := sp.itemSlice(false)
-	last := items._at(len-1, false, false)
+	last := sp.ptrItems()._at(len-1, false, false)
 	if atomic.LoadUint64(&last.reverse) < reverse {
 		return getLargest
 	}
@@ -323,9 +331,9 @@ func (sp *samepleItemPool[K, V]) state4get(reverse uint64, len int, cap int) byt
 }
 
 // bsearchFromFreeList finds a deleted slot without breaking hash order. Check
-// the equal-reverse run and its immediate predecessor, or the first slot when
-// every item is above reverse. Replacements leave free slots inside that run.
-func (sp *samepleItemPool[K, V]) bsearchFromFreeList(reverse uint64) (int, bool) {
+// the first larger slot, the equal-reverse run and its immediate predecessor.
+// Replacements and suffix moves leave free slots inside the ordered array.
+func (sp *itemPool[K, V, E]) bsearchFromFreeList(reverse uint64) (int, bool) {
 
 	items := sp.ptrItems()
 
@@ -333,6 +341,9 @@ func (sp *samepleItemPool[K, V]) bsearchFromFreeList(reverse uint64) (int, bool)
 		item := items._at(i, true, false)
 		return atomic.LoadUint64(&item.reverse) > reverse
 	})
+	if idx < items.Len() && items.at(idx).IsDeleted() {
+		return idx, true
+	}
 	if idx < 1 {
 		idx = 1
 	}
@@ -361,7 +372,7 @@ type unlocker func(mu sync.Locker)
 // appendLast takes the slot after the last one for the key of reverse. It
 // writes reverse into the slot before the slot counts in the length, so that
 // a binary search over the slots never meets a slot of reverse 0 there.
-func (sp *samepleItemPool[K, V]) appendLast(reverse uint64, mu sync.Locker) (newItem *embeddedEntry[K, V], nPool *samepleItemPool[K, V], fn unlocker) {
+func (sp *itemPool[K, V, E]) appendLast(reverse uint64, mu sync.Locker) (newItem *embeddedEntry[K, V], nPool *itemPool[K, V, E], fn unlocker) {
 
 	if mu != nil {
 		mu.Lock()
@@ -378,93 +389,302 @@ func (sp *samepleItemPool[K, V]) appendLast(reverse uint64, mu sync.Locker) (new
 	// identity and give it reverse while it is past the length, where no
 	// reader looks at it yet
 	slot := items._at(l, false, false)
-	atomic.AndUint64((*uint64)(&slot.PtrMapHead().state), ^uint64(mapIsDummy|mapIsDeleted|mapIsPoolItem|mapIsBusy))
+	if slot.isDetached() {
+		slot.ListHead.Init()
+	}
+	atomic.AndUint64((*uint64)(&slot.PtrMapHead().state), ^uint64(mapIsDummy|mapIsDeleted|mapIsPoolItem|mapIsBusy|mapIsDetached))
 	atomic.StoreUint64(&slot.PtrMapHead().conflict, 0)
 	atomic.StoreUint64(&slot.PtrMapHead().reverse, reverse)
-	if atomic_util.CompareAndSwapInt(&items.len, l, l+1) {
-		new = items.at(l)
-		stepAt("appendLast.claimed", unsafe.Pointer(new), nil)
-		return new, nil, fn
-	}
-	Log(LogWarn, "retry to fail to expand")
-	return nil, nil, fn
+	// the lock of the bucket keeps the length: the slot counts in it now
+	sp.setItems(itemSlice[K, V, E]{items: items.items[:l+1]})
+	new = slot
+	stepAt("appendLast.claimed", unsafe.Pointer(new), nil)
+	return new, nil, fn
 }
 
-func (sp *samepleItemPool[K, V]) insertToPool(reverse uint64, mu sync.Locker) (newItem *embeddedEntry[K, V], nPool *samepleItemPool[K, V], fn unlocker) {
+// leadingFree is the number of free slots a split left before the entries,
+// which are within the length but hold no entry.
+func (sp *itemPool[K, V, E]) leadingFree() int {
+	items := sp.ptrItems()
+	free := 0
+	for free < items.Len() && mapState(atomic.LoadUint64((*uint64)(&items._at(free, false, false).state))) == mapIsReusable {
+		free++
+	}
+	return free
+}
+
+// freeSlot reports whether slot j can take an entry: a slot that
+// newPoolItems made and nothing took, after the length or one a split left
+// before the entries; within the length also a deleted slot that is off the
+// list, one that insertToPool detached with its block or one that a move
+// copied without linking. A Delete without Purge leaves its slot on the
+// list, so that slot is not free.
+func (sp *itemPool[K, V, E]) freeSlot(j, olen int) bool {
+	item := sp.ptrItems()._at(j, false, false)
+	state := mapState(atomic.LoadUint64((*uint64)(&item.state)))
+	if j >= olen || state == mapIsReusable {
+		return state == mapIsReusable
+	}
+	return state&mapIsDeleted != 0 && (state&mapIsDetached != 0 || !linkedEntry(&item.ListHead))
+}
+
+// freeRunFor returns the slot that a new entry at i takes, the start of the
+// first run of free slots after i that holds it and the block [i, blockEnd)
+// of the slots after it, which goes behind it. The block ends at the first
+// free slot after i; a run of free slots that is too short goes into the
+// block with the entries after it, and the search goes on from the next run.
+// After the length, a slot that is not fresh is passed over, not taken into
+// the block. It returns -1 when no run is long enough before the capacity
+// ends. The slots the block leaves stay holes, with their links, for a
+// caller that still holds one of them: the new entry never takes them.
+func (sp *itemPool[K, V, E]) freeRunFor(i, olen, ocap int) (dst, blockEnd int) {
+	blockEnd = i
+	for {
+		for blockEnd < olen && !sp.freeSlot(blockEnd, olen) {
+			blockEnd++
+		}
+		need := blockEnd - i + 1
+		start := blockEnd
+		for {
+			run := 0
+			for start+run < ocap && sp.freeSlot(start+run, olen) {
+				run++
+			}
+			if run >= need {
+				return start, blockEnd
+			}
+			if start+run >= ocap {
+				return -1, 0
+			}
+			if start+run < olen {
+				blockEnd = start + run
+				break
+			}
+			start += run + 1
+		}
+	}
+}
+
+// slideBlockToFreeRun puts the key of reverse at dst, the start of a free run
+// at blockEnd or after it, and copies the block [i, blockEnd) of the slots
+// behind it; the run holds both. The slots from i before dst stay as holes
+// with the reverse of the new key, so that a binary search keeps its order
+// and a key below the new one reuses them. The length grows when the copy
+// reaches past it. It returns the slot of the new key.
+func (sp *itemPool[K, V, E]) slideBlockToFreeRun(reverse uint64, i, blockEnd, dst, olen int) *embeddedEntry[K, V] {
+	need := blockEnd - i
+	if EnableStats {
+		if dst < olen {
+			DebugStats[CntPoolHoleSlide].Add(1)
+		} else {
+			DebugStats[CntPoolSlide].Add(1)
+		}
+	}
+	for m := dst; m <= dst+need && m < olen; m++ {
+		sp.ptrItems().at(m).reclaimHole()
+	}
+	// Readers must retry throughout retirement, not only during publication.
+	sp.arrayState.Add(1)
+	switch {
+	case need == 1:
+		// the block of one needs no slices, which the call would allocate
+		movePoolItem(sp.ptrItems()._at(dst+1, false, false), sp.ptrItems()._at(i, false, false))
+	case need > 1:
+		// the slots past the length are read too, by a search that read the
+		// array before a pool let it go and this pool took it back
+		movePoolItemsInto(sp.ptrItems().slice(dst+1, dst+1+need), sp.ptrItems().slice(i, blockEnd), true)
+	}
+	for m := dst + 1; m <= dst+need && m < olen; m++ {
+		sp.ptrItems().at(m).releaseWrite()
+	}
+	// Keep the prefix in place. Retired source slots remain holes whose
+	// hashes preserve the order used by searches and subsequent reuse.
+	for j := i; j < dst; j++ {
+		item := sp.ptrItems()._at(j, false, false)
+		atomic.OrUint64((*uint64)(&item.state), uint64(mapIsDeleted|mapIsRetired|mapIsDetached))
+		atomic.StoreUint64(&item.reverse, reverse)
+	}
+	opened := sp.ptrItems()._at(dst, false, false)
+	atomic.StoreUint64(&opened.reverse, reverse)
+	if dst < olen {
+		opened.releaseWrite()
+	}
+	if end := dst + 1 + need; end > olen {
+		stepAt("insertToPool.publish", unsafe.Pointer(sp), nil)
+		sp.setItems(sp.ptrItems().slice(0, end))
+	}
+	sp.arrayState.Add(1)
+	return opened
+}
+
+// freeRunBefore is freeRunFor towards the start of the slots: it returns the
+// start of the first run of free slots before i that holds the block
+// [blockStart, i) of the slots before i and, after it, the new entry. The
+// block starts after the first free slot before i; a run that is too short
+// goes into the block with the entries before it. It returns -1 when no run
+// is long enough before the start.
+func (sp *itemPool[K, V, E]) freeRunBefore(i, olen int) (dst, blockStart int) {
+	blockStart = i
+	for {
+		for blockStart > 0 && !sp.freeSlot(blockStart-1, olen) {
+			blockStart--
+		}
+		need := i - blockStart + 1
+		run := 0
+		for blockStart-run > 0 && sp.freeSlot(blockStart-run-1, olen) {
+			run++
+		}
+		if run >= need {
+			return blockStart - run, blockStart
+		}
+		if blockStart-run <= 0 {
+			return -1, 0
+		}
+		blockStart -= run
+	}
+}
+
+// slideBlockToFreeRunBefore copies the block [blockStart, i) of the slots to
+// the free run at dst before it and puts the key of reverse after the copy;
+// the run holds both. The slots after the new key before i stay as holes
+// with the reverse of the entry at i, so that a binary search keeps its
+// order and a key between the new one and that entry reuses them. It
+// returns the slot of the new key.
+func (sp *itemPool[K, V, E]) slideBlockToFreeRunBefore(reverse uint64, blockStart, i, dst int) *embeddedEntry[K, V] {
+	need := i - blockStart
+	if EnableStats {
+		DebugStats[CntPoolHoleSlide].Add(1)
+	}
+	for m := dst; m <= dst+need; m++ {
+		sp.ptrItems().at(m).reclaimHole()
+	}
+	// Readers must retry throughout retirement, not only during publication.
+	sp.arrayState.Add(1)
+	switch {
+	case need == 1:
+		movePoolItem(sp.ptrItems()._at(dst, false, false), sp.ptrItems()._at(blockStart, false, false))
+	case need > 1:
+		movePoolItemsInto(sp.ptrItems().slice(dst, dst+need), sp.ptrItems().slice(blockStart, i), true)
+	}
+	for m := dst; m < dst+need; m++ {
+		sp.ptrItems().at(m).releaseWrite()
+	}
+	nextReverse := atomic.LoadUint64(&sp.ptrItems()._at(i, false, false).reverse)
+	for j := dst + need + 1; j < i; j++ {
+		item := sp.ptrItems()._at(j, false, false)
+		atomic.OrUint64((*uint64)(&item.state), uint64(mapIsDeleted|mapIsRetired|mapIsDetached))
+		atomic.StoreUint64(&item.reverse, nextReverse)
+	}
+	opened := sp.ptrItems()._at(dst+need, false, false)
+	atomic.StoreUint64(&opened.reverse, reverse)
+	opened.releaseWrite()
+	sp.arrayState.Add(1)
+	return opened
+}
+
+// reclaimHole gives a free slot within the length the state of a slot that
+// newPoolItems made and never handed out, so that it takes an entry the way
+// the slots after the length do, and keeps it held for writing: a reader
+// that still holds the slot from before waits until releaseWrite, after the
+// entry is in. The payload version stays, so that reader sees the change.
+func (e *embeddedEntry[K, V]) reclaimHole() {
+	e.acquireWrite()
+	state := atomic.LoadUint64((*uint64)(&e.state))
+	e.PtrListHead().Init()
+	atomic.StoreUint64(&e.conflict, 0)
+	atomic.StoreUint64((*uint64)(&e.state), (state&^uint64(mapKeyWriting-1))|uint64(mapIsReusable|mapReadersMask))
+}
+
+func (sp *itemPool[K, V, E]) insertToPool(reverse uint64, mu sync.Locker, free *freePools[K, V, E]) (newItem *embeddedEntry[K, V], nPool *itemPool[K, V, E], fn unlocker) {
 	if mu != nil {
 		mu.Lock()
 		fn = lazyUnlock
 	}
 
-	olen := sp.items.Len()
-	ocap := sp.items.Cap()
+	olen := sp.ptrItems().Len()
+	ocap := sp.ptrItems().Cap()
 
 	// require insert
 	if IsDebug() {
 		var b strings.Builder
-		for i := 0; i < sp.items.Len(); i++ {
-			sp.items.at(i).PtrMapHead().dump[K, V](&b)
+		for i := 0; i < sp.ptrItems().Len(); i++ {
+			sp.ptrItems().at(i).PtrMapHead().dump[K, V](&b)
 		}
 		Log(LogDebug, "B: itemPool.items\n%s\n", b.String())
 	}
 	// FIXME: should disable not IsDebug()
 	//sp.validateItems()
-	if olen != sp.items.Len() {
+	if olen != sp.ptrItems().Len() {
 		Log(LogDebug, "update olen")
-		newItem, nPool, _ = sp.getWithFn(reverse, nil)
+		newItem, nPool, _ = sp.getWithFn(reverse, nil, free)
 		return newItem, nPool, fn
 	}
-	//olen = sp.items.Len()
+	//olen = sp.ptrItems().Len()
 	nlen := int64(olen)
 
 	for i := 0; i < olen; i++ {
-		//for i := 0; i < sp.items.Len(); i++ {
-		if sp.items.at(i).reverse < reverse {
+		//for i := 0; i < sp.ptrItems().Len(); i++ {
+		if sp.ptrItems().at(i).reverse < reverse {
 			continue
 		}
 		if i == olen-1 {
 			//fmt.Printf("invalid")
 		}
-		if !atomic.CompareAndSwapInt64(&nlen, int64(sp.items.Len()), nlen+1) {
+		if !atomic.CompareAndSwapInt64(&nlen, int64(sp.ptrItems().Len()), nlen+1) {
 			Log(LogDebug, "update olen")
-			newItem, nPool, _ = sp.getWithFn(reverse, nil)
+			newItem, nPool, _ = sp.getWithFn(reverse, nil, free)
 			return newItem, nPool, fn
 		}
-		// copy to new slice
-		newItems := newPoolItems[K, V](olen+1, maxInts(ocap, olen+1), true)
-		if i > 0 {
-			copyPoolItems(newItems.slice(0, i), sp.items.slice(0, i))
+		// the slot before i, when free, takes the entry as it is: the order
+		// holds between the entries on either side, and nothing moves
+		if i > 0 && sp.freeSlot(i-1, olen) {
+			return sp.slideBlockToFreeRunBefore(reverse, i, i, i-1), nil, lazyUnlock
 		}
-		copyPoolItems(newItems.slice(i+1, newItems.Len()), sp.items.slice(i, sp.items.Len()))
+		if dst, blockEnd := sp.freeRunFor(i, olen, ocap); dst >= 0 {
+			return sp.slideBlockToFreeRun(reverse, i, blockEnd, dst, olen), nil, lazyUnlock
+		}
+		if dst, blockStart := sp.freeRunBefore(i, olen); dst >= 0 {
+			return sp.slideBlockToFreeRunBefore(reverse, blockStart, i, dst), nil, lazyUnlock
+		}
+		newItems, reused := takeItems(free, olen+1, maxInts(ocap, olen+1), true)
+		if EnableStats {
+			DebugStats[CntPoolInsertAlloc].Add(1)
+		}
+		insertAt := i
+		// Readers must retry throughout retirement, not only during publication.
+		sp.arrayState.Add(1)
+		if i > 0 {
+			movePoolItemsInto(newItems.slice(0, i), sp.ptrItems().slice(0, i), reused)
+		}
+		movePoolItemsInto(newItems.slice(insertAt+1, newItems.Len()), sp.ptrItems().slice(i, olen), reused)
 
-		replacePoolItems(newItems, sp.items, i)
-		newItems.at(i).PtrMapHead().reverse = reverse
+		// a search that read the array before a pool let it go may read
+		// the slot still
+		atomic.StoreUint64(&newItems.at(insertAt).PtrMapHead().reverse, reverse)
 
-		oldItems := sp.ptrItems().dup()
-		newItemSlice := newItems
+		oldItems := sp.ptrItems().items
 		stepAt("insertToPool.publish", unsafe.Pointer(sp), nil)
-		sp.publishItems(&newItemSlice)
-
-		// for debug
-		_ = oldItems
+		sp.setItems(newItems)
+		sp.arrayState.Add(1)
+		free.put(oldItems)
 
 		if IsDebug() {
 			var b strings.Builder
-			for i := 0; i < sp.items.Len(); i++ {
-				sp.items.at(i).PtrMapHead().dump[K, V](&b)
+			for i := 0; i < sp.ptrItems().Len(); i++ {
+				sp.ptrItems().at(i).PtrMapHead().dump[K, V](&b)
 			}
 			fmt.Printf("A: itemPool.items\n%s\n", b.String())
 		}
 
-		return sp.items.at(i), nil, lazyUnlock
+		return sp.ptrItems().at(insertAt), nil, lazyUnlock
 	}
-	return sp.getWithFn(reverse, nil)
+	return sp.getWithFn(reverse, nil, free)
 	//return nil, nil, nil
 
 }
 
 //go:norace
-func (sp *samepleItemPool[K, V]) getWithFn(reverse uint64, mu sync.Locker) (new *embeddedEntry[K, V], nPool *samepleItemPool[K, V], fn unlocker) {
+func (sp *itemPool[K, V, E]) getWithFn(reverse uint64, mu sync.Locker, free *freePools[K, V, E]) (new *embeddedEntry[K, V], nPool *itemPool[K, V, E], fn unlocker) {
 
 	items := *sp.ptrItems()
 	olen := items.Len()
@@ -494,18 +714,18 @@ func (sp *samepleItemPool[K, V]) getWithFn(reverse uint64, mu sync.Locker) (new 
 				nPool = sp
 			}
 			// fn stays: the lock, if any, was taken by appendLast above
-			new, nPool, _ = nPool.getWithFn(reverse, nmu)
+			new, nPool, _ = nPool.getWithFn(reverse, nmu, free)
 			if new != nil {
 				return
 			}
 
 		}
 	case getNoCap:
-		fn, err := sp.expand(mu)
+		fn, err := sp.expand(mu, free)
 		if err != nil {
 			Log(LogWarn, "pool.expand() require retry")
 		}
-		new, nPool, _ = sp.getWithFn(reverse, nil)
+		new, nPool, _ = sp.getWithFn(reverse, nil, free)
 		return new, nPool, fn
 	case foundFree:
 		// hold the bucket lock while the slot is reclaimed, like appendLast
@@ -541,62 +761,66 @@ func (sp *samepleItemPool[K, V]) getWithFn(reverse uint64, mu sync.Locker) (new 
 			atomic.StoreUint64(&new.PtrMapHead().reverse, oReverse)
 			goto RETRY
 		}
-		if !new.PtrListHead().IsSingle() {
+		if oState&uint64(mapIsDetached) != 0 {
+			new.PtrListHead().Init()
+			atomic.AndUint64((*uint64)(&new.state), ^uint64(mapIsDetached))
+		} else if !new.PtrListHead().IsSingle() {
 			new.PtrListHead().MarkForDelete()
 		}
 		return new, nil, fn
 	}
 
-	return sp.insertToPool(reverse, mu)
+	return sp.insertToPool(reverse, mu, free)
 
 RETRY:
 	if fn != nil {
 		mu.Unlock()
 	}
-	return sp.getWithFn(reverse, mu)
+	return sp.getWithFn(reverse, mu, free)
 
 }
 
-func (sp *samepleItemPool[K, V]) expand(mu sync.Locker) (unlocker, error) {
+func (sp *itemPool[K, V, E]) expand(mu sync.Locker, free *freePools[K, V, E]) (unlocker, error) {
 	var fn unlocker
 	if mu != nil {
 		mu.Lock()
 		fn = lazyUnlock
 	}
 
-	olen := sp.items.Len()
-	//ocap := sp.items.Cap()
+	olen := sp.ptrItems().Len()
+	//ocap := sp.ptrItems().Cap()
 
-	if olen != sp.items.Len() {
+	if olen != sp.ptrItems().Len() {
 		Log(LogDebug, "update olen")
-		_, e := sp.expand(nil)
+		_, e := sp.expand(nil, free)
 		return fn, e
 	}
 	nlen := int64(olen)
 
-	if !atomic.CompareAndSwapInt64(&nlen, int64(sp.items.Len()), nlen+1) {
+	if !atomic.CompareAndSwapInt64(&nlen, int64(sp.ptrItems().Len()), nlen+1) {
 		Log(LogDebug, "update olen")
-		_, e := sp.expand(nil)
+		_, e := sp.expand(nil, free)
 		return fn, e
 	}
 
-	nCap := PoolCap(sp.items.Len())
+	nCap := poolCap(sp.ptrItems().Len(), sp.minCapItems())
 
-	newItems := newPoolItems[K, V](olen, nCap, true)
-	newItems.CopyDataFrom(0, sp.ptrItems(), 0, olen)
-
-	replacePoolItems(newItems, sp.items, -1)
-
-	oldItems := sp.ptrItems().dup()
-	sp.publishItems(&newItems)
-
-	// for debug
-	_ = oldItems
+	newItems, reused := takeItems(free, olen, nCap, true)
+	if EnableStats {
+		DebugStats[CntPoolExpand].Add(1)
+	}
+	oldItems := sp.ptrItems().items
+	// Readers must retry throughout retirement, not only during publication.
+	sp.arrayState.Add(1)
+	movePoolItemsInto(newItems.slice(0, olen), sp.ptrItems().slice(0, olen), reused)
+	sp.setItems(newItems)
+	sp.arrayState.Add(1)
+	free.put(oldItems)
 
 	if IsDebug() {
 		var b strings.Builder
-		for i := 0; i < sp.items.Len(); i++ {
-			sp.items.at(i).PtrMapHead().dump[K, V](&b)
+		for i := 0; i < sp.ptrItems().Len(); i++ {
+			sp.ptrItems().at(i).PtrMapHead().dump[K, V](&b)
 		}
 		fmt.Printf("A: itemPool.items\n%s\n", b.String())
 	}
@@ -631,38 +855,51 @@ func holeListHeadsOfSampleItem[K Key[K], V any]() (before, after elist_head.List
 	return items[1].ListHead, items[3].ListHead
 }
 
-func (sp *samepleItemPool[K, V]) findIdx(reverse uint64) (int, error) {
-
-	for i := 0; i < sp.items.Len(); i++ {
-		if reverse <= sp.items.at(i).reverse {
-			return i, nil
-		}
+// findIdx returns the first slot whose reverse is not below reverse. The slots
+// are in the order of their reverse, holes included, which the free-slot path
+// of getWithFn keeps.
+func (sp *itemPool[K, V, E]) findIdx(reverse uint64) (int, error) {
+	n := sp.ptrItems().Len()
+	i := sort.Search(n, func(i int) bool {
+		return reverse <= atomic.LoadUint64(&sp.ptrItems().at(i).reverse)
+	})
+	if i == n {
+		return -1, ErrIdxOverflow
 	}
-	return -1, ErrIdxOverflow
-
+	return i, nil
 }
 
-func (sp *samepleItemPool[K, V]) split(idx int) (nPool *samepleItemPool[K, V], err error) {
+// splitAnchor returns the last slot before idx that is on the list, which the
+// dummy of a bucket split at idx is linked after, or nil when there is none.
+func (sp *itemPool[K, V, E]) splitAnchor(idx int) *elist_head.ListHead {
+	for i := idx - 1; i >= 0; i-- {
+		if e := sp.ptrItems().at(i); !e.IsIgnored() && linkedEntry(&e.ListHead) {
+			return &e.ListHead
+		}
+	}
+	return nil
+}
+
+func (sp *itemPool[K, V, E]) split(idx int) (nPool *itemPool[K, V, E], err error) {
 	return sp._split(idx, true)
 
 }
-func (sp *samepleItemPool[K, V]) _split(idx int, connect bool) (nPool *samepleItemPool[K, V], err error) {
+func (sp *itemPool[K, V, E]) _split(idx int, connect bool) (nPool *itemPool[K, V, E], err error) {
 
-	nlen := int64(sp.items.Len())
+	nlen := int64(sp.ptrItems().Len())
 	if int(nlen) <= idx {
 		return nil, ErrIdxOverflow
 	}
 
-	nPool = &samepleItemPool[K, V]{reusable: sp.reusable}
+	nPool = &itemPool[K, V, E]{reusable: sp.reusable, minCap: sp.minCap}
 
-	if !atomic.CompareAndSwapInt64(&nlen, int64(sp.items.Len()), nlen+1) {
+	if !atomic.CompareAndSwapInt64(&nlen, int64(sp.ptrItems().Len()), nlen+1) {
 		return sp._split(idx, connect)
 	}
 
-	// sp keeps its items: the caller shrinks sp after nPool's bucket is readable.
-	spItems := sp.ptrItems()
-	nPool.items.stride = spItems.stride
-	nPool.ptrItems().CopyFrom(spItems, idx, spItems.Len()-idx)
+	// sp keeps its items: nPool reads the slots from idx in them until the
+	// caller moves them into an array of nPool, after its bucket is readable
+	nPool.setItems(itemSlice[K, V, E]{items: sp.ptrItems().items[idx:]})
 	nPool.Init()
 	//sp.validateItems()
 	//nPool.validateItems()
@@ -674,12 +911,37 @@ func (sp *samepleItemPool[K, V]) _split(idx int, connect bool) (nPool *samepleIt
 
 }
 
-func (sp *samepleItemPool[K, V]) initFreeList() {
+// moveTailInto moves the slots of sp from idx into an array of nPool, which
+// reads the slots of sp from idx until then, of capacity from the free list
+// or fresh; sp keeps its array with the length idx, and the slots moved out
+// are made fresh for its appends. The slots go to the middle of the array,
+// so that the inserts of nPool find free slots before them as well as
+// after; the free slots before them are not entries of the bucket, and
+// leave room for limit entries, so that the bucket splits before the array
+// is full. A search of either pool starts again meanwhile. The caller holds
+// the locks of both pools.
+func (sp *itemPool[K, V, E]) moveTailInto(nPool *itemPool[K, V, E], idx, capacity, limit int, free *freePools[K, V, E]) {
+	olen := sp.ptrItems().Len()
+	n := olen - idx
+	capacity = max(capacity, n)
+	off := max(min((capacity-n)/2, capacity-limit-1), 0)
+	items, reused := takeItems(free, off+n, capacity, sp.reusable)
+	nPool.arrayState.Add(1)
+	sp.arrayState.Add(1)
+	movePoolItemsInto(items.slice(off, off+n), sp.ptrItems().slice(idx, olen), reused)
+	nPool.setItems(items)
+	nPool.arrayState.Add(1)
+	sp.setItems(sp.ptrItems().slice(0, idx))
+	resetSlots[K, V](sp.ptrItems().items[idx:olen])
+	sp.arrayState.Add(1)
+}
+
+func (sp *itemPool[K, V, E]) initFreeList() {
 
 	elist_head.InitAsEmpty(&sp.freeHead, &sp.freeTail)
 }
 
-func (sp *samepleItemPool[K, V]) PushWithOrder(item *embeddedEntry[K, V]) error {
+func (sp *itemPool[K, V, E]) PushWithOrder(item *embeddedEntry[K, V]) error {
 
 	p := uintptr(unsafe.Pointer(item.PtrListHead()))
 
@@ -704,7 +966,7 @@ ADD_LAST:
 	return err
 }
 
-func (sp *samepleItemPool[K, V]) shrinkLen() {
+func (sp *itemPool[K, V, E]) shrinkLen() {
 
 	pItemSlice := sp.ptrItems()
 	l := pItemSlice.Len()
@@ -713,77 +975,70 @@ func (sp *samepleItemPool[K, V]) shrinkLen() {
 		if item == nil || !item.IsDeleted() {
 			break
 		}
-		if !atomic_util.CompareAndSwapInt(&pItemSlice.len, l, i) {
-			break
-		}
+		// the lock of the bucket keeps the length
+		sp.setItems(pItemSlice.slice(0, i))
 		l = i
-		if !item.Empty() {
+		if !item.isDetached() && !item.Empty() {
 			item.MarkForDelete()
 		}
 	}
 }
 
-type sliceHeader struct {
-	data unsafe.Pointer
-	len  int
-	cap  int
-}
-type itemSlice[K Key[K], V any] struct {
-	sliceHeader
-	stride uintptr
+// poolItem is the element of the array of an item pool: the entry embedded
+// in the array of a pool of Set, or the Entry of a Pool.
+type poolItem[K Key[K], V any] interface {
+	embeddedEntry[K, V] | Entry[K, V]
 }
 
-func (sp *samepleItemPool[K, V]) ptrItems() *itemSlice[K, V] {
-	return &sp.items
+// itemSlice is the array of a pool as the pool published it: the slots in
+// use are its length, all of them its capacity. A pool holds the current
+// one behind an atomic pointer and publishes a new one for every change of
+// the array or of its length, so that a reader that loaded it sees one
+// consistent array, length and capacity.
+type itemSlice[K Key[K], V any, E poolItem[K, V]] struct {
+	items []E
 }
 
-// publishItems replaces the array under the bucket lock. An odd publication
-// means readers cannot yet pair its data pointer with its length.
-func (sp *samepleItemPool[K, V]) publishItems(items *itemSlice[K, V]) {
-	sp.arrayState.Add(1)
-	sp.ptrItems().CopyFrom(items, 0, items.Len())
-	sp.arrayState.Add(1)
-}
+// embeddedItems is the array of a pool of entries embedded in it.
+type embeddedItems[K Key[K], V any] = itemSlice[K, V, embeddedEntry[K, V]]
 
-func (sp *samepleItemPool[K, V]) itemSlice(isNoneZero bool) (result itemSlice[K, V]) {
-	for {
-		//result = *sp.ptrItems()
-		ptr := sp.ptrItems()
-		result.data = atomic.LoadPointer(&ptr.data)
-		result.len = atomic_util.LoadInt(&ptr.len)
-		result.cap = atomic_util.LoadInt(&ptr.cap)
-		result.stride = ptr.stride
-
-		if result.data != nil {
-			break
-		}
-		if !isNoneZero && result.Len()+result.Cap() == 0 {
-			break
-		}
+// ptrItems returns the array of sp as last published; an empty one before
+// the pool has an array.
+func (sp *itemPool[K, V, E]) ptrItems() *itemSlice[K, V, E] {
+	if s := sp.items.Load(); s != nil {
+		return s
 	}
-	return
+	return &itemSlice[K, V, E]{}
 }
 
-func (list *itemSlice[K, V]) at(i int) (result *embeddedEntry[K, V]) {
+// setItems publishes s as the array of sp. The caller holds the lock of the
+// pool: the pointer is stored, not compared.
+func (sp *itemPool[K, V, E]) setItems(s itemSlice[K, V, E]) {
+	sp.items.Store(&s)
+}
+
+func (list *itemSlice[K, V, E]) at(i int) (result *embeddedEntry[K, V]) {
 
 	return list._at(i, true, false)
 }
 
-func (list *itemSlice[K, V]) _at(i int, checklen bool, skipOnDelete bool) (result *embeddedEntry[K, V]) {
+// _at returns the slot i, within the length with checklen, within the
+// capacity otherwise, as the entry embedded in it.
+func (list *itemSlice[K, V, E]) _at(i int, checklen bool, skipOnDelete bool) (result *embeddedEntry[K, V]) {
 
-	if checklen && atomic_util.LoadInt(&list.len) <= i {
+	if checklen && len(list.items) <= i {
 		return nil
-	} else if atomic_util.LoadInt(&list.cap) <= i {
+	} else if cap(list.items) <= i {
 		return nil
 	}
 
-	data := atomic.LoadPointer(&list.data)
-	pCur := unsafe.Add(data, i*int(list.stride))
+	all := list.items[:cap(list.items)]
+	item := (*embeddedEntry[K, V])(unsafe.Pointer(&all[i]))
 	if !skipOnDelete {
-		return (*embeddedEntry[K, V])(pCur)
+		return item
 	}
 
-	return skipDeletedItems[K, V]((*embeddedEntry[K, V])(pCur), (*embeddedEntry[K, V])(data), list.stride)
+	return skipDeletedItems[K, V](item, (*embeddedEntry[K, V])(unsafe.Pointer(&all[0])), unsafe.Sizeof(all[0]))
 }
 
 func skipDeletedItems[K Key[K], V any](item, first *embeddedEntry[K, V], stride uintptr) *embeddedEntry[K, V] {
@@ -793,126 +1048,146 @@ func skipDeletedItems[K Key[K], V any](item, first *embeddedEntry[K, V], stride 
 	return item
 }
 
-func (list *itemSlice[K, V]) Len() int {
+func (list *itemSlice[K, V, E]) Len() int {
 
-	return atomic_util.LoadInt(&list.len)
+	return len(list.items)
 }
 
-func (list *itemSlice[K, V]) Cap() int {
+func (list *itemSlice[K, V, E]) Cap() int {
 
-	return atomic_util.LoadInt(&list.cap)
-}
-func (list *itemSlice[K, V]) init() {
-	atomic.StorePointer(&list.data, nil)
-	atomic_util.StoreInt(&list.len, 0)
-	atomic_util.StoreInt(&list.cap, 0)
-
+	return cap(list.items)
 }
 
-//go:norace
-func (list *itemSlice[K, V]) CopyFrom(slist *itemSlice[K, V], head, len int) {
-	scap := atomic_util.LoadInt(&slist.cap)
-
-	old := *list
-	_ = old
-
-	// Readers load len before data (_at, bsearchBybucket). Publish data first
-	// so a reader never pairs the new, larger len with the old array.
-	if !atomic.CompareAndSwapPointer(&list.data, list.data, unsafe.Pointer(slist._at(head, false, false))) {
-		goto FAIL
-	}
-	stepAt("slice.dataPublished", unsafe.Pointer(list), nil)
-	if !atomic_util.CompareAndSwapInt(&list.cap, list.cap, scap-head) {
-		goto FAIL
-	}
-	if !atomic_util.CompareAndSwapInt(&list.len, list.len, len) {
-		goto FAIL
-	}
-
-	return
-
-FAIL:
-	panic("fail copy")
+// first returns the first slot of the array, which tells the array apart
+// from another.
+func (list *itemSlice[K, V, E]) first() *E {
+	return unsafe.SliceData(list.items)
 }
 
-func (list *itemSlice[K, V]) CopyDataFrom(head int, src *itemSlice[K, V], start, count int) {
-	for i := 0; i < count; i++ {
-		to, from := list._at(head+i, false, false), src._at(start+i, false, false)
-		to.copyFrom(from)
-	}
+func (list *itemSlice[K, V, E]) reverseAt(idx int) (r uint64) {
+
+	return atomic.LoadUint64(&list._at(idx, false, false).reverse)
 }
 
-func (list *itemSlice[K, V]) dup() (new *itemSlice[K, V]) {
-	new = &itemSlice[K, V]{stride: list.stride}
-	new.init()
-	new.CopyFrom(list, 0, list.Len())
-	return
-}
-
-func (list *itemSlice[K, V]) reverseAt(idx int) (r uint64) {
-
-	var toReverse = unsafe.Offsetof(embeddedEntry[K, V]{}.reverse)
-	ptr := unsafe.Add(atomic.LoadPointer(&list.data), idx*int(list.stride)+int(toReverse))
-	r = atomic.LoadUint64((*uint64)(ptr))
-	return r
-}
-
-func (list *itemSlice[K, V]) reduceCap() int {
-
-	return 0
-}
-
-func newPoolItems[K Key[K], V any](length, capacity int, reusable bool) itemSlice[K, V] {
-	var data unsafe.Pointer
-	stride := unsafe.Sizeof(Entry[K, V]{})
+// newPoolItems makes an array of capacity slots with length of them in use;
+// with reusable, each slot is ready for the pool of Set to hand it out.
+func newPoolItems[K Key[K], V any, E poolItem[K, V]](length, capacity int, reusable bool) itemSlice[K, V, E] {
+	list := itemSlice[K, V, E]{items: make([]E, capacity)}
 	if reusable {
-		stride = unsafe.Sizeof(embeddedEntry[K, V]{})
-		items := make([]embeddedEntry[K, V], capacity)
-		for i := range items {
-			items[i].state = mapIsReusable
+		for i := 0; i < capacity; i++ {
+			list._at(i, false, false).state = mapIsReusable
 		}
-		data = unsafe.Pointer(unsafe.SliceData(items))
-	} else {
-		items := make([]Entry[K, V], capacity)
-		data = unsafe.Pointer(unsafe.SliceData(items))
 	}
-	return itemSlice[K, V]{sliceHeader: sliceHeader{data: data, len: length, cap: capacity}, stride: stride}
+	list.items = list.items[:length]
+	return list
 }
 
-func (list *itemSlice[K, V]) slice(start, end int) itemSlice[K, V] {
-	return itemSlice[K, V]{
-		sliceHeader: sliceHeader{
-			data: unsafe.Add(atomic.LoadPointer(&list.data), uintptr(start)*list.stride),
-			len:  end - start,
-			cap:  list.Cap() - start,
-		},
-		stride: list.stride,
-	}
+// slice returns the slots [start, end) with the capacity after start.
+func (list *itemSlice[K, V, E]) slice(start, end int) itemSlice[K, V, E] {
+	return itemSlice[K, V, E]{items: list.items[start:end]}
 }
 
-func copyPoolItems[K Key[K], V any](dst, src itemSlice[K, V]) {
-	for i := 0; i < src.Len(); i++ {
-		dst.at(i).copyFrom(src.at(i))
-	}
+// movePoolItems runs under the pool's writer lock. Neighbouring pools can
+// change the links at a run's ends, so only its interior is copied as a slice.
+func movePoolItems[K Key[K], V any, E poolItem[K, V]](dst, src itemSlice[K, V, E]) {
+	movePoolItemsInto(dst, src, false)
 }
 
-func replacePoolItems[K Key[K], V any](dst, src itemSlice[K, V], exclude int) {
-	for i := 0; i < src.Len(); i++ {
-		j := i
-		if exclude >= 0 && i >= exclude {
-			j++
+// copyListLinks copies the two relative links of src into dst with atomic
+// stores: what a copy of the memory of an entry does for its ListHead, for a
+// slot that a search can read.
+func copyListLinks(dst, src *elist_head.ListHead) {
+	const _ = uint(unsafe.Sizeof(elist_head.ListHead{}) - 2*unsafe.Sizeof(uintptr(0)))
+	d := (*[2]uintptr)(unsafe.Pointer(dst))
+	s := (*[2]uintptr)(unsafe.Pointer(src))
+	atomic.StoreUintptr(&d[0], atomic.LoadUintptr(&s[0]))
+	atomic.StoreUintptr(&d[1], atomic.LoadUintptr(&s[1]))
+}
+
+// movePoolItemsInto is movePoolItems; with published, a search can read the
+// slots of dst, as the ones within the length and the ones of an array that
+// came back from the free list, so each entry goes in with the stores of
+// copyFrom, not with a copy of the memory of the block.
+// movePoolItem moves the entry of src into dst, a slot that nothing uses yet:
+// the block of one of movePoolItems, without the slices. A deleted or unready
+// src leaves dst deleted and is taken off the list when it is still on it.
+func movePoolItem[K Key[K], V any](dst, src *embeddedEntry[K, V]) {
+	dst.copyFrom(src)
+	if src.IsIgnored() || !src.waitPayload() {
+		dst.Delete()
+		if !src.isDetached() && linkedEntry(&src.ListHead) {
+			src.ListHead.MarkForDelete()
 		}
-		dst.at(j).ListHead.Init()
-		if src.at(i).IsIgnored() || !src.at(i).waitPayload() {
-			dst.at(j).Delete()
-			if linkedEntry(&src.at(i).ListHead) {
-				src.at(i).ListHead.MarkForDelete()
-			}
+		return
+	}
+	old := elist_head.Block{First: &src.ListHead, Last: &src.ListHead}
+	fresh := elist_head.Block{First: &dst.ListHead, Last: &dst.ListHead}
+	fresh.InitCopiedFrom(old)
+	if linkedEntry(old.First) {
+		for fresh.InsertBefore(old.First) != nil {
+			runtime.Gosched()
+		}
+		stepAt("copy.poolblock.inserted", unsafe.Pointer(fresh.First), unsafe.Pointer(old.First))
+		if err := old.Delete(); err != nil {
+			panic(fmt.Sprintf("movePoolItem: detach source block: %v", err))
+		}
+	}
+	src.Delete()
+}
+
+func movePoolItemsInto[K Key[K], V any, E poolItem[K, V]](dst, src itemSlice[K, V, E], published bool) {
+	for first := 0; first < src.Len(); {
+		if src.at(first).IsIgnored() || !src.at(first).waitPayload() {
+			movePoolItem(dst.at(first), src.at(first))
+			first++
 			continue
 		}
-		_, moved, published := replaceEntryListNode(src.at(i), dst.at(j), "copy.poolmove.inserted")
-		if !published {
-			moved.Delete()
+		last := first
+		for last+1 < src.Len() && !src.at(last+1).IsIgnored() && src.at(last).ListHead.DirectNext() == &src.at(last+1).ListHead &&
+			src.at(last+1).ListHead.DirectPrev() == &src.at(last).ListHead {
+			last++
 		}
+		if last == first {
+			movePoolItem(dst.at(first), src.at(first))
+			first++
+			continue
+		}
+		dst.at(first).copyFrom(src.at(first))
+		dst.at(last).copyFrom(src.at(last))
+		if published {
+			// InitCopiedFrom needs the interior links copied with the same
+			// layout, as the copy of the memory does
+			for i := first + 1; i < last; i++ {
+				dst.at(i).copyFrom(src.at(i))
+				copyListLinks(&dst.at(i).ListHead, &src.at(i).ListHead)
+			}
+		} else {
+			for i := first + 1; i < last; i++ {
+				src.at(i).acquireWrite()
+			}
+			if last > first+1 {
+				copy(unsafe.Slice(dst.at(first+1), last-first-1), unsafe.Slice(src.at(first+1), last-first-1))
+			}
+			for i := first + 1; i < last; i++ {
+				dst.at(i).state &= mapIsDummy | mapIsDeleted | mapIsPoolItem | mapPayloadReady | mapIsReusable
+				src.at(i).releaseWrite()
+			}
+		}
+		old := elist_head.Block{First: &src.at(first).ListHead, Last: &src.at(last).ListHead}
+		fresh := elist_head.Block{First: &dst.at(first).ListHead, Last: &dst.at(last).ListHead}
+		fresh.InitCopiedFrom(old)
+		if linkedEntry(old.First) {
+			for fresh.InsertBefore(old.First) != nil {
+				runtime.Gosched()
+			}
+			stepAt("copy.poolblock.inserted", unsafe.Pointer(fresh.First), unsafe.Pointer(old.First))
+			if err := old.Delete(); err != nil {
+				panic(fmt.Sprintf("movePoolItems: detach source block: %v", err))
+			}
+		}
+		for i := first; i <= last; i++ {
+			src.at(i).Delete()
+		}
+		first = last + 1
 	}
 }

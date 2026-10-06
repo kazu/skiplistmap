@@ -30,6 +30,7 @@ func freshLegacyWriteMap(p legacyMapTestParam) list_head.MapGetSet {
 		return &legacyTypedMap{base: skiplistmap.NewHMap[skiplistmap.StringKey, *list_head.ListHead](
 			skiplistmap.BucketMode[skiplistmap.StringKey, *list_head.ListHead](p.mode),
 			skiplistmap.MaxPefBucket[skiplistmap.StringKey, *list_head.ListHead](p.buckets),
+			skiplistmap.MinCapItems[skiplistmap.StringKey, *list_head.ListHead](p.buckets),
 			skiplistmap.UseEmbeddedPool[skiplistmap.StringKey, *list_head.ListHead](p.mode == skiplistmap.CombineSearch3),
 		)}
 	default:
@@ -74,6 +75,7 @@ func runLegacyInsertOnly(b *testing.B, p *legacyMapTestParam) {
 	var nextWorker atomic.Uint64
 	b.ReportAllocs()
 	b.ResetTimer()
+	b.StartTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		index := nextWorker.Add(1) - 1
 		for pb.Next() {
@@ -81,4 +83,5 @@ func runLegacyInsertOnly(b *testing.B, p *legacyMapTestParam) {
 			index += uint64(actualWorkers)
 		}
 	})
+	b.StopTimer()
 }

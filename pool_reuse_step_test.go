@@ -74,19 +74,19 @@ func Test_EmbeddedSearchDuringSlicePublication(t *testing.T) {
 		}
 	}
 	s := newStepper(t)
+	// the writer has the new array ready and is about to publish it; the
+	// reader takes its snapshot of the old one, the writer publishes, and
+	// the reader goes on with the snapshot
 	publish := s.stopAt("map.insertToPool.publish", nil)
 	var inserted bool
 	writer := goStep(t, func() { inserted = m.Set(skiplistmap.StringKey(keys[2]), 2) })
 	publish.waitReached(t, writer)
-	data := s.stopAt("map.slice.dataPublished", nil)
-	publish.Release()
-	data.waitReached(t, writer)
 	snapshot := s.stopAt("map.bsearch.snapshot", nil)
 	var value interface{}
 	var found bool
 	reader := goStep(t, func() { value, found = m.Get(skiplistmap.StringKey(keys[4])) })
 	snapshot.waitReached(t, reader)
-	data.Release()
+	publish.Release()
 	waitDone(t, writer, "Set during slice publication")
 	snapshot.Release()
 	waitDone(t, reader, "Get during slice publication")

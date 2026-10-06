@@ -201,14 +201,17 @@ func (h *Map[K, V]) replacePoolEntry(old *embeddedEntry[K, V], value V) bool {
 func (h *Map[K, V]) preparePoolReplacement(old *embeddedEntry[K, V], value V) (*embeddedEntry[K, V], *embeddedEntry[K, V], bool) {
 	key := old.Key()
 	hash, conflict := key.KeyHash()
-	owner := h.findBucket(old.reverse).toBase()
+	// read before the slot is allocated: the allocation may rebuild the
+	// array of old and let the old array go to the free list, cleared
+	reverse := atomic.LoadUint64(&old.reverse)
+	owner := h.findBucket(reverse).toBase()
 	pool := owner.itemPool()
-	fresh, nextPool, _ := pool.getWithFn(old.reverse, nil)
+	fresh, nextPool, _ := pool.getWithFn(reverse, nil, &h.free)
 	if nextPool != nil {
 		owner.setItemPool(nextPool)
 	}
 	fresh.storeTypedKeyValue(key, value)
-	atomic.StoreUint64(&fresh.reverse, old.reverse)
+	atomic.StoreUint64(&fresh.reverse, reverse)
 	atomic.StoreUint64(&fresh.conflict, conflict)
 	atomic.AndUint64((*uint64)(&fresh.state), ^uint64(mapIsDeleted|mapIsDummy))
 	atomic.OrUint64((*uint64)(&fresh.state), uint64(mapIsPoolItem|mapIsBusy))

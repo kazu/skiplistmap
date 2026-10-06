@@ -38,13 +38,11 @@ SEARCH:
 				stepAt("search.unmarked", unsafe.Pointer(cur.PtrListHead()), nil)
 			}
 			if EnableStats && ignoreDummy {
-				h.mu.Lock()
 				if forward {
-					DebugStats[CntReverseSearch]++
+					DebugStats[CntReverseSearch].Add(1)
 				} else {
-					DebugStats[CntSearchEntry]++
+					DebugStats[CntSearchEntry].Add(1)
 				}
-				h.mu.Unlock()
 			}
 			if len(trace) != 0 && cur.IsDummy() {
 				*dummy = cur

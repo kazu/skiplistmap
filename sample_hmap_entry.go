@@ -61,8 +61,9 @@ func (e *embeddedEntry[K, V]) copyFrom(src *embeddedEntry[K, V]) {
 		e.initializePayload(key, value)
 	}
 	atomic.OrUint64((*uint64)(&e.state), uint64(state&(mapIsDummy|mapIsDeleted|mapIsPoolItem)))
-	e.conflict = atomic.LoadUint64(&src.conflict)
-	e.reverse = atomic.LoadUint64(&src.reverse)
+	// the slot can be a published hole that a search reads
+	atomic.StoreUint64(&e.conflict, atomic.LoadUint64(&src.conflict))
+	atomic.StoreUint64(&e.reverse, atomic.LoadUint64(&src.reverse))
 }
 
 // Next returns the next external Entry, skipping internal embedded slots.

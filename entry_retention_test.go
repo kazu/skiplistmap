@@ -59,7 +59,7 @@ func expandRetentionPool(t *testing.T, replace bool) (*Map[retentionKey, int], w
 	if !m.Set("anchor", 0) || !m.Set("target", 0) || replace && !m.Set("target", 1) {
 		t.Fatal("setup failed")
 	}
-	pool := samepleItemPoolFromListHead[retentionKey, int](m.pooler.itemPool[poolIndex(1)].Next())
+	pool := entryItemPoolFromListHead[retentionKey, int](m.pooler.itemPool[poolIndex(1)].Next())
 	for range 2 {
 		next, err := pool._expand()
 		if err != nil {
